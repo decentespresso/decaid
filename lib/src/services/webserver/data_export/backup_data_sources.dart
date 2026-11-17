@@ -3,13 +3,12 @@ import 'package:reaprime/src/models/data/grinder.dart';
 import 'package:reaprime/src/models/data/shot_record.dart';
 import 'package:reaprime/src/models/data/steam_record.dart';
 
-typedef PageCursor<T> =
-    Future<List<T>> Function(
-      int limit, {
-      DateTime? afterTimestamp,
-      DateTime? afterCreatedAt,
-      String? afterId,
-    });
+typedef PageCursor<T> = Future<List<T>> Function(
+  int limit, {
+  DateTime? afterTimestamp,
+  DateTime? afterCreatedAt,
+  String? afterId,
+});
 
 class BackupDataSources {
   final PageCursor<ShotRecord> pageShots;

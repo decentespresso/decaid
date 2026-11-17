@@ -97,6 +97,12 @@ class _FakeBengle extends MockDe1 implements BengleInterface {
   @override
   Future<void> setLedStrip(LedStripState state) async {}
   @override
+  Future<void> previewLedStrip({Color16? front, Color16? back}) async {}
+
+  @override
+  Future<void> clearLedStripPreview() async {}
+
+  @override
   Future<void> commitLedStrip() async {}
   @override
   Future<LedStripState?> resetLedStrip() async => null;
@@ -157,6 +163,7 @@ class _TestDe1Controller extends De1Controller {
   Future<T> runDeviceWrite<T>(
     Future<T> Function(De1Interface device) write, {
     De1ReplayPolicy replayPolicy = De1ReplayPolicy.never,
+    bool firmwareDiagnostic = false,
   }) async {
     deviceWriteCalls++;
     await beforeDeviceWrite?.call();

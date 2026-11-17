@@ -38,6 +38,7 @@ Gotchas:
 - `Hive.init()` does not register the Flutter `ColorAdapter`/`TimeOfDayAdapter` that `Hive.initFlutter()` did; `main()` calls `ensureFlutterTypeAdaptersRegistered()` after `Hive.init()`.
 - Web UI downloads/extraction use `Directory.createTemp()` under the temp directory, never fixed names (`/tmp` is shared on Linux).
 - Log readers (feedback, export, import report, discovery views) read `<logs>/log.txt` via `AppDirectories.logs`.
+- `AppDirectories.logs` is the whole support/Documents root on mobile, so it is **not** a log-only directory: it also holds the database, the Hive store, plugins, and web-ui. Never walk it. Read `log.txt` and `webview_console.log` by literal name (`lib/src/services/export/support_package.dart`).
 - CI (`pr-checks.yml` Linux build smoke) runs the app with controlled `XDG_DATA_HOME`/`XDG_CONFIG_HOME`, asserts resolved paths, then fresh-starts the app and requires `log.txt` under `XDG_DATA_HOME`.
 
 ## Storage Ownership
@@ -46,10 +47,92 @@ Gotchas:
 |-------|-------|---------|
 | Drift DB | `AppDatabase` | Shots, workflows, beans, grinders, profiles, settings |
 | `SharedPreferences` | `SharedPreferencesSettingsService` | App settings (telemetry consent, feature flags, preferences) |
+| Private `SharedPreferences` snapshot | `NotificationCenter` | Retained native notices, action descriptors, order and read status |
 | Secure store | `DecentAccountService`, `PluginLoaderService` | Account credentials, API tokens, secure plugin settings |
 | File system | `StorageService` | Data export, log files, skin assets |
 
 Keep these stores independent. A settings reset must not clear account credentials unless explicitly requested.
+
+## Native Notification Snapshot
+
+`NotificationCenter` owns `private.notificationCenter.v1`, a versioned JSON
+snapshot in SharedPreferences. `main()` restores it before constructing the
+plugin loader. It never uses the generic Hive namespace store or exposes its key
+through the skin API. No Drift schema change is involved.
+
+The snapshot includes host/plugin namespace, source identity, local ID, message,
+approved action descriptors, content revision and read status in display order.
+It excludes executable callbacks, contexts, credentials and runtime generations.
+Actions stay disabled after restoration until the current source revalidates
+them. Runtime action bindings survive read-state changes but not generation
+retirement, content replacement or removal.
+The trusted update owner revalidates retained updates before enabling View,
+Download or the explicit Skip this version action. Reading never skips a version.
+The binding's confirmation state is runtime-only and is not part of the snapshot.
+The unconfirmed host-update row offers a manual Check for updates action instead
+of its saved View/Download descriptors. It uses the existing update service;
+this control and its checking/error state are not persisted or exposed to plugins.
+
+The center serializes writes and updates visible state only after a successful
+save. Failed writes retain the previous state and expose a storage error. Invalid
+or unknown snapshots block mutations and preserve the raw stored value; there is
+no destructive reset fallback. Limits remain five notices per plugin and twenty
+plugin notices overall, plus one reserved host-update notice.
+
+Shutdown/reload preserves the snapshot. Explicit unload, disable, uninstall,
+notification-permission removal and source resolution remove
+the affected notices through the same serialized write path.
+
+The installed
+`shared_preferences_windows` 2.4.1 implementation maintains separate whole-file
+caches for legacy SharedPreferences and SharedPreferencesAsync. Notification and
+plugin writes use the legacy API while app settings use Async. Interleaved writes
+previously overwrote retained notifications, read status or a saved skipped
+version. Windows startup now calls `initializeWindowsPreferences` before either
+API is used. The Async platform adapter delegates to the existing legacy backend,
+so both APIs share its one warmed cache and file. Raw prefixed legacy keys and
+unprefixed Async keys retain their existing meanings; no migration is required.
+The shared adapter serializes reads and mutations. Failed writes restore the
+affected backend cache entries before another client can read or save them;
+reloading the legacy preferences cache alone does not undo Windows backend
+mutations. Failed backend writes/removals throw rather than claiming successful
+Async saves.
+`windows_preferences_test.dart` uses the actual Windows file backend in a temporary
+directory, interleaves both APIs, reconstructs them from disk and checks retained
+notifications, read state, skipped versions and unrelated settings. Failure tests
+also cover publication, reading, resolution, Async set/remove/clear and a settings
+write queued during a failed notification save. This does not
+provide cross-process or multi-isolate synchronization; the app's preferences
+owners run in its main isolate.
+
+## Recovery Package Destination Rule
+
+The recovery package reads its own app data as sources, so a destination that
+aliases a source would let a save destroy the thing it is trying to preserve.
+`buildSupportPackage` (`lib/src/services/export/support_package.dart`) rejects a
+destination whose directory holds sources:
+
+- the drift file's directory and the log directory are rejected by **equality**,
+  because their sources are direct children only (the database, `-wal`, `-shm`,
+  and the two log files);
+- the Hive directory is rejected by **containment**, because it is enumerated
+  recursively, so a nested subdirectory is source territory too.
+
+Directories are compared after `resolveSymbolicLinks`, which resolves symlinked
+ancestors and returns the on-disk path, so neither a symlinked parent nor a
+case-only difference on a case-insensitive filesystem slips past a lexical check.
+Per-file path comparison is not sufficient here and was replaced.
+
+The archive is staged in the app's own temporary directory and then copied onto
+the selected path, so no predictable path (`<destination>.part`) is ever opened
+for writing. A predictable path is itself a hazard: `FileMode.write` follows an
+existing symlink and truncates its target. Staging must not happen beside the
+user-selected destination, because the macOS App Sandbox grants only the
+selected URL (see `AI_BUILD_NOTES.md` Footgun #6).
+
+`DatabaseReset.run()` also reclaims `<target>.reset-*` quarantine left by an
+earlier attempt before it touches the live targets, so a retry cannot report
+`isClean` while quarantined data from the previous attempt is still on disk.
 
 ## Account Auth State (gh#696)
 
@@ -72,6 +155,21 @@ Persistence uses Drift (SQLite) via `AppDatabase`. DAOs in `lib/src/daos/`, mapp
 **Schema migration:** The `@Database` annotation's `version` field is the schema version. Migrations run in `onUpgrade` callback. Each version bump needs a corresponding migration step.
 
 **Schema v5 (shot revision metadata):** `shot_records.createdAt`/`updatedAt` were added as nullable TEXT and backfilled from `timestamp` during the 4→5 migration, so pre-v5 rows carry a real DB-level revision instead of NULL. `ShotMapper.fromRow` still falls back to `timestamp` for any row with NULL fields (e.g. rows inserted without stamps). The revision contract (bookkeeping extras do not advance `updatedAt`, PUT cannot write the fields) is documented in `doc/Api.md` under Shots → Modification tracking.
+
+**Schema v6 (enjoyment scale repair):** `annotations.enjoyment` is Decaid's own 0-10 field. 0-10 was the documented design intent, but no deployed writer had followed it: de1app and Visualizer use 0-100, the older importer and back-sync paths stored that external value unconverted, and DYE2 shipped `stars * 20`. Treat 0-10 as the contract this change establishes, not as one existing data already obeyed.
+
+Rows are rewritten when either holds:
+
+- the value exceeds 10, which cannot be a valid Decaid 0-10 rating; or
+- the id starts with `de1app-`, `created_at != timestamp`, and `updated_at <= created_at`, meaning schema-v5 revision stamps were created at import time and no content edit followed.
+
+Both `shot_records.enjoyment` and the `enjoyment` key inside `annotations_json` are divided by 10; an annotations blob that cannot be parsed is left unchanged. Native 0-10 rows are not rescaled.
+
+**Known gap:** a raw external 0-100 value at or below 10 is numerically indistinguishable from a Decaid 0-10 value once provenance is lost. Pre-v5 rows have `created_at`/`updated_at` backfilled from `timestamp`, so an overlapping de1app value on those rows cannot be proven untouched; edited de1app rows and old Visualizer back-sync rows have the same ambiguity. These cases are left unchanged rather than guessed at. `PUT /api/v1/shots/<id>` now rejects values outside 0-10, and the Visualizer plugin converts `* 10` out and `/ 10` in with range clamping.
+
+**Client coupling:** every client that renders or writes the field has to agree on 0-10. DYE2 is the one that does, and its fix is decentespresso/dye2#8, which replaces `stars * 20` and `/ 20` with a halving and doubling. Release the two together. Shipping only the Decaid side means a DYE2 star click writes 80 and is rejected with HTTP 400, and a stored 8 renders as zero stars.
+
+**Recovering a pre-release schema 6 database:** an earlier revision of this branch shipped a different schema 6 that divided by 20 onto a 0-5 scale. Drift keys migrations on `user_version` alone, so a database opened by that revision is already stamped 6 and will never re-run the corrected step; its ratings stay at half the intended value. The two cases cannot be told apart afterwards, since both leave `user_version = 6` with in-range numbers, so there is no sound automatic repair. Schema 6 has never appeared in a release, so this only affects developers and testers who ran the branch: delete the development database, or restore it from a backup taken before that build. Do not renumber a migration that has already shipped for exactly this reason.
 
 **Migration lesson from #811 (0.8.5 startup failures):** Drift only writes `PRAGMA user_version` after `beforeOpen`/`onUpgrade` completes, and the upgrade body is NOT automatically transactional. An interrupted multi-step migration can therefore leave a partially upgraded physical schema (e.g. only `created_at` added) while `user_version` stays at the old value; the next open re-enters the same step and the unconditional `ADD COLUMN` fails with `duplicate column name`. Rules for future migrations:
 
@@ -135,11 +233,8 @@ either fills the requested page or the table is genuinely exhausted.
 
 ### Legacy Profile Corpus Ingestion
 
-`tools/ingest_profiles.py` rejects de1app TCL profiles whose type is `settings_2a`
-or `settings_2b`, whether `advanced_shot` is empty or populated. de1app's stored
-`advanced_shot` is not authoritative for these simple-profile types. Reaprime does
-not maintain a duplicate implementation of de1app's frame generators; maintainers
-must generate final advanced-profile JSON externally before adding such a profile.
+This DE1-specific conversion constraint is documented in
+[`device-notes/de1.md`](device-notes/de1.md#protocol-source-of-truth).
 
 ## SharedPreferences Keys
 

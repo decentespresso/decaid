@@ -7,7 +7,7 @@ import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/services/webserver/data_export/data_transfer_limits.dart';
 import 'package:reaprime/src/services/webserver/data_export/streaming_zip_reader.dart';
-import 'package:reaprime/src/services/webserver/data_export/streaming_zip_writer.dart';
+import 'package:reaprime/src/services/export/streaming_zip_writer.dart';
 
 List<int> buildLegacyZip(Map<String, String> files) {
   final archive = Archive();
@@ -15,19 +15,6 @@ List<int> buildLegacyZip(Map<String, String> files) {
     archive.addFile(ArchiveFile.string(entry.key, entry.value));
   }
   return ZipEncoder().encode(archive);
-}
-
-Future<StreamingZipWriter> writeZip(
-  Directory dir, {
-  DataTransferLimits? limits,
-  void Function(StreamingZipWriter w)? writer,
-}) async {
-  final w = await StreamingZipWriter.create(
-    dir,
-    limits ?? const DataTransferLimits(),
-  );
-  writer?.call(w);
-  return w;
 }
 
 String decode(List<int> bytes) => utf8.decode(bytes);
@@ -46,8 +33,7 @@ void main() {
   group('StreamingZipWriter', () {
     test('writes a ZIP readable by the archive ZipDecoder', () async {
       final w = await StreamingZipWriter.create(
-        tempDir,
-        const DataTransferLimits(),
+        destination: File('${tempDir.path}/export.zip'),
       );
       var e = w.addEntry('metadata.json');
       e.write(Uint8List.fromList(utf8.encode('{"formatVersion": 1}')));
@@ -87,8 +73,7 @@ void main() {
 
     test('compresses large entries (not stored raw)', () async {
       final w = await StreamingZipWriter.create(
-        tempDir,
-        const DataTransferLimits(),
+        destination: File('${tempDir.path}/export.zip'),
       );
       final e = w.addEntry('big.json');
       final payload = utf8.encode('a' * 1024 * 1024);
@@ -101,8 +86,7 @@ void main() {
 
     test('abort deletes the temp file', () async {
       final w = await StreamingZipWriter.create(
-        tempDir,
-        const DataTransferLimits(),
+        destination: File('${tempDir.path}/export.zip'),
       );
       final e = w.addEntry('a.json');
       e.write(Uint8List.fromList(utf8.encode('{')));
@@ -112,8 +96,8 @@ void main() {
 
     test('enforces the total uncompressed size limit', () async {
       final w = await StreamingZipWriter.create(
-        tempDir,
-        const DataTransferLimits(maxTotalUncompressedBytes: 100),
+        destination: File('${tempDir.path}/export.zip'),
+        maxTotalUncompressedBytes: 100,
       );
       final e = w.addEntry('a.json');
       e.write(utf8.encode('{"a":"${'x' * 90}"}'));
@@ -126,17 +110,27 @@ void main() {
       await w.abort();
     });
 
-    test('bounds the completed archive by the import request limit', () async {
+    test('enforces the archive ceiling while streaming', () async {
       final w = await StreamingZipWriter.create(
-        tempDir,
-        const DataTransferLimits(maxImportRequestBytes: 500),
+        destination: File('${tempDir.path}/export.zip'),
+        maxArchiveBytes: 500,
       );
       final e = w.addEntry('big.json');
       final random = Random(42);
       e.write(
         Uint8List.fromList(List.generate(600, (_) => random.nextInt(256))),
       );
-      e.close();
+      expect(() => e.close(), throwsA(isA<ZipWriteException>()));
+      await w.abort();
+      expect(await w.file.exists(), isFalse);
+    });
+
+    test('bounds the completed archive by the configured limit', () async {
+      final w = await StreamingZipWriter.create(
+        destination: File('${tempDir.path}/export.zip'),
+        maxArchiveBytes: 100,
+      );
+      w.addEntry('big.json').close();
       await expectLater(w.close(), throwsA(isA<ZipWriteException>()));
       await w.abort();
       expect(await w.file.exists(), isFalse);
@@ -165,8 +159,7 @@ void main() {
 
     test('round-trips the streaming writer output', () async {
       final w = await StreamingZipWriter.create(
-        tempDir,
-        const DataTransferLimits(),
+        destination: File('${tempDir.path}/export.zip'),
       );
       final e = w.addEntry('data.json');
       e.write(Uint8List.fromList(utf8.encode('[1,2,3]')));

@@ -7,8 +7,7 @@ import 'package:reaprime/src/services/webserver/data_export/data_export_section.
 class WorkflowExportSection implements DataExportSection {
   final WorkflowController _controller;
 
-  WorkflowExportSection({required WorkflowController controller})
-    : _controller = controller;
+  WorkflowExportSection({required this._controller});
 
   @override
   String get filename => 'workflow.json';

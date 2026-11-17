@@ -8,6 +8,8 @@ import 'package:rxdart/rxdart.dart';
 import 'package:uuid/uuid.dart';
 
 import 'plugin_device_contract.dart';
+import 'plugin_device_surface_authority.dart';
+import 'plugin_manifest.dart';
 
 abstract class PluginProtocolDevice extends PluginDeviceAdapter {
   @override
@@ -16,6 +18,8 @@ abstract class PluginProtocolDevice extends PluginDeviceAdapter {
   final String name;
   @override
   final TransportType transportType;
+  @override
+  final PluginDeviceSurfaceAuthority? surfaceAuthority;
   final PluginDeviceInvoker invoke;
   final Future<void> Function(String session)? prepareConnection;
   final void Function()? onReady;
@@ -34,11 +38,28 @@ abstract class PluginProtocolDevice extends PluginDeviceAdapter {
     required this.deviceId,
     required this.name,
     required this.invoke,
+    String? pluginId,
+    List<PluginDeviceSurface> surfaces = const [],
     this.transportType = TransportType.unknown,
     this.prepareConnection,
     this.onReady,
     this.invocationTimeout = const Duration(seconds: 5),
-  });
+  }) : assert(pluginId != null || surfaces.isEmpty),
+       surfaceAuthority = pluginId == null
+           ? null
+           : PluginDeviceSurfaceAuthority(
+               pluginId: pluginId,
+               surfaces: surfaces,
+             );
+
+  @override
+  void publishInfo(Map<String, dynamic> info, {String? session}) {
+    checkSession(session);
+    throw const PluginDeviceException(
+      'Runtime info is unsupported',
+      code: 'unsupported_operation',
+    );
+  }
 
   @override
   DeviceImplementation get implementation => DeviceImplementation.plugin;
@@ -148,13 +169,19 @@ abstract class PluginProtocolDevice extends PluginDeviceAdapter {
     }();
   }
 
-  Future<void> command(PluginDeviceOperation operation) async {
+  Future<void> command(
+    PluginDeviceOperation operation, [
+    Map<String, dynamic> payload = const {},
+  ]) async {
     final session = _session;
     checkSession(session);
     if (_state.value != ConnectionState.connected) {
       throw const PluginDeviceException('Plugin device is not ready');
     }
-    await invoke(operation, {'session': session}).timeout(invocationTimeout);
+    await invoke(operation, {
+      ...payload,
+      'session': session,
+    }).timeout(invocationTimeout);
     checkSession(session);
   }
 

@@ -5,7 +5,7 @@ Read this when changing REST endpoints, WebSocket topics, API specs, auth proxy,
 ## Source Of Truth
 
 - REST spec: `assets/api/rest_v1.yml` (OpenAPI 3.0). Always read before making calls.
-- WebSocket spec: `assets/api/websocket_v1.yml` (AsyncAPI 3.0).
+- WebSocket spec: `assets/api/websocket_v1.yml` (AsyncAPI 3.1.0).
 - Full endpoint reference: `doc/Api.md`.
 - Handler implementations: `lib/src/services/webserver/`.
 - Router registration: `lib/src/services/webserver/webserver_service.dart` `_init()`.
@@ -24,6 +24,27 @@ Read this when changing REST endpoints, WebSocket topics, API specs, auth proxy,
 - Content-based hash IDs for profile deduplication (`ProfileController`).
 - ETag / `If-None-Match` support on cacheable resources (#203).
 
+### Opaque external route IDs
+
+Sensor IDs supplied by external plugins are opaque strings: clients
+percent-encode one path component once, and the sensor route boundary decodes
+it once with `decodeOpaquePathComponent` before REST lookup or WebSocket
+subscription/rebind matching. Preserve literal `%`, `%ZZ`, trailing `%`,
+reserved characters, Unicode, plus signs, and `%252F` decode-once behavior;
+invalid UTF-8 is rejected with HTTP 400 at the Shelf boundary.
+
+`Request.url.queryParameters` is already decoded and must not use the path
+helper. Plugin HTTP and WebSocket endpoint routes also decode plugin and
+endpoint IDs once before lookup or subscription matching; generated device
+surface hrefs encode both components once. Surface endpoint validation rejects
+unpaired UTF-16 surrogates because URI encoding replaces them with U+FFFD;
+valid surrogate pairs, encoded control characters, and whitespace round-trip.
+Host-assigned UUID resource IDs,
+plugin management/KV/skin/file/command paths, and account-proxy normalization
+retain their existing path-encoding contracts. Plugin and skin management
+routes additionally require an `extensions:manage` token; see Extension
+Management Authorization.
+
 ### Patch Nullability
 
 `rejectExplicitNulls()` in `json_patch.dart` is the shared helper for refusing an explicit
@@ -36,6 +57,17 @@ only field `WorkflowHandler` passes to `rejectExplicitNulls`, and every other co
 is genuinely cleared by an explicit `null`. `WorkflowContext` stays nullable throughout,
 since a stored shot legitimately has no target and it is the GET and 200 response shape.
 `test/webserver/workflow_patch_schema_test.dart` pins the pair against drift.
+
+A cleared shot note is persisted as `''`, not `null`: `ShotAnnotations.toJson` omits a
+null field, so a note cleared through `PUT /api/v1/shots/:id` and a note that was never
+set reach a client as the same response, and a client that falls back to the pre-shot
+`workflow.context.extras.note` (DYE2 does, deliberately, for historical shots whose only
+note lives there) shows the old note again — decentespresso/dye2#16.
+`ShotsHandler._representClearedNoteAsEmpty` normalises the clear inside the single PUT the
+host already serialises, so no plugin event, read-modify-write or tri-state model field is
+needed. The same null-versus-absent ambiguity still applies to every other
+`ShotAnnotations` field, and `copyWith` cannot clear any of them (`??`); only the note is
+normalised, because only the note has a consumer that falls back.
 
 A nested patch object needs the refusal at both levels. `Workflow.fromJson` drops the whole
 context when `context` is `null`, so `{"context": null}` used to clear `targetYield` through
@@ -55,6 +87,12 @@ safety consequence, and widening it to the sibling numeric fields is a separate 
 change. One consequence worth knowing before widening it: `validatePatchFieldTypes()` requires
 `value is num`, so a numeric *string* such as `"36"` that `parseOptionalDouble()` accepted now
 returns `400`. Nothing in this repo sends one and `type: number` never permitted it.
+## Device inventory and connected-scale metadata
+
+- `GET /api/v1/devices` and `/ws/v1/devices` are inventory-only surfaces. They must not include connection-scoped metadata such as `deviceInfo`, `firmwareVersion`, or `batteryLevel`.
+- Metadata refreshes do not emit inventory updates. Do not add a metadata WebSocket until a concrete live-update need exists.
+- `GET /api/v1/scale/info` reports only the currently connected scale. Disconnected requests return `503`; a connected scale with unknown metadata returns `{}`. `firmwareVersion` is optional and opaque. `batteryLevel` is optional/nullable where supported; unknown values are omitted, and `0`/`100` are valid.
+- Keep connected-scale metadata separate from remembered-device inventory state; use the scale-info endpoint for it.
 
 ### Admission Control
 
@@ -116,9 +154,43 @@ The canonicalisation itself lives in one place, `LedStripState.canonical()` in
 starting palette with it too, so a mock cannot hold or store a palette the machine
 could not produce.
 
+## Water Levels GET (issue #1028)
+
+`GET /api/v1/machine/waterLevels` answers the latest `De1WaterLevels` from
+`De1Interface.waterLevels`, the stream `/ws/v1/machine/waterLevels` forwards.
+The BLE connect path subscribes to water-level notifications but never reads the
+characteristic, unlike shot settings, so between connect and the machine's first
+notification there is no value to answer with. The request waits up to 4 seconds
+for that notification, the same budget as the serial latest-frame read, then
+answers `504` through `EndpointUnavailableException`. The DE1 notifies whenever
+the reading changes, and sensor jitter keeps it changing: on a DE1Pro the
+longest measured gap was 1.9 seconds. Keep the timeout: without it a machine that
+never reports would hang the request. The timeout sits on the stream, before
+`.first`, so a timed-out request cancels its subscription; `Future.timeout` after
+`.first` would leave it listening until the next frame.
+
+`UnifiedDe1Transport.waterLevels` returns the subject's `.stream`, not
+`asBroadcastStream()`. Each `asBroadcastStream()` call builds a wrapper that keeps
+its source subscription after its last listener cancels, so every `.first` read
+left a listener on the subject until disconnect, and a polled GET grew that set
+without bound. The remaining getters, except `bengleShotSample`, still use
+`asBroadcastStream()`. `shotSettings` (`De1Controller._readShotSettings`) and
+`calibration` (the calibration GET) also have per-request `.first` readers and
+leak the same way; they are left for a follow-up.
+
 ## WebSocket Conventions
 
 - WebSocket topics are path-based: `/ws/v1/machine/state`, `/ws/v1/machine/shotState`, `/ws/v1/scale/snapshot`, etc.
+
+Scale paths are split by compatibility boundary: singular `/scale/*` routes
+remain primary-only, while `/scales/{id}/tare` and
+`/ws/v1/scales/{id}/snapshot` address a connected primary or auxiliary scale.
+Scale IDs are opaque URI path components: clients encode once and handlers use
+the shared one-decode helper. Auxiliary sessions are runtime-only and never
+enter shot sequencing or persisted preferences.
+The addressed snapshot stream uses the raw `ScaleSnapshot.toJson()` payload
+for both roles (`timestamp`, `weight`, `batteryLevel`, `timerValue`, `flow`);
+the legacy singular stream retains its existing `WeightSnapshot` payload.
 - `ShotSequencer` emits structured `ShotDecision`s (why a step advanced, why the shot stopped).
 - `SteamSequencer` manages steam session lifecycle (start on entry, finalize on exit).
 - Presence tracking via `PresenceController` — client keep-alive.
@@ -143,13 +215,80 @@ could not produce.
 
 A hostname that resolves to a device address does pass the port-3000 entry redirect and receive the tokenless script tag (issue #699). The redirect only echoes the requested host on the current generation's port, and before 0.8.2 the entry served those requests as static files anyway; `window.decentApp` carries no secret and no-ops outside the embedded webview. Resolutions are cached per served generation under a short TTL and re-checked against the live interface list on every request, so a lookup that recovers, an address that moves, or an interface that disappears reclassifies without waiting for a restart. The cache is bounded so spoofed Host headers cannot grow it without limit or force a lookup per request.
 
+## Extension Management Authorization
+
+### Problem
+
+Plugin and skin management routes were open to any LAN client and to any
+plugin that can reach the local API (issue #1031).
+
+### Solution
+
+`lib/src/services/webserver/extension_management_auth.dart` holds the whole
+policy: `extensionManagementRoutes` (18 method + `shelf_router` patterns) and
+`extensionManagementAuthMiddleware`, installed in `buildWebServerHandler` right
+after `proxyAuthMiddleware`. A matching request needs a bearer scoped
+`extensions:manage`: 401 for a missing, malformed, unknown or revoked bearer,
+403 for a known token without the scope. Tokens come from the native API
+tokens section, or for development and automation from `--extensions-token` or
+the `DECAID_EXTENSIONS_TOKEN` environment variable at launch.
+
+### Design Choices
+
+- Matching builds a real `shelf_router` `Router` from the table, so encoding,
+  case and trailing slashes are judged as the handlers' router judges them and
+  method-specific entries leave plugin endpoints with reserved names alone.
+- The middleware is installed even without a `ProxyTokenService`; then only
+  in-process grants pass, so the routes fail closed.
+- Body-dependent gates (`POST /api/v1/settings` with `webUiPath`, a changed
+  `defaultSkinId` or `automaticUpdateCheck` turned on; import and pull-sync of a
+  changed `defaultSkinId` or `automaticUpdateCheck: true`) read the middleware's
+  recorded decision through `requireExtensionManagement` /
+  `mayManageExtensions`. A handler reached without the middleware is refused.
+- Plugins with `manage.extensions` get an in-process `ExtensionManagementGrant`
+  in the shelf request context via `host.localApi`, never a bearer. A network
+  caller cannot populate the context, and the grant's `isActive` is checked on
+  every request.
+- `host.localApi` is an allowlist, not a path prefix. `PluginLocalApiBridge`
+  dispatches only `extensionManagementRoutes`, `extensionManagementReadRoutes`
+  (the plugin, skin and skin-server `GET` routes) and `POST /api/v1/settings`
+  with a body of only `extensionManagementSettingsKeys`, matched with the same
+  `shelf_router` matcher as the middleware. Everything else is rejected before
+  dispatch, so the bridge does not stand in for `api`: it never dispatches to
+  machine control or plugin-defined endpoints, and `fetch` never carries a
+  grant. `webUiPath` is gated for token holders but is not one of the
+  bridge's keys, because it serves an arbitrary folder on the skin port. A new
+  management route must be added to one of those lists to be reachable from a
+  plugin. This bounds the plugin's own calls only: a plugin that can write
+  plugin source and approve updates can install one holding `api`, or add
+  `api` to itself with one source write, which issue #1031 accepts as the
+  delegated authority of the permission.
+- A bearer the token service recognises is removed from the request before
+  handlers run, so plugin-defined endpoints never see it.
+- The scope is independent of `account:proxy`; each middleware checks its own.
+
+When adding a plugin or skin mutation route, add it to
+`extensionManagementRoutes` and declare `security: [extensionsManage]` with
+401/403 in `rest_v1.yml`; `test/api/extension_management_spec_test.dart`
+fails until both agree or the route is listed as reviewed-open there, and
+`test/webserver/extension_management_route_coverage_test.dart` fails for any
+mutating route `PluginsHandler` or `WebUIHandler` registers that is in neither
+list, whether or not the spec mentions it.
+
+### Focused Tests
+
+```sh
+flutter test test/webserver/extension_management_auth_test.dart test/webserver/extension_management_route_coverage_test.dart test/api/extension_management_spec_test.dart
+```
+
 ## Decent Binary Protocol
 
-**Source:** Original DE1 app at `github.com/decentespresso/de1app` is the authoritative source for DE1 protocol behavior, BLE characteristics, and machine state logic.
+The protocol is DE1-specific. See
+[`device-notes/de1.md`](device-notes/de1.md#protocol-source-of-truth).
 
-**Profiles:** Use Profile JSON v2 format. See `doc/Profiles.md` for the full profile API and content-based hashing.
-
-**MMR (Memory-Mapped Register) reads:** Used for DE1 debug log buffer, firmware settings, and advanced state. Not for general profile or workflow operations.
+MMR (Memory-Mapped Register) reads serve DE1 debug logs, firmware settings, and
+advanced machine state. Use the profile and workflow APIs for general profile
+or workflow operations, not raw MMR access.
 
 ## Workflow Dual Representation
 
@@ -162,7 +301,8 @@ Workflow JSON has both `context` (new: `WorkflowContext` with `grinderModel`, `c
 3. Register in `webserver_service.dart` `_init()`.
 4. Update `assets/api/rest_v1.yml` (or `websocket_v1.yml`) in the same commit.
 5. Update `doc/Api.md` if user-facing.
-6. Smoke-test via `scripts/sb-dev.sh` + `curl`/`websocat`.
+6. A route that installs, configures or removes plugins or skins goes in `extensionManagementRoutes` and gets the `extensionsManage` security in the spec (enforced by `test/api/extension_management_spec_test.dart`).
+7. Smoke-test via `scripts/sb-dev.sh` + `curl`/`websocat`.
 
 ## Focused Tests
 
@@ -360,6 +500,14 @@ of records and one JSON record, never with backup size. Rationale and traps:
   (`util/temp_archive_files.dart`), deleted in `finally` or on stream
   cancel/done. Native export defers cleanup (grace timer) because the OS
   share sheet reads the file asynchronously.
+- **Native share anchors**: full backup, recovery package, and import Share
+  Report resolve their initiating widget's bounds immediately before the mobile
+  share call, not before asynchronous file preparation. Desktop save dialogs do
+  not resolve geometry. An unmounted or offscreen action fails without a fallback
+  anchor: archive delivery cleans up and propagates to the existing UI error
+  handler; Share Report uses its existing error handler. Mounted views show the
+  error; disposed views suppress UI updates. Native iPad presentation still
+  requires hardware verification, including resize during preparation.
 - **Legacy compatibility**: entry names, JSON shapes (including
   `store.json`'s `namespaces` wrapper and beans' embedded `batches`),
   `metadata.json` semantics, conflict strategies, selected-section behavior,
@@ -429,12 +577,14 @@ safety path is the exception documented below:
 - `POST /api/v1/machine/calibration`
 - `POST /api/v1/machine/waterLevels`
 - `PUT /api/v1/machine/cupWarmer`, `PUT /api/v1/machine/ledStrip`,
+  `POST /api/v1/machine/ledStrip/preview`,
+  `POST /api/v1/machine/ledStrip/preview/clear`,
   `POST /api/v1/machine/ledStrip/commit`, `POST /api/v1/machine/ledStrip/reset`
 
 Every endpoint above can return `503` when the 32-entry pending queue is full and
 `400` for malformed JSON bodies
 (machine settings, advanced, calibration, waterLevels, cupWarmer, ledStrip,
-profile, and shot settings parse their complete body before reserving a queue entry).
+preview, profile, and shot settings parse their complete body before reserving a queue entry).
 Machine-write failures otherwise map to `500`.
 
 Documented bypasses:
@@ -466,3 +616,10 @@ behavior is documented.
 | 429 | Admission capacity full (8 active or queued requests) |
 | 500 | A required direct machine write failed, or no machine was ever connected |
 | 503 | Mutation timed out waiting for its execution turn, the 32-entry DE1 pending queue is full, or the same machine did not return within the bounded wait for a replaceable workflow write |
+
+## Device inventory and connected-scale metadata
+
+- `GET /api/v1/devices` and `/ws/v1/devices` are inventory-only surfaces. They must not include connection-scoped metadata such as `deviceInfo`, `firmwareVersion`, or `batteryLevel`.
+- Metadata refreshes do not emit inventory updates. Do not add a metadata WebSocket until a concrete live-update need exists.
+- `GET /api/v1/scale/info` reports only the currently connected scale. Disconnected requests return `503`; a connected scale with unknown metadata returns `{}`. `firmwareVersion` is optional and opaque.
+- Keep connected-scale metadata separate from remembered-device inventory state; use the scale-info endpoint for it.

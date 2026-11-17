@@ -114,12 +114,10 @@ class AcaiaScale implements Scale {
 
   AcaiaScale({
     required BLETransport transport,
-    AcaiaTimings timings = const AcaiaTimings(),
-    DateTime Function() now = _defaultNow,
+    this._timings = const AcaiaTimings(),
+    this._now = _defaultNow,
   }) : _transport = transport,
-       _deviceId = transport.id,
-       _timings = timings,
-       _now = now;
+       _deviceId = transport.id;
 
   final AcaiaTimings _timings;
   final DateTime Function() _now;

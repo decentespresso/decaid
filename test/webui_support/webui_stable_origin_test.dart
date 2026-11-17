@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:network_info_plus/network_info_plus.dart';
+import 'package:reaprime/src/services/webserver_service.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
 
 void main() {
@@ -16,9 +18,8 @@ void main() {
 
   Future<Directory> createSkin(String prefix, String body) async {
     final dir = await Directory.systemTemp.createTemp(prefix);
-    await File(
-      '${dir.path}/index.html',
-    ).writeAsString('<html><body>$body</body></html>');
+    await File('${dir.path}/index.html')
+        .writeAsString('<html><body>$body</body></html>');
     return dir;
   }
 
@@ -62,6 +63,7 @@ void main() {
     WebUIService.resolveWifiIP = NetworkInfo().getWifiIP;
     WebUIService.skinPortRangeStart = 24800;
     WebUIService.skinPortRangeSize = 4096;
+    WebUIService.aliasBindBarrier = null;
   });
 
   test('serves a skin on the same origin across restarts', () async {
@@ -110,9 +112,16 @@ void main() {
 
     final client = HttpClient();
     addTearDown(client.close);
-    await expectLater(
-      client.getUrl(Uri.parse('http://localhost:$portA/')),
-      throwsA(isA<SocketException>()),
+    final aliasRequest = await client.getUrl(
+      Uri.parse('http://localhost:$portA/'),
+    );
+    aliasRequest.followRedirects = false;
+    final aliasResponse = await aliasRequest.close();
+    await aliasResponse.drain<void>();
+    expect(aliasResponse.statusCode, HttpStatus.temporaryRedirect);
+    expect(
+      aliasResponse.headers.value(HttpHeaders.locationHeader),
+      'http://localhost:$entryPort/',
     );
 
     final entryRequest = await client.getUrl(
@@ -257,6 +266,477 @@ void main() {
     expect(saves, 0);
     expect(await fetchBody(service.port), contains('skin-a'));
   });
+
+  test('keeps an inactive skin port as a redirect alias', () async {
+    final service = createService();
+
+    await service.serveFolderAtPath(skinA.path, port: entryPort);
+    final portA = service.port;
+    await service.serveFolderAtPath(skinB.path, port: entryPort);
+    final portB = service.port;
+
+    final client = HttpClient();
+    addTearDown(client.close);
+    final aliasRequest = await client.getUrl(
+      Uri.parse('http://localhost:$portA/'),
+    );
+    aliasRequest.followRedirects = false;
+    final aliasResponse = await aliasRequest.close();
+    await aliasResponse.drain<void>();
+
+    expect(aliasResponse.statusCode, HttpStatus.temporaryRedirect);
+    expect(
+      aliasResponse.headers.value(HttpHeaders.locationHeader),
+      'http://localhost:$entryPort/',
+    );
+
+    final entryRequest = await client.getUrl(
+      Uri.parse('http://localhost:$entryPort/'),
+    );
+    entryRequest.followRedirects = false;
+    final entryResponse = await entryRequest.close();
+    await entryResponse.drain<void>();
+    expect(entryResponse.statusCode, HttpStatus.temporaryRedirect);
+    expect(
+      entryResponse.headers.value(HttpHeaders.locationHeader),
+      'http://localhost:$portB/',
+    );
+  });
+
+  test('alias redirect preserves host, path and query', () async {
+    final service = createService();
+
+    await service.serveFolderAtPath(skinA.path, port: entryPort);
+    final aliasPort = service.port;
+    await service.serveFolderAtPath(skinB.path, port: entryPort);
+
+    final client = HttpClient();
+    addTearDown(client.close);
+    final request = await client.getUrl(
+      Uri.parse('http://127.0.0.1:$aliasPort/some/path?x=1&y=2'),
+    );
+    request.followRedirects = false;
+    final response = await request.close();
+    await response.drain<void>();
+
+    expect(response.statusCode, HttpStatus.temporaryRedirect);
+    expect(response.headers.value(HttpHeaders.cacheControlHeader), 'no-store');
+    expect(
+      response.headers.value(HttpHeaders.locationHeader),
+      'http://127.0.0.1:$entryPort/some/path?x=1&y=2',
+    );
+  });
+
+  test('reclaims its assigned port when switching back', () async {
+    var saved = <String, int>{};
+    final service = createService(
+      load: () async => saved,
+      save: (assignments) async => saved = Map<String, int>.from(assignments),
+    );
+
+    await service.serveFolderAtPath(skinA.path, port: entryPort);
+    final portA = service.port;
+    await service.serveFolderAtPath(skinB.path, port: entryPort);
+    final portB = service.port;
+    await service.serveFolderAtPath(skinA.path, port: entryPort);
+
+    expect(service.port, portA);
+    expect(saved, {skinA.path: portA, skinB.path: portB});
+
+    final client = HttpClient();
+    addTearDown(client.close);
+    final request = await client.getUrl(Uri.parse('http://localhost:$portB/'));
+    request.followRedirects = false;
+    final response = await request.close();
+    await response.drain<void>();
+    expect(response.statusCode, HttpStatus.temporaryRedirect);
+    expect(
+      response.headers.value(HttpHeaders.locationHeader),
+      'http://localhost:$entryPort/',
+    );
+  });
+
+  test('aliases persisted inactive ports on a fresh start', () async {
+    final portA = testRangeStart + 1;
+    final portB = testRangeStart + 2;
+    final service = createService(
+      load: () async => {skinA.path: portA, skinB.path: portB},
+    );
+
+    await service.serveFolderAtPath(skinB.path, port: entryPort);
+
+    final client = HttpClient();
+    addTearDown(client.close);
+    final request = await client.getUrl(Uri.parse('http://localhost:$portA/'));
+    request.followRedirects = false;
+    final response = await request.close();
+    await response.drain<void>();
+    expect(response.statusCode, HttpStatus.temporaryRedirect);
+    expect(
+      response.headers.value(HttpHeaders.locationHeader),
+      'http://localhost:$entryPort/',
+    );
+  });
+
+  test('serves only a redirect on an inactive alias port', () async {
+    var tokenRequests = 0;
+    final service = createService();
+    service.skinProxyTokenProvider = (_) => 'alias-sentinel-${++tokenRequests}';
+
+    await service.serveFolderAtPath(skinA.path, port: entryPort);
+    final aliasPort = service.port;
+    await service.serveFolderAtPath(skinB.path, port: entryPort);
+
+    expect(await fetchBody(service.port), contains('alias-sentinel-2'));
+    expect(tokenRequests, 2);
+
+    final client = HttpClient();
+    addTearDown(client.close);
+    final rootRequest = await client.getUrl(
+      Uri.parse('http://localhost:$aliasPort/'),
+    );
+    rootRequest.followRedirects = false;
+    final rootResponse = await rootRequest.close();
+    final rootBody = await rootResponse.transform(utf8.decoder).join();
+    expect(rootResponse.statusCode, HttpStatus.temporaryRedirect);
+    expect(rootBody, isEmpty);
+    expect(rootBody, isNot(contains('skin-a')));
+    expect(rootBody, isNot(contains('skin-b')));
+    expect(rootBody, isNot(contains(skinApiScriptPath)));
+    expect(rootBody, isNot(contains('reaprime-proxy-token')));
+    expect(rootBody, isNot(contains('alias-sentinel')));
+
+    final apiRequest = await client.getUrl(
+      Uri.parse('http://localhost:$aliasPort$skinApiScriptPath'),
+    );
+    apiRequest.followRedirects = false;
+    final apiResponse = await apiRequest.close();
+    await apiResponse.drain<void>();
+    expect(apiResponse.statusCode, HttpStatus.temporaryRedirect);
+
+    expect(tokenRequests, 2);
+    expect(service.skinProxyToken, 'alias-sentinel-2');
+  });
+
+  test('ignores an inactive alias port owned by another process', () async {
+    final portA = testRangeStart + 1;
+    final portB = testRangeStart + 2;
+    final squatter = await ServerSocket.bind('0.0.0.0', portA);
+    addTearDown(squatter.close);
+    var saved = <String, int>{skinA.path: portA, skinB.path: portB};
+    final service = createService(
+      load: () async => Map<String, int>.from(saved),
+      save: (assignments) async => saved = Map<String, int>.from(assignments),
+    );
+
+    await service.serveFolderAtPath(skinB.path, port: entryPort);
+
+    expect(saved, {skinA.path: portA, skinB.path: portB});
+    expect(await fetchBody(portB), contains('skin-b'));
+    final client = HttpClient();
+    addTearDown(client.close);
+    final request = await client.getUrl(
+      Uri.parse('http://localhost:$entryPort/'),
+    );
+    request.followRedirects = false;
+    final response = await request.close();
+    await response.drain<void>();
+    expect(response.statusCode, HttpStatus.temporaryRedirect);
+    expect(
+      response.headers.value(HttpHeaders.locationHeader),
+      'http://localhost:${service.port}/',
+    );
+  });
+
+  test('never aliases a temporary fallback port', () async {
+    var saved = <String, int>{};
+    final service = createService(
+      load: () async => Map<String, int>.from(saved),
+      save: (assignments) async => saved = Map<String, int>.from(assignments),
+    );
+
+    await service.serveFolderAtPath(skinA.path, port: entryPort);
+    final assignedPort = service.port;
+    await service.stopServing();
+    final squatter = await ServerSocket.bind('0.0.0.0', assignedPort);
+    addTearDown(squatter.close);
+
+    await service.serveFolderAtPath(skinA.path, port: entryPort);
+    final fallbackPort = service.port;
+    expect(fallbackPort, isNot(assignedPort));
+    await service.serveFolderAtPath(skinB.path, port: entryPort);
+
+    expect(saved, {skinA.path: assignedPort, skinB.path: service.port});
+    final client = HttpClient();
+    addTearDown(client.close);
+    await expectLater(
+      client.getUrl(Uri.parse('http://localhost:$fallbackPort/')),
+      throwsA(isA<SocketException>()),
+    );
+  });
+
+  test('stopServing releases active, entry and alias ports', () async {
+    final service = createService();
+
+    await service.serveFolderAtPath(skinA.path, port: entryPort);
+    final portA = service.port;
+    await service.serveFolderAtPath(skinB.path, port: entryPort);
+    final portB = service.port;
+
+    final aliasClient = HttpClient();
+    addTearDown(aliasClient.close);
+    final aliasRequest = await aliasClient.getUrl(
+      Uri.parse('http://localhost:$portA/'),
+    );
+    aliasRequest.followRedirects = false;
+    final aliasResponse = await aliasRequest.close();
+    await aliasResponse.drain<void>();
+    expect(aliasResponse.statusCode, HttpStatus.temporaryRedirect);
+    aliasClient.close();
+
+    await service.stopServing();
+
+    final client = HttpClient();
+    addTearDown(client.close);
+    for (final port in [portA, portB, entryPort]) {
+      await expectLater(
+        client.getUrl(Uri.parse('http://localhost:$port/')),
+        throwsA(isA<SocketException>()),
+      );
+    }
+  });
+
+  test(
+    'releases every listener when a serve fails after an alias exists',
+    () async {
+      final service = createService();
+
+      await service.serveFolderAtPath(skinA.path, port: entryPort);
+      final portA = service.port;
+      await service.serveFolderAtPath(skinB.path, port: entryPort);
+      final portB = service.port;
+      service.skinIdentityProvider = (_) => throw StateError('no identity');
+
+      await expectLater(
+        service.serveFolderAtPath(skinA.path, port: entryPort),
+        throwsA(isA<StateError>()),
+      );
+
+      expect(service.isServing, isFalse);
+      final client = HttpClient();
+      addTearDown(client.close);
+      for (final port in [portA, portB, entryPort]) {
+        await expectLater(
+          client.getUrl(Uri.parse('http://localhost:$port/')),
+          throwsA(isA<SocketException>()),
+        );
+      }
+    },
+  );
+
+  test('releases every listener when the skin directory is invalid', () async {
+    final service = createService();
+
+    await service.serveFolderAtPath(skinA.path, port: entryPort);
+    final portA = service.port;
+    await service.serveFolderAtPath(skinB.path, port: entryPort);
+    final portB = service.port;
+
+    await expectLater(
+      service.serveFolderAtPath('${skinA.path}/missing', port: entryPort),
+      throwsA(anything),
+    );
+
+    expect(service.isServing, isFalse);
+    final client = HttpClient();
+    addTearDown(client.close);
+    for (final port in [portA, portB, entryPort]) {
+      await expectLater(
+        client.getUrl(Uri.parse('http://localhost:$port/')),
+        throwsA(isA<SocketException>()),
+      );
+    }
+  });
+
+  test('rejects an untrusted host on an inactive alias port', () async {
+    final service = createService();
+
+    await service.serveFolderAtPath(skinA.path, port: entryPort);
+    final aliasPort = service.port;
+    await service.serveFolderAtPath(skinB.path, port: entryPort);
+
+    final client = HttpClient();
+    addTearDown(client.close);
+    final request = await client.getUrl(
+      Uri.parse('http://localhost:$aliasPort/'),
+    );
+    request.followRedirects = false;
+    request.headers.set(HttpHeaders.hostHeader, 'example.invalid:$aliasPort');
+    final response = await request.close();
+    final body = await response.transform(utf8.decoder).join();
+
+    expect(response.statusCode, HttpStatus.notFound);
+    expect(response.headers.value(HttpHeaders.locationHeader), isNull);
+    expect(body, isNot(contains('skin-')));
+    expect(body, isNot(contains('reaprime-proxy-token')));
+  });
+
+  test('a stop during alias reconciliation leaves no alias bound', () async {
+    final service = createService();
+
+    await service.serveFolderAtPath(skinA.path, port: entryPort);
+    final portA = service.port;
+
+    final reached = Completer<void>();
+    final release = Completer<void>();
+    WebUIService.aliasBindBarrier = () {
+      if (!reached.isCompleted) reached.complete();
+      return release.future;
+    };
+
+    final serving = service.serveFolderAtPath(skinB.path, port: entryPort);
+    await reached.future;
+    await service.stopServing();
+    release.complete();
+    await serving;
+
+    expect(service.isServing, isFalse);
+    expect(service.serverPath(), isEmpty);
+    expect(service.serveGeneration.value, 1);
+    final client = HttpClient();
+    addTearDown(client.close);
+    for (final port in [portA, entryPort]) {
+      await expectLater(
+        client.getUrl(Uri.parse('http://localhost:$port/')),
+        throwsA(isA<SocketException>()),
+      );
+    }
+  });
+
+  test('a superseded serve keeps the newer identity and token', () async {
+    var wifiCalls = 0;
+    final reached = Completer<void>();
+    final release = Completer<void>();
+    WebUIService.resolveWifiIP = () async {
+      wifiCalls++;
+      if (wifiCalls == 1) {
+        reached.complete();
+        await release.future;
+      }
+      return 'localhost';
+    };
+    final service = createService();
+    service.skinProxyTokenProvider = (path) =>
+        path == skinA.path ? 'token-a' : 'token-b';
+
+    final servingA = service.serveFolderAtPath(skinA.path, port: entryPort);
+    await reached.future;
+    await service.serveFolderAtPath(skinB.path, port: entryPort);
+    final portB = service.port;
+
+    release.complete();
+    await servingA;
+
+    expect(portB, isNot(entryPort));
+    expect(service.isServing, isTrue);
+    expect(service.port, portB);
+    expect(service.skinProxyToken, 'token-b');
+    expect(service.serverPath(), skinB.path);
+    expect(await fetchBody(portB), contains('skin-b'));
+  });
+
+  test('a superseded serve cannot publish or clean up newer state', () async {
+    var loads = 0;
+    final reached = Completer<void>();
+    final release = Completer<void>();
+    final service = createService(
+      load: () async {
+        loads++;
+        if (loads == 1) {
+          reached.complete();
+          await release.future;
+        }
+        return <String, int>{};
+      },
+    );
+    service.skinProxyTokenProvider = (path) =>
+        path == skinA.path ? 'token-a' : 'token-b';
+
+    final stale = service.serveFolderAtPath(skinA.path, port: entryPort);
+    await reached.future;
+
+    await service.serveFolderAtPath(skinB.path, port: entryPort);
+    final portB = service.port;
+    final generation = service.serveGeneration.value;
+
+    release.complete();
+    await stale;
+
+    expect(service.isServing, isTrue);
+    expect(service.port, portB);
+    expect(service.skinProxyToken, 'token-b');
+    expect(service.serverPath(), skinB.path);
+    expect(service.serveGeneration.value, generation);
+    expect(await fetchBody(portB), contains('skin-b'));
+
+    final client = HttpClient();
+    addTearDown(client.close);
+    final entry = await client.getUrl(
+      Uri.parse('http://localhost:$entryPort/'),
+    );
+    entry.followRedirects = false;
+    final entryResponse = await entry.close();
+    await entryResponse.drain<void>();
+    expect(
+      entryResponse.headers.value(HttpHeaders.locationHeader),
+      'http://localhost:$portB/',
+    );
+  });
+
+  test('a superseded serve cannot overwrite the device address', () async {
+    var wifiCalls = 0;
+    final reached = Completer<void>();
+    final release = Completer<void>();
+    WebUIService.resolveWifiIP = () async {
+      wifiCalls++;
+      if (wifiCalls == 1) {
+        reached.complete();
+        await release.future;
+        return '10.0.0.1';
+      }
+      return '10.0.0.2';
+    };
+    final service = createService();
+
+    final servingA = service.serveFolderAtPath(skinA.path, port: entryPort);
+    await reached.future;
+    await service.serveFolderAtPath(skinB.path, port: entryPort);
+    final portB = service.port;
+
+    release.complete();
+    await servingA;
+
+    expect(service.deviceIp(), '10.0.0.2');
+    final origins = accountProxyCorsAllowedOrigins(service);
+    expect(origins, contains('http://10.0.0.2:$portB'));
+    expect(origins, isNot(contains('http://10.0.0.1:$portB')));
+    expect(service.port, portB);
+  });
+
+  test(
+    'does not allowlist an inactive alias origin for the account proxy',
+    () async {
+      final service = createService();
+
+      await service.serveFolderAtPath(skinA.path, port: entryPort);
+      final aliasPort = service.port;
+      await service.serveFolderAtPath(skinB.path, port: entryPort);
+
+      final origins = accountProxyCorsAllowedOrigins(service);
+      expect(origins, contains('http://localhost:${service.port}'));
+      expect(origins, isNot(contains('http://localhost:$aliasPort')));
+    },
+  );
 
   test('saves an assignment once, not on every serve', () async {
     var saves = 0;

@@ -274,60 +274,64 @@ void main() {
     await controller.dispose();
   });
 
-  test('controller replacement only dispatches the newest generation', () async {
-    final manager = PluginManager(kvStore: FakeKeyValueStoreService());
-    final firstMachines = StreamController<De1Interface?>.broadcast(sync: true);
-    final secondMachines = StreamController<De1Interface?>.broadcast(
-      sync: true,
-    );
-    final firstController = _StreamDe1Controller(firstMachines.stream);
-    final secondController = _StreamDe1Controller(secondMachines.stream);
-    final firstMachine = TestDe1(deviceId: 'first');
-    final secondMachine = TestDe1(deviceId: 'second');
-    final values = <double>[];
+  test(
+    'controller replacement only dispatches the newest generation',
+    () async {
+      final manager = PluginManager(kvStore: FakeKeyValueStoreService());
+      final firstMachines = StreamController<De1Interface?>.broadcast(
+        sync: true,
+      );
+      final secondMachines = StreamController<De1Interface?>.broadcast(
+        sync: true,
+      );
+      final firstController = _StreamDe1Controller(firstMachines.stream);
+      final secondController = _StreamDe1Controller(secondMachines.stream);
+      final firstMachine = TestDe1(deviceId: 'first');
+      final secondMachine = TestDe1(deviceId: 'second');
+      final values = <double>[];
 
-    await _loadPlugin(
-      manager,
-      'events.plugin',
-      onEvent:
-          'if (event.name === "stateUpdate") host.emit("state", event.payload.groupTemperature);',
-    );
-    final eventSubscription = manager.emitStream.listen((event) {
-      if (event['event'] == 'state') {
-        values.add((event['payload'] as num).toDouble());
-      }
-    });
+      await _loadPlugin(
+        manager,
+        'events.plugin',
+        onEvent: 'if (event.name === "stateUpdate") host.emit("state", event.payload.groupTemperature);',
+      );
+      final eventSubscription = manager.emitStream.listen((event) {
+        if (event['event'] == 'state') {
+          values.add((event['payload'] as num).toDouble());
+        }
+      });
 
-    await manager.attachDe1Controller(firstController);
-    firstMachines.add(firstMachine);
-    await Future<void>.delayed(Duration.zero);
-    values.clear();
+      await manager.attachDe1Controller(firstController);
+      firstMachines.add(firstMachine);
+      await Future<void>.delayed(Duration.zero);
+      values.clear();
 
-    await manager.attachDe1Controller(secondController);
-    firstMachine.emitSnapshot(
-      firstMachine.snapshotSubject.value.copyWith(groupTemperature: 11),
-    );
-    secondMachines.add(secondMachine);
-    await Future<void>.delayed(Duration.zero);
-    secondMachine.emitSnapshot(
-      secondMachine.snapshotSubject.value.copyWith(groupTemperature: 22),
-    );
-    await Future<void>.delayed(const Duration(milliseconds: 20));
+      await manager.attachDe1Controller(secondController);
+      firstMachine.emitSnapshot(
+        firstMachine.snapshotSubject.value.copyWith(groupTemperature: 11),
+      );
+      secondMachines.add(secondMachine);
+      await Future<void>.delayed(Duration.zero);
+      secondMachine.emitSnapshot(
+        secondMachine.snapshotSubject.value.copyWith(groupTemperature: 22),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
 
-    expect(values, isNot(contains(11)));
-    expect(values, contains(22));
-    expect(manager.attachmentGeneration, 2);
-    expect(manager.activeSubscriptionCount, 2);
+      expect(values, isNot(contains(11)));
+      expect(values, contains(22));
+      expect(manager.attachmentGeneration, 2);
+      expect(manager.activeSubscriptionCount, 2);
 
-    await manager.dispose();
-    await eventSubscription.cancel();
-    await firstMachines.close();
-    await secondMachines.close();
-    await firstController.dispose();
-    await secondController.dispose();
-    await firstMachine.dispose();
-    await secondMachine.dispose();
-  });
+      await manager.dispose();
+      await eventSubscription.cancel();
+      await firstMachines.close();
+      await secondMachines.close();
+      await firstController.dispose();
+      await secondController.dispose();
+      await firstMachine.dispose();
+      await secondMachine.dispose();
+    },
+  );
 
   test(
     'machine replacement invalidates snapshots before queue cleanup',
@@ -342,8 +346,7 @@ void main() {
       await _loadPlugin(
         manager,
         'events.plugin',
-        onEvent:
-            'if (event.name === "stateUpdate") host.emit("state", event.payload.groupTemperature);',
+        onEvent: 'if (event.name === "stateUpdate") host.emit("state", event.payload.groupTemperature);',
       );
       final eventSubscription = manager.emitStream.listen((event) {
         if (event['event'] == 'state') {

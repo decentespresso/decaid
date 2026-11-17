@@ -90,6 +90,25 @@ void main() {
     expect(find.text('open'), findsOneWidget);
   });
 
+  testWidgets('system back cancels once and ignores ready during route exit', (
+    tester,
+  ) async {
+    await tester.pumpWidget(host());
+    await tester.tap(find.text('open'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.binding.handlePopRoute();
+    connectionManager.emitStatus(
+      const ConnectionStatus(phase: ConnectionPhase.ready),
+    );
+    guardian.onAppResumed();
+    await tester.pumpAndSettle();
+    expect(connectionManager.cancelActiveScanCallCount, 1);
+    expect(deviceController.stopScanCalls, 1);
+    expect(find.text('open'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('cancel stops the scan and pops', (tester) async {
     await tester.pumpWidget(host());
     await tester.tap(find.text('open'));

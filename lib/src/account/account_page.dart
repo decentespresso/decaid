@@ -35,6 +35,20 @@ class _AccountPageState extends State<AccountPage> {
     );
   }
 
+  List<Widget> _tokensCard() {
+    final controller = widget.tokensController;
+    if (controller == null) return const [];
+    return [
+      const SizedBox(height: 16),
+      ShadCard(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: AccountTokensSection(controller: controller),
+        ),
+      ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -72,15 +86,15 @@ class _AccountPageState extends State<AccountPage> {
                                         children: [
                                           Text(
                                             'Logged In',
-                                            style: Theme.of(
-                                              context,
-                                            ).textTheme.titleMedium,
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .titleMedium,
                                           ),
                                           Text(
                                             emailSnap.data ?? '',
-                                            style: Theme.of(
-                                              context,
-                                            ).textTheme.bodySmall,
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodySmall,
                                           ),
                                         ],
                                       ),
@@ -108,17 +122,7 @@ class _AccountPageState extends State<AccountPage> {
                           const SizedBox(height: 16),
                           _appLogUploadCard(widget.appLogUploadService!),
                         ],
-                        if (widget.tokensController != null) ...[
-                          const SizedBox(height: 16),
-                          ShadCard(
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: AccountTokensSection(
-                                controller: widget.tokensController!,
-                              ),
-                            ),
-                          ),
-                        ],
+                        ..._tokensCard(),
                       ],
                     );
                   },
@@ -140,9 +144,8 @@ class _AccountPageState extends State<AccountPage> {
                       Text(
                         'Link your Decent Espresso account to verify your machine serial number and access additional features.',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.onSurface.withValues(alpha: 0.7),
+                          color: Theme.of(context).colorScheme.onSurface
+                              .withValues(alpha: 0.7),
                         ),
                       ),
                       const SizedBox(height: 16),
@@ -157,17 +160,24 @@ class _AccountPageState extends State<AccountPage> {
                 ),
               );
               final uploadService = widget.appLogUploadService;
-              if (uploadService == null) return loginCard;
+              if (uploadService == null) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [loginCard, ..._tokensCard()],
+                );
+              }
               return FutureBuilder<bool>(
                 future: widget.accountService.hasLinkedAccount(),
                 builder: (context, linkedSnapshot) {
-                  if (linkedSnapshot.data != true) return loginCard;
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       loginCard,
-                      const SizedBox(height: 16),
-                      _appLogUploadCard(uploadService),
+                      if (linkedSnapshot.data == true) ...[
+                        const SizedBox(height: 16),
+                        _appLogUploadCard(uploadService),
+                      ],
+                      ..._tokensCard(),
                     ],
                   );
                 },

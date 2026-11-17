@@ -4,13 +4,11 @@ import 'package:battery_plus/battery_plus.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/controllers/charging_logic.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
-import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:rxdart/rxdart.dart';
 
 class BatteryController {
   final De1Controller _de1Controller;
-  final DeviceController _deviceController;
   final SettingsController _settingsController;
   final Battery _battery = Battery();
   final Logger _log = Logger("Battery");
@@ -30,22 +28,15 @@ class BatteryController {
   ChargingState? get currentChargingState => _stateSubject.valueOrNull;
 
   BatteryController({
-    required De1Controller de1Controller,
-    required DeviceController deviceController,
-    required SettingsController settingsController,
-  }) : _de1Controller = de1Controller,
-       _deviceController = deviceController,
-       _settingsController = settingsController {
+    required this._de1Controller,
+    required this._settingsController,
+  }) {
     _checkTimer = Timer.periodic(const Duration(seconds: 60), (_) => _tick());
     _tick();
   }
 
   Future<void> _tick() async {
     try {
-      if (_deviceController.isScanning) {
-        _log.fine('Skipping USB charger mode update during BLE scan');
-        return;
-      }
       if (_de1Controller.connectedDe1OrNull == null) {
         _log.fine('No machine connected, skipping USB charger mode update');
         _lastAppliedCharge = null;

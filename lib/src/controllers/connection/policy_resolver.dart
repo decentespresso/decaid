@@ -1,3 +1,4 @@
+import 'package:reaprime/src/models/device/device_identity.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 
@@ -25,7 +26,7 @@ MachinePolicyAction resolveMachinePolicy({
 }) {
   if (preferredMachineId != null) {
     final match = machines
-        .where((machine) => machine.deviceId == preferredMachineId)
+        .where((machine) => matchesDeviceIdentity(machine, preferredMachineId))
         .firstOrNull;
     if (match != null) return ConnectMachineAction(match);
     if (machines.isNotEmpty) return const MachinePickerAction();

@@ -1,0 +1,85 @@
+{
+  "version": "2",
+  "title": "Gentler but still traditional 8.4 bar",
+  "author": "Decent",
+  "notes": "Professional baristas worldwide have found that slightly lowering the pressure from 9 bar down to 8.4 produces great espresso more often.  The gentler pressure still produces traditional flavors but requires less perfect preparation skills from the barista.",
+  "beverage_type": "espresso",
+  "steps": [
+    {
+      "name": "preinfusion temp boost",
+      "pump": "flow",
+      "transition": "fast",
+      "temperature": "89.5",
+      "sensor": "coffee",
+      "seconds": "2.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "flow": "4.0",
+      "pressure": "1.0",
+      "exit": {
+        "type": "pressure",
+        "condition": "over",
+        "value": "4.0"
+      }
+    },
+    {
+      "name": "preinfusion",
+      "pump": "flow",
+      "transition": "fast",
+      "temperature": "89.5",
+      "sensor": "coffee",
+      "seconds": "8.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "flow": "4.0",
+      "pressure": "1.0",
+      "exit": {
+        "type": "pressure",
+        "condition": "over",
+        "value": "4.0"
+      }
+    },
+    {
+      "name": "forced rise without limit",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "89.5",
+      "sensor": "coffee",
+      "seconds": "3.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "flow": "0.0",
+      "pressure": "8.4"
+    },
+    {
+      "name": "rise and hold",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "89.5",
+      "sensor": "coffee",
+      "seconds": "28.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "flow": "0.0",
+      "pressure": "8.4"
+    },
+    {
+      "name": "decline",
+      "pump": "pressure",
+      "transition": "smooth",
+      "temperature": "89.5",
+      "sensor": "coffee",
+      "seconds": "2.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "flow": "0.0",
+      "pressure": "6.0"
+    }
+  ],
+  "tank_temperature": "0.0",
+  "target_weight": "36.0",
+  "target_volume": "37.0",
+  "target_volume_count_start": "2",
+  "type": "pressure",
+  "hidden": "0"
+}

@@ -80,7 +80,7 @@ SUBSTATE_NAMES = {
     0x0E: "cleanFillGroup",
     0x0F: "cleanSoak",
     0x10: "cleanGroup",
-    0x11: "refill",
+    0x11: "refillStopped",
     0x12: "pausedSteam",
     0x13: "userNotPresent",
     0x14: "puffing",

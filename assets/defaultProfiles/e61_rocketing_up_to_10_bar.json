@@ -1,0 +1,73 @@
+{
+  "version": "2",
+  "title": "E61 rocketing up to 10 bar",
+  "author": "Decent",
+  "notes": "With a technician's help, you could sometimes boost the pressure on the classic E61 machine to 10 bar.  You will need to grind finer, and your espresso will be very thick.  Excellent for medium roasted beans mixed with whole milk.",
+  "beverage_type": "espresso",
+  "steps": [
+    {
+      "name": "preinfusion temp boost",
+      "pump": "flow",
+      "transition": "fast",
+      "temperature": "92.0",
+      "sensor": "coffee",
+      "seconds": "2.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "flow": "8.0",
+      "pressure": "1.0",
+      "exit": {
+        "type": "pressure",
+        "condition": "over",
+        "value": "4.0"
+      }
+    },
+    {
+      "name": "preinfusion",
+      "pump": "flow",
+      "transition": "fast",
+      "temperature": "92.0",
+      "sensor": "coffee",
+      "seconds": "8.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "flow": "8.0",
+      "pressure": "1.0",
+      "exit": {
+        "type": "pressure",
+        "condition": "over",
+        "value": "4.0"
+      }
+    },
+    {
+      "name": "forced rise without limit",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "92.0",
+      "sensor": "coffee",
+      "seconds": "3.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "flow": "0.0",
+      "pressure": "10.0"
+    },
+    {
+      "name": "rise and hold",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "92.0",
+      "sensor": "coffee",
+      "seconds": "27.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "flow": "0.0",
+      "pressure": "10.0"
+    }
+  ],
+  "tank_temperature": "0.0",
+  "target_weight": "36.0",
+  "target_volume": "36.0",
+  "target_volume_count_start": "2",
+  "type": "pressure",
+  "hidden": "0"
+}

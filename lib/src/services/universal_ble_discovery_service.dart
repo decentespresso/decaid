@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io' show Platform;
+
 import 'package:reaprime/src/models/adapter_state.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/remembered_device.dart';
@@ -21,18 +22,19 @@ import 'package:reaprime/src/models/device/ble_scan_state.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:rxdart/rxdart.dart';
 import 'package:universal_ble/universal_ble.dart';
+
 import '../models/device/device.dart';
 import '../models/device/machine.dart';
 import '../models/device/impl/de1/de1.models.dart';
+
 import 'package:logging/logging.dart' as logging;
 
-typedef BleTransportFactory =
-    BLETransport Function({
-      required BleDevice device,
-      required Future<void> Function() stopScan,
-      required bool requestLargeMtuNonAndroid,
-      required BleLifecycleGate lifecycleGate,
-    });
+typedef BleTransportFactory = BLETransport Function({
+  required BleDevice device,
+  required Future<void> Function() stopScan,
+  required bool requestLargeMtuNonAndroid,
+  required BleLifecycleGate lifecycleGate,
+});
 
 class _AdvertisementStats {
   int count = 0;
@@ -47,14 +49,13 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     bool Function()? requiresSystemDevice,
     bool Function()? requestLargeMtuNonAndroid,
     BleTransportFactory? transportFactory,
-    PluginBleService Function()? pluginBleService,
+    this._pluginBleService,
     this.scanDuration = const Duration(seconds: 15),
   }) : _watchSupportGate = watchSupportGate ?? (() => Platform.isAndroid),
        _requiresSystemDevice =
            requiresSystemDevice ?? (() => Platform.isIOS || Platform.isMacOS),
        requestLargeMtuNonAndroid = requestLargeMtuNonAndroid ?? (() => false),
-       _transportFactory = transportFactory ?? _defaultTransportFactory,
-       _pluginBleService = pluginBleService;
+       _transportFactory = transportFactory ?? _defaultTransportFactory;
 
   static BLETransport _defaultTransportFactory({
     required BleDevice device,
@@ -257,7 +258,10 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     final requestGeneration = ++_watchRequestGeneration;
     if (_isScanning) {
       _setWatchState(DeviceWatchState.queued);
-      log.fine('Burst scan in flight; watch starts when it completes');
+      log.info(
+        'Watch resume queued: owner=${_scanOwner.name} '
+        'phase=${_scanPhase.name}',
+      );
       return DeviceWatchStartResult.queuedBehindBurst;
     }
     try {
@@ -270,8 +274,16 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
         _scanPhase = BleScanPhase.faulted;
         _setWatchState(DeviceWatchState.faulted);
       }
+      log.info(
+        'Watch resume failed: owner=${_scanOwner.name} '
+        'phase=${_scanPhase.name}',
+      );
       return DeviceWatchStartResult.failed;
     }
+    log.info(
+      'Watch resume ${_watchScanActive ? "ok" : "queued"}: '
+      'owner=${_scanOwner.name} phase=${_scanPhase.name}',
+    );
     return _watchScanActive
         ? DeviceWatchStartResult.active
         : DeviceWatchStartResult.queuedBehindBurst;
@@ -487,13 +499,32 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
             _scanPhase != BleScanPhase.stopping)) {
       return;
     }
-    log.fine('Pausing background watch for burst scan');
+    log.info(
+      'Watch pause requested for burst: owner=${_scanOwner.name} '
+      'phase=${_scanPhase.name}',
+    );
     await _deactivateWatchScan(stopOsScan: true, context: 'watch-pause');
+    log.info(
+      'Watch paused for burst: owner=${_scanOwner.name} '
+      'phase=${_scanPhase.name}',
+    );
   }
 
   Future<void> _resumeWatchAfterBurst() async {
     if (_watchRequested == null) return;
+    log.info(
+      'Watch resume requested: owner=${_scanOwner.name} '
+      'phase=${_scanPhase.name}',
+    );
     await _restartWatchOrReportFailure('post-burst resume');
+    log.info(
+      'Watch resume ${_watchScanActive
+          ? "ok"
+          : _watchRequested == null
+          ? "failed"
+          : "queued"}: '
+      'owner=${_scanOwner.name} phase=${_scanPhase.name}',
+    );
   }
 
   void _onAdapterStateForWatch(AdapterState state) {
@@ -803,6 +834,10 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
 
     _scanOwner = BleScanOwner.burst;
     _scanPhase = BleScanPhase.starting;
+    log.info(
+      'Burst acquisition: owner=${_scanOwner.name} '
+      'phase=${_scanPhase.name}',
+    );
     _advanceScanGeneration();
     final generation = _scanGeneration;
     _scanStopError = null;
@@ -850,6 +885,10 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
         throw StateError('BLE scan ownership is faulted');
       }
       _scanPhase = BleScanPhase.active;
+      log.info(
+        'Burst started: owner=${_scanOwner.name} '
+        'phase=${_scanPhase.name}',
+      );
 
       try {
         final systemDevices = await UniversalBle.getSystemDevices(
@@ -884,6 +923,10 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
         _scanOwner = BleScanOwner.none;
         _scanPhase = faulted ? BleScanPhase.faulted : BleScanPhase.idle;
       }
+      log.info(
+        'Burst ended: owner=${_scanOwner.name} '
+        'phase=${_scanPhase.name}',
+      );
       if (!faulted) await _resumeWatchAfterBurst();
     }
   }

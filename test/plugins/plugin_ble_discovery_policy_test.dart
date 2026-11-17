@@ -188,28 +188,25 @@ void main() {
     },
   );
 
-  test(
-    'plugin-first ownership fences old native candidate and unload restores native',
-    () async {
-      final fixture = _Fixture();
-      addTearDown(fixture.dispose);
-      await fixture.start();
-      final native = fixture.next;
-      fixture.advertise();
-      final oldNative = await native;
-      expect(oldNative.implementation, DeviceImplementation.bookooScale);
-      final replacement = fixture.next;
-      await fixture.load();
-      expect((await replacement).implementation, DeviceImplementation.plugin);
-      expect(fixture.transports.every((t) => t.disconnectCalls == 0), isTrue);
-      await oldNative.onConnect();
-      expect(fixture.transports.every((t) => t.connectCalls == 0), isTrue);
-      final fallback = fixture.next;
-      await fixture.manager.unloadPlugin('ble.sensor');
-      expect((await fallback).implementation, DeviceImplementation.bookooScale);
-      expect(fixture.devices.every((list) => list.length <= 1), isTrue);
-    },
-  );
+  test('plugin-first ownership fences old native candidate and unload restores native', () async {
+    final fixture = _Fixture();
+    addTearDown(fixture.dispose);
+    await fixture.start();
+    final native = fixture.next;
+    fixture.advertise();
+    final oldNative = await native;
+    expect(oldNative.implementation, DeviceImplementation.bookooScale);
+    final replacement = fixture.next;
+    await fixture.load();
+    expect((await replacement).implementation, DeviceImplementation.plugin);
+    expect(fixture.transports.every((t) => t.disconnectCalls == 0), isTrue);
+    await oldNative.onConnect();
+    expect(fixture.transports.every((t) => t.connectCalls == 0), isTrue);
+    final fallback = fixture.next;
+    await fixture.manager.unloadPlugin('ble.sensor');
+    expect((await fallback).implementation, DeviceImplementation.bookooScale);
+    expect(fixture.devices.every((list) => list.length <= 1), isTrue);
+  });
 
   test(
     'connected native owner survives driver binding until normal teardown',
@@ -324,49 +321,43 @@ void main() {
     },
   );
 
-  test(
-    'two definite matches conflict and unloading a competitor resolves ownership',
-    () async {
-      final fixture = _Fixture();
-      addTearDown(fixture.dispose);
-      await fixture.start();
-      await fixture.load();
-      await fixture.load('competitor');
-      fixture.advertise();
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-      expect(fixture.devices.expand((list) => list), isEmpty);
-      final diagnostics = await fixture.discovery.diagnostics();
-      expect(
-        (diagnostics['pluginOwnership'] as Map)['aa:bb']['decision'],
-        'conflict',
-      );
-      final candidate = fixture.next;
-      await fixture.manager.unloadPlugin('competitor');
-      expect((await candidate).deviceId, 'plugin:ble.sensor:humidity:aa:bb');
-    },
-  );
+  test('two definite matches conflict and unloading a competitor resolves ownership', () async {
+    final fixture = _Fixture();
+    addTearDown(fixture.dispose);
+    await fixture.start();
+    await fixture.load();
+    await fixture.load('competitor');
+    fixture.advertise();
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    expect(fixture.devices.expand((list) => list), isEmpty);
+    final diagnostics = await fixture.discovery.diagnostics();
+    expect(
+      (diagnostics['pluginOwnership'] as Map)['aa:bb']['decision'],
+      'conflict',
+    );
+    final candidate = fixture.next;
+    await fixture.manager.unloadPlugin('competitor');
+    expect((await candidate).deviceId, 'plugin:ble.sensor:humidity:aa:bb');
+  });
 
-  test(
-    'pending system evidence reaches normal scan deadline without native fallback',
-    () async {
-      final fixture = _Fixture(scanDuration: const Duration(milliseconds: 30));
-      addTearDown(fixture.dispose);
-      await fixture.discovery.initialize();
-      await fixture.load();
-      fixture.platform.systemDevices.add(
-        BleDevice(deviceId: 'AA:BB', name: 'Bookoo'),
-      );
-      await fixture.discovery.scanForDevices().timeout(
-        const Duration(seconds: 2),
-      );
-      expect(fixture.platform.scanning, isFalse);
-      expect(fixture.transports, isEmpty);
-      expect(fixture.devices.expand((list) => list), isEmpty);
-      final diagnostics = await fixture.discovery.diagnostics();
-      expect(
-        (diagnostics['pluginOwnership'] as Map)['aa:bb']['decision'],
-        'pending',
-      );
-    },
-  );
+  test('pending system evidence reaches normal scan deadline without native fallback', () async {
+    final fixture = _Fixture(scanDuration: const Duration(milliseconds: 30));
+    addTearDown(fixture.dispose);
+    await fixture.discovery.initialize();
+    await fixture.load();
+    fixture.platform.systemDevices.add(
+      BleDevice(deviceId: 'AA:BB', name: 'Bookoo'),
+    );
+    await fixture.discovery.scanForDevices().timeout(
+      const Duration(seconds: 2),
+    );
+    expect(fixture.platform.scanning, isFalse);
+    expect(fixture.transports, isEmpty);
+    expect(fixture.devices.expand((list) => list), isEmpty);
+    final diagnostics = await fixture.discovery.diagnostics();
+    expect(
+      (diagnostics['pluginOwnership'] as Map)['aa:bb']['decision'],
+      'pending',
+    );
+  });
 }

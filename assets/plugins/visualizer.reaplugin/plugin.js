@@ -16,6 +16,8 @@ function createPlugin(host) {
   const VISUALIZER_API_URL = "https://visualizer.coffee/api";
   const VISUALIZER_SHARED_API = "https://visualizer.coffee/api/shots/shared?code=";
   const VISUALIZER_PROFILE_API = "https://visualizer.coffee/api/shots/%1/profile?format=json";
+  const CANONICAL_ENJOYMENT_MAX = 10;
+  const VISUALIZER_ENJOYMENT_SCALE = 10;
 
   let shotFetchTimeoutId = null;
   let backSyncTimeoutId = null;
@@ -35,6 +37,7 @@ function createPlugin(host) {
     backSyncIntervalSeconds: 300,
     backSyncCursor: 0, // newest remote updated_at we've processed
     shotMap: {}, // visualizerId -> localShotId, for our own uploads only
+    uploadedGrinderModels: {}, // visualizerId -> exact grinder_model we uploaded
     backSyncState: {}, // visualizerId -> { remoteUpdatedAt }
     backSyncRunning: false,
     localSyncPending: {},
@@ -204,6 +207,39 @@ function createPlugin(host) {
     return normalizeTags([...recipeTags, ...shotTags]);
   }
 
+  function toVisualizerEnjoyment(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return null;
+    const canonical = Math.min(Math.max(number, 0), CANONICAL_ENJOYMENT_MAX);
+    return Math.round(canonical * VISUALIZER_ENJOYMENT_SCALE);
+  }
+
+  function tokenizeGrinderText(s) {
+    return String(s || "").toLowerCase().split(/[^a-z0-9]+/i).filter(Boolean);
+  }
+
+  function combineModelAndBurrs(model, burrs) {
+    const trimmedModel = typeof model === "string" ? model.trim() : "";
+    const trimmedBurrs = typeof burrs === "string" ? burrs.trim() : "";
+    if (!trimmedModel || !trimmedBurrs) return model;
+    const modelTokens = new Set(tokenizeGrinderText(trimmedModel));
+    const burrTokens = tokenizeGrinderText(trimmedBurrs);
+    const alreadyNamed = burrTokens.length > 0 && burrTokens.every((t) => modelTokens.has(t));
+    if (alreadyNamed) return model;
+    return `${trimmedModel} (${trimmedBurrs})`;
+  }
+
+  // Burrs come from the snapshot the shot itself recorded, never from the current
+  // grinder record. See doc/AI_PLUGINS_NOTES.md.
+  function uploadGrinderModel(context, baseModel) {
+    return combineModelAndBurrs(baseModel, context.grinderBurrs);
+  }
+
+  function uploadedGrinderModelOf(visualizerShot) {
+    const value = visualizerShot?.app?.data?.settings?.grinder_model;
+    return typeof value === "string" && value.trim() !== "" ? value : null;
+  }
+
   function convertReaToVisualizerFormat(reaShot) {
     if (!reaShot || !reaShot.measurements || reaShot.measurements.length === 0) {
       throw new Error("Invalid or empty Decent shot data for conversion.");
@@ -216,6 +252,9 @@ function createPlugin(host) {
     const annotations = reaShot.annotations || {};
     const context = reaShot.workflow?.context || {};
     let totalWaterDispensed = 0;
+
+    const baseGrinderModel = context.grinderModel ?? reaShot.workflow.grinderData?.model;
+    const grinderModel = uploadGrinderModel(context, baseGrinderModel);
 
     const visualizerShot = {
       // start_time: reaShot.measurements[0].machine.timestamp,
@@ -234,13 +273,13 @@ function createPlugin(host) {
             bean_weight: String(annotations.actualDoseWeight ?? context.targetDoseWeight ?? reaShot.workflow.doseData?.doseIn ?? 0),
             drink_weight: String(annotations.actualYield ?? lastMeasurement.scale?.weight ?? 0),
             target_weight: String(context.targetYield ?? reaShot.workflow.profile.target_weight),
-            grinder_model: context.grinderModel ?? reaShot.workflow.grinderData?.model,
+            grinder_model: grinderModel,
             grinder_setting: context.grinderSetting ?? reaShot.workflow.grinderData?.setting,
             bean_brand: context.coffeeRoaster ?? reaShot.workflow.coffeeData?.roaster,
             bean_type: context.coffeeName ?? reaShot.workflow.coffeeData?.name,
             drink_tds: annotations.drinkTds != null ? String(annotations.drinkTds) : undefined,
             drink_ey: annotations.drinkEy != null ? String(annotations.drinkEy) : undefined,
-            espresso_enjoyment: annotations.enjoyment != null ? String(Math.round(Number(annotations.enjoyment))) : undefined,
+            espresso_enjoyment: annotations.enjoyment != null ? String(toVisualizerEnjoyment(annotations.enjoyment)) : undefined,
             espresso_notes: annotations.espressoNotes,
           }
         }
@@ -318,8 +357,9 @@ function createPlugin(host) {
         return;
       }
 
-      const result = await uploadShot(convertReaToVisualizerFormat(fullShot), null);
-      rememberSuccessfulUpload(fullShot.id, result.id);
+      const visualizerShot = convertReaToVisualizerFormat(fullShot);
+      const result = await uploadShot(visualizerShot, null);
+      rememberSuccessfulUpload(fullShot.id, result.id, uploadedGrinderModelOf(visualizerShot));
       syncSuccessfulUpload(fullShot.id, result.id, fullShot);
 
       log(`Uploaded ${fullShot.id} → ${result.id}`);
@@ -351,6 +391,13 @@ function createPlugin(host) {
     } else if (payload.key === "shotMap") {
       state.shotMap = safeParseObject(payload.value) || {};
       log(`Loaded shot map (${Object.keys(state.shotMap).length} entries)`);
+    } else if (payload.key === "uploadedGrinderModels") {
+      // Layer the stored values under anything recorded since load: this read can
+      // land after an upload has already remembered its string.
+      state.uploadedGrinderModels = {
+        ...(safeParseObject(payload.value) || {}),
+        ...state.uploadedGrinderModels,
+      };
     } else if (payload.key === "backSyncCursor") {
       state.backSyncCursor = Number(payload.value) || 0;
     } else if (payload.key === "backSyncState") {
@@ -507,6 +554,7 @@ function createPlugin(host) {
 
   function persistBackSyncState() {
     host.storage({ type: "write", key: "shotMap", namespace: NS, data: JSON.stringify(state.shotMap) });
+    host.storage({ type: "write", key: "uploadedGrinderModels", namespace: NS, data: JSON.stringify(state.uploadedGrinderModels) });
     host.storage({ type: "write", key: "backSyncCursor", namespace: NS, data: String(state.backSyncCursor) });
     host.storage({ type: "write", key: "backSyncState", namespace: NS, data: JSON.stringify(state.backSyncState) });
     host.storage({ type: "write", key: "managedLocalTags", namespace: NS, data: JSON.stringify(state.managedLocalTags) });
@@ -552,9 +600,16 @@ function createPlugin(host) {
     return { total: Object.keys(state.shotMap).length, added };
   }
 
-  function rememberUpload(localId, visualizerId) {
+  function rememberUpload(localId, visualizerId, uploadedGrinderModel) {
     if (!localId || visualizerId == null) return;
-    state.shotMap = { ...state.shotMap, [String(visualizerId)]: localId };
+    const id = String(visualizerId);
+    state.shotMap = { ...state.shotMap, [id]: localId };
+    state.uploadedGrinderModels = { ...state.uploadedGrinderModels };
+    if (uploadedGrinderModel == null) {
+      delete state.uploadedGrinderModels[id];
+    } else {
+      state.uploadedGrinderModels[id] = uploadedGrinderModel;
+    }
     persistBackSyncState();
     const update = { annotations: { extras: { visualizerId: String(visualizerId) } } };
     suppressLocalSync(localId, update);
@@ -572,12 +627,21 @@ function createPlugin(host) {
       });
   }
 
-  function rememberSuccessfulUpload(localId, visualizerId) {
+  // A remote model edit we apply locally makes our recorded upload string stale: keeping
+  // it would suppress a later revert to that very value. See doc/AI_PLUGINS_NOTES.md.
+  function forgetUploadedGrinderModel(visualizerId) {
+    const id = String(visualizerId);
+    if (!hasOwn(state.uploadedGrinderModels, id)) return;
+    state.uploadedGrinderModels = { ...state.uploadedGrinderModels };
+    delete state.uploadedGrinderModels[id];
+  }
+
+  function rememberSuccessfulUpload(localId, visualizerId, uploadedGrinderModel) {
     state.lastUploadedShot = localId;
     state.lastVisualizerId = visualizerId;
     host.storage({ type: "write", key: "lastUploadedShot", namespace: NS, data: localId });
     host.storage({ type: "write", key: "lastVisualizerId", namespace: NS, data: visualizerId });
-    rememberUpload(localId, visualizerId);
+    rememberUpload(localId, visualizerId, uploadedGrinderModel);
   }
 
   function syncSuccessfulUpload(localId, visualizerId, fallbackShot) {
@@ -724,7 +788,7 @@ function createPlugin(host) {
       if (typeof value === "string" && value.trim() !== "") payload[key] = value;
     };
 
-    setNumber("espresso_enjoyment", annotations.enjoyment, patchAnnotations, "enjoyment", (n) => Math.round(n));
+    setNumber("espresso_enjoyment", annotations.enjoyment, patchAnnotations, "enjoyment", toVisualizerEnjoyment);
     setNumber("drink_tds", annotations.drinkTds, patchAnnotations, "drinkTds");
     setNumber("drink_ey", annotations.drinkEy, patchAnnotations, "drinkEy");
     setNumber("bean_weight", annotations.actualDoseWeight ?? context.targetDoseWeight, patchAnnotations, "actualDoseWeight");
@@ -1009,8 +1073,17 @@ function createPlugin(host) {
 
     set(annotations, "drinkTds", numberField("drink_tds"));
     set(annotations, "drinkEy", numberField("drink_ey"));
-    set(annotations, "enjoyment", numberField("espresso_enjoyment"));
-    set(annotations, "espressoNotes", stringField("espresso_notes"));
+    const remoteEnjoyment = numberField("espresso_enjoyment");
+    set(
+      annotations,
+      "enjoyment",
+      typeof remoteEnjoyment === "number"
+        ? Math.min(Math.max(remoteEnjoyment, 0), 100) / VISUALIZER_ENJOYMENT_SCALE
+        : remoteEnjoyment
+    );
+    if (has("espresso_notes")) {
+      set(annotations, "espressoNotes", stringField("espresso_notes"));
+    }
     set(annotations, "actualDoseWeight", numberField("bean_weight"));
     set(annotations, "actualYield", numberField("drink_weight"));
     set(context, "coffeeRoaster", stringField("bean_brand"));
@@ -1031,6 +1104,28 @@ function createPlugin(host) {
     }
     if (Object.keys(context).length) update.workflow = { context };
     return update;
+  }
+
+  function normalizeGrinderModelText(s) {
+    return String(s == null ? "" : s).trim().toLowerCase().replace(/\s+/g, " ");
+  }
+
+  // Only normalized equality with what we uploaded counts as an echo, so a genuine
+  // Visualizer edit of the same shape still applies. See doc/AI_PLUGINS_NOTES.md.
+  async function shouldSkipBackSyncedGrinderModel(visualizerId, localId, remoteGrinderModel) {
+    if (typeof remoteGrinderModel !== "string" || remoteGrinderModel.trim() === "") return false;
+    const remote = normalizeGrinderModelText(remoteGrinderModel);
+
+    const uploaded = state.uploadedGrinderModels[String(visualizerId)];
+    if (uploaded != null) return remote === normalizeGrinderModelText(uploaded);
+
+    const shot = await fetchShot(localId);
+    if (!shot) return false;
+    const context = shot.workflow?.context || {};
+    const baseModel = context.grinderModel ?? shot.workflow?.grinderData?.model;
+    if (baseModel == null) return false;
+    const base = normalizeGrinderModelText(baseModel);
+    return remote === base || remote === normalizeGrinderModelText(uploadGrinderModel(context, baseModel));
   }
 
   async function runBackSync(opts) {
@@ -1105,6 +1200,19 @@ function createPlugin(host) {
         const itemUpdatedAt = Number(detail?.updated_at) || item.updatedAt || 0;
 
         const update = mapRemoteToLocal(detail);
+        let appliedGrinderModelEdit = false;
+        if (hasOwn(update.workflow?.context, "grinderModel")) {
+          const remoteGrinderModel = update.workflow.context.grinderModel;
+          const remoteNamesModel =
+            typeof remoteGrinderModel === "string" && remoteGrinderModel.trim() !== "";
+          if (remoteNamesModel && await shouldSkipBackSyncedGrinderModel(item.id, localId, remoteGrinderModel)) {
+            delete update.workflow.context.grinderModel;
+            if (Object.keys(update.workflow.context).length === 0) delete update.workflow;
+          } else if (remoteNamesModel) {
+            update.workflow.context.grinderBurrs = null;
+            appliedGrinderModelEdit = true;
+          }
+        }
         let processed = Object.keys(update).length === 0;
         if (Object.keys(update).length > 0) {
           suppressLocalSync(localId, update);
@@ -1116,6 +1224,7 @@ function createPlugin(host) {
           if (res.ok) {
             applied++;
             processed = true;
+            if (appliedGrinderModelEdit) forgetUploadedGrinderModel(item.id);
             host.emit("shotBackSynced", { shotId: localId, visualizerId: item.id, timestamp: Date.now() });
           } else {
             consumeLocalSyncSuppression(localId, update);
@@ -1170,7 +1279,7 @@ function createPlugin(host) {
   // Return the plugin object
   return {
     id: "visualizer.reaplugin",
-    version: "1.5.6",
+    version: "1.5.11",
 
     onLoad(settings) {
       state.username = settings.Username;
@@ -1186,6 +1295,7 @@ function createPlugin(host) {
       host.storage({ type: "read", key: "lastUploadedShot", namespace: NS });
       host.storage({ type: "read", key: "lastVisualizerId", namespace: NS });
       host.storage({ type: "read", key: "shotMap", namespace: NS });
+      host.storage({ type: "read", key: "uploadedGrinderModels", namespace: NS });
       host.storage({ type: "read", key: "backSyncCursor", namespace: NS });
       host.storage({ type: "read", key: "backSyncState", namespace: NS });
       host.storage({ type: "read", key: "managedLocalTags", namespace: NS });
@@ -1258,6 +1368,7 @@ function createPlugin(host) {
         }
 
         let requestedShot;
+        let uploadedModel = null;
         return fetch(`${LOCAL_API_URL}/shots/${encodeURIComponent(shotId)}`)
           .then(async (response) => {
             const body = await response.text();
@@ -1272,10 +1383,12 @@ function createPlugin(host) {
           })
           .then((shot) => {
             requestedShot = shot;
-            return uploadShot(convertReaToVisualizerFormat(shot), null);
+            const visualizerShot = convertReaToVisualizerFormat(shot);
+            uploadedModel = uploadedGrinderModelOf(visualizerShot);
+            return uploadShot(visualizerShot, null);
           })
           .then((shotResponse) => {
-            rememberSuccessfulUpload(shotId, shotResponse.id);
+            rememberSuccessfulUpload(shotId, shotResponse.id, uploadedModel);
             syncSuccessfulUpload(shotId, shotResponse.id, requestedShot);
 
             return {

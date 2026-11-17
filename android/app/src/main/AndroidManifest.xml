@@ -23,10 +23,14 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     
     <!-- Internet permission -->
     <uses-permission android:name="android.permission.INTERNET"/>
+
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
     <!-- Multicast lock: keeps the Wi-Fi firmware from dropping inbound
          broadcast/multicast (incl. ARP), so the gateway stays reachable on the
@@ -45,7 +49,9 @@
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
-        android:networkSecurityConfig="@xml/network_security_config">
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:fullBackupContent="@xml/github_pat_backup_rules"
+        android:dataExtractionRules="@xml/github_pat_data_extraction_rules">
         
         <!-- FileProvider for sharing APK files -->
         <provider
@@ -56,6 +62,15 @@
             <meta-data
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
+        </provider>
+        <provider
+            android:name="com.pichillilorenzo.flutter_inappwebview_android.InAppWebViewFileProvider"
+            android:authorities="${applicationId}.flutter_inappwebview_android.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/skin_capture_paths" />
         </provider>
         <activity
             android:name=".MainActivity"
@@ -111,6 +126,9 @@
     <queries>
         <package android:name="com.google.android.webview" />
         <package android:name="com.android.webview" />
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
     </queries>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
@@ -125,5 +143,3 @@
     </queries>
 
 </manifest>
-
-

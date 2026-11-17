@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widget_previews.dart';
 import 'package:reaprime/src/services/webserver/port_binding.dart';
+import 'package:reaprime/src/ui/startup_failure_shell.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 
 class WebServerPortConflictApp extends StatelessWidget {
   const WebServerPortConflictApp({
@@ -15,13 +18,8 @@ class WebServerPortConflictApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.orange),
-        useMaterial3: true,
-      ),
-      home: WebServerPortConflictScreen(port: port, probe: probe),
+    return StartupFailureShell(
+      child: WebServerPortConflictScreen(port: port, probe: probe),
     );
   }
 }
@@ -62,64 +60,76 @@ class _WebServerPortConflictScreenState
 
   @override
   Widget build(BuildContext context) {
-    final text = Theme.of(context).textTheme;
     return Scaffold(
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 520),
-          child: Padding(
-            padding: const EdgeInsets.all(32),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Another Decaid app is running',
-                  style: text.headlineSmall,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Port ${widget.port} is already in use. Only one Decaid app '
-                  'can run at a time, because they share the same port.',
-                  style: text.bodyLarge,
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'Close the other Decaid app, then open this one again.',
-                  style: text.bodyLarge,
-                ),
-                if (_free != null) ...[
-                  const SizedBox(height: 16),
-                  Text(
-                    _free!
-                        ? 'Port ${widget.port} is free now. Close this app and '
-                              'open it again.'
-                        : 'Port ${widget.port} is still in use.',
-                    style: text.bodyLarge?.copyWith(
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 24),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  spacing: 16,
                   children: [
-                    FilledButton(
-                      onPressed: _checking ? null : _checkAgain,
-                      child: Text(_checking ? 'Checking…' : 'Check again'),
+                    ShadAlert.destructive(
+                      icon: const Icon(LucideIcons.triangleAlert, size: 16),
+                      title: const Text('Another Decaid app is running'),
+                      description: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        spacing: 12,
+                        children: [
+                          Text(
+                            'Port ${widget.port} is already in use. Only one '
+                            'Decaid app can run at a time, because they share '
+                            'the same port.',
+                          ),
+                          const Text(
+                            'Close the other Decaid app, then open this one '
+                            'again.',
+                          ),
+                        ],
+                      ),
                     ),
-                    OutlinedButton(
-                      onPressed: () => SystemNavigator.pop(),
-                      child: const Text('Close this app'),
+                    if (_free != null)
+                      ShadAlert(
+                        icon: const Icon(LucideIcons.info, size: 16),
+                        description: Text(
+                          _free!
+                              ? 'Port ${widget.port} is free now. Close this '
+                                    'app and open it again.'
+                              : 'Port ${widget.port} is still in use.',
+                        ),
+                      ),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: [
+                        ShadButton(
+                          onPressed: _checking ? null : _checkAgain,
+                          child: Text(_checking ? 'Checking…' : 'Check again'),
+                        ),
+                        ShadButton.outline(
+                          onPressed: () => SystemNavigator.pop(),
+                          child: const Text('Close this app'),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ],
+              ),
             ),
           ),
         ),
       ),
     );
   }
+}
+
+@Preview(name: 'Port Conflict', group: 'Startup')
+Widget portConflictPreview() {
+  return StartupFailureShell(
+    child: WebServerPortConflictScreen(port: 8080, probe: (_) async => false),
+  );
 }

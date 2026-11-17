@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:rxdart/subjects.dart';
 
 import 'package:reaprime/src/models/device/device.dart';
@@ -13,7 +14,7 @@ class SensorBasket implements Sensor {
   late Logger _log;
   final SerialTransport _transport;
 
-  SensorBasket({required SerialTransport transport}) : _transport = transport {
+  SensorBasket({required this._transport}) {
     _log = Logger("SensorBasket");
   }
 
@@ -73,27 +74,24 @@ class SensorBasket implements Sensor {
   DeviceType get type => DeviceType.sensor;
 
   void onData(String data) {
-    final elements = data.split(' ');
-    if (elements.length <= 5) {
+    final elements = data.trim().split(RegExp(r'\s+'));
+    if (elements.length < 5) {
       return;
     }
-    Map<String, dynamic> values = {};
-    values['timestamp'] = DateTime.now().toIso8601String();
-
-    if (elements.elementAtOrNull(1) != null) {
-      values["temperature"] = double.tryParse(elements[1]);
-    }
-    if (elements.elementAtOrNull(2) != null) {
-      values["pressure"] = double.tryParse(elements[2]);
-    }
-    if (elements.elementAtOrNull(3) != null) {
-      values["weight"] = double.tryParse(elements[3]);
-    }
-    if (elements.elementAtOrNull(4) != null) {
-      values["weightFlow"] = double.tryParse(elements[4]);
-    }
+    final values = <String, dynamic>{
+      'timestamp': DateTime.now().toIso8601String(),
+      'temperature': _finiteValue(elements[1]),
+      'pressure': _finiteValue(elements[2]),
+      'weight': _finiteValue(elements[3]),
+      'weightFlow': _finiteValue(elements[4]),
+    };
 
     _streamSubject.add(values);
+  }
+
+  double? _finiteValue(String value) {
+    final parsed = double.tryParse(value);
+    return parsed != null && parsed.isFinite ? parsed : null;
   }
 
   @override

@@ -49,7 +49,7 @@ void main() {
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
-  test('v4 to v5 migration matches the current shot schema', () async {
+  test('v4 to current migration matches the current shot schema', () async {
     final migratedFile = await _createCurrentDatabase(tempDir, 'migrated');
     final legacy = sqlite3.sqlite3.open(migratedFile.path);
     try {
@@ -71,7 +71,7 @@ void main() {
     final raw = sqlite3.sqlite3.open(migratedFile.path);
     try {
       final version = raw.select('PRAGMA user_version').first.values.first;
-      expect(version, 5);
+      expect(version, 6);
     } finally {
       raw.close();
     }

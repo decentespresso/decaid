@@ -69,8 +69,9 @@ MachineSubstate mapDe1SubToMachineSubstate(De1SubState de1SubState) {
   switch (de1SubState) {
     case De1SubState.noState:
     case De1SubState.userNotPresent:
-    case De1SubState.refill:
       return MachineSubstate.idle;
+    case De1SubState.refillStopped:
+      return MachineSubstate.refillStopped;
 
     case De1SubState.pausedSteam:
       return MachineSubstate.pausedSteam;

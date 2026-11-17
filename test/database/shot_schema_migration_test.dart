@@ -148,7 +148,7 @@ void main() {
     final db = AppDatabase(NativeDatabase(File(dbPath)));
     try {
       await db.initialize();
-      await expectUserVersion(db, 5);
+      await expectUserVersion(db, 6);
       await expectV5ColumnsExactlyOnce(db);
       expect(await readRevisionColumns(db), expectedRevisions);
       final shot = ShotMapper.fromRow(
@@ -197,8 +197,7 @@ void main() {
             mapperUpdatedAt: DateTime.utc(2025, 3, 1, 12),
           ),
           (
-            name:
-                'partial v5 (created only): existing created_at kept, updated_at added',
+            name: 'partial v5 (created only): existing created_at kept, updated_at added',
             extraColumns: const [_createdAtColumn],
             rows: [
               _row(
@@ -227,8 +226,7 @@ void main() {
             mapperUpdatedAt: DateTime.utc(2025, 3, 1, 12),
           ),
           (
-            name:
-                'partial v5 (updated only): existing updated_at kept, created_at added',
+            name: 'partial v5 (updated only): existing updated_at kept, created_at added',
             extraColumns: const [_updatedAtColumn],
             rows: [
               _row(
@@ -306,8 +304,7 @@ void main() {
             mapperUpdatedAt: DateTime.utc(2025, 3, 1, 12),
           ),
           (
-            name:
-                'preserve completed work: non-NULL revisions survive, NULLs filled',
+            name: 'preserve completed work: non-NULL revisions survive, NULLs filled',
             extraColumns: const [_createdAtColumn, _updatedAtColumn],
             rows: [
               _row(
@@ -400,7 +397,7 @@ void main() {
         final db = AppDatabase(NativeDatabase(File(dbPath)));
         try {
           await db.initialize();
-          await expectUserVersion(db, 5);
+          await expectUserVersion(db, 6);
           await expectV5ColumnsExactlyOnce(db);
 
           final info = await shotColumnInfo(db);

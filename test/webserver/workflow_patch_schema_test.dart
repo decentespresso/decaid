@@ -44,6 +44,15 @@ void main() {
     );
   });
 
+  test('grinderRpm is a nullable non-negative integer', () {
+    for (final schema in ['WorkflowContext', 'WorkflowContextPatch']) {
+      final rpm = _properties(schema)['grinderRpm'] as YamlMap;
+      expect(rpm['type'], 'integer');
+      expect(rpm['nullable'], isTrue);
+      expect(rpm['minimum'], 0);
+    }
+  });
+
   test('only targetYield loses its nullability on a PUT', () {
     final patch = _properties('WorkflowContextPatch');
 

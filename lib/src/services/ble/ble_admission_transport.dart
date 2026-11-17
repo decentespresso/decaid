@@ -40,9 +40,8 @@ class BleAdmissionTransport extends BLETransport {
         if (state == ConnectionState.disconnected && _claim != null) {
           unawaited(
             disconnectConfirmed().catchError((Object error) {
-              Logger(
-                'BleAdmissionTransport',
-              ).warning('Native BLE ownership retained: $id', error);
+              Logger('BleAdmissionTransport')
+                  .warning('Native BLE ownership retained: $id', error);
             }),
           );
         }
@@ -50,9 +49,8 @@ class BleAdmissionTransport extends BLETransport {
     } catch (_) {
       unawaited(
         disconnectConfirmed().catchError((Object error) {
-          Logger(
-            'BleAdmissionTransport',
-          ).warning('Failed connect ownership retained: $id', error);
+          Logger('BleAdmissionTransport')
+              .warning('Failed connect ownership retained: $id', error);
         }),
       );
       rethrow;

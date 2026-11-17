@@ -8,6 +8,8 @@ import 'plugin_protocol_device.dart';
 
 class PluginBoundSensor extends PluginProtocolDevice implements Sensor {
   PluginBoundSensor({
+    super.pluginId,
+    super.surfaces,
     required super.deviceId,
     required super.name,
     required super.invoke,

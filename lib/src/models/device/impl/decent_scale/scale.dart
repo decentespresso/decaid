@@ -5,8 +5,10 @@ import 'package:reaprime/src/models/device/ble_service_identifier.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
+import 'package:reaprime/src/models/device/impl/decent_scale/profile.dart';
 import 'package:reaprime/src/models/device/impl/decent_scale/protocol.dart';
 import 'package:reaprime/src/services/serial/serial_service_desktop.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:logging/logging.dart' as logging;
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/scale.dart';
@@ -21,8 +23,9 @@ class DecentScale implements Scale, TransportHandoffScale {
   static final BleServiceIdentifier writeCharacteristic =
       BleServiceIdentifier.short('36f5');
 
-  static final bool isUsingHeartBeat = false;
   static const _initializationProbeTimeout = Duration(seconds: 2);
+  static const _profileProbeTimeout = Duration(milliseconds: 800);
+  static const _duplicateCommandDelay = Duration(milliseconds: 50);
   static const _weightFrameLengths = {7, 10};
 
   final String _deviceId;
@@ -34,23 +37,45 @@ class DecentScale implements Scale, TransportHandoffScale {
 
   final logging.Logger _log = logging.Logger("Decent scale");
 
-  Timer? _heartbeatTimer;
+  Timer? _maintenanceTimer;
 
   static const _watchdogWarningTicks = 3;
   static const _watchdogDisconnectTicks = 5;
   int _ticksSinceLastNotification = 0;
   bool _watchdogRetryAttempted = false;
   int _totalNotifications = 0;
-  int _heartbeatTotalTicks = 0;
+  int _maintenanceTicks = 0;
 
   Timer? _notificationWatchdog;
   Future<void>? _notificationRecovery;
   Future<void>? _displayOperation;
   Completer<void>? _initializationNotification;
+  Completer<void>? _wakeStatusEvidence;
   static const Duration _notificationWatchdogTimeout = Duration(seconds: 5);
   int _maintenanceGeneration = 0;
   int _displayGeneration = 0;
   bool _desiredDisplaySleeping = false;
+
+  DecentScaleProfile _profile = DecentScaleProfile.conservative;
+  DecentScaleProfile? _retainedSleepProfile;
+  int _profileAttempt = 0;
+  int _connectionAttempt = 0;
+  Completer<void>? _statusEvidence;
+  Completer<void>? _voltageEvidence;
+  bool _statusResponseSeen = false;
+  int? _statusFirmwareMarker;
+  DecentHdsFirmwareVersion? _hdsFirmwareVersion;
+  bool _sawTimestampedWeightFrame = false;
+  bool _voltageProbeAccepted = false;
+
+  int _completedNegotiations = 0;
+  int _tareCounter = 0;
+
+  @visibleForTesting
+  int get debugCompletedNegotiations => _completedNegotiations;
+
+  @visibleForTesting
+  DecentScaleProfile get debugProfile => _profile;
 
   DecentScale({required BLETransport transport})
     : _deviceId = transport.id,
@@ -79,6 +104,25 @@ class DecentScale implements Scale, TransportHandoffScale {
   Future<void> _writeRequiredCommand(List<int> commandBytes) async {
     if (!await _writeCommand(commandBytes)) {
       throw const DeviceNotConnectedException.scale();
+    }
+    if (!_profile.capabilities.unreliableCommandBuffer) return;
+    await Future<void>.delayed(_duplicateCommandDelay);
+    await _writeCommand(commandBytes);
+  }
+
+  Future<bool> _writeNonEssentialCommand(
+    List<int> commandBytes, {
+    Duration? timeout,
+  }) async {
+    try {
+      final write = _writeCommand(commandBytes, timeout: timeout);
+      return timeout == null ? await write : await write.timeout(timeout);
+    } catch (error) {
+      _log.warning(
+        'Nonessential scale write failed (link may still be alive): '
+        '$error',
+      );
+      return false;
     }
   }
 
@@ -118,61 +162,108 @@ class DecentScale implements Scale, TransportHandoffScale {
     }
     _connectionStateController.add(ConnectionState.connecting);
     _stopMaintenance();
+    if (_sleepMode == _DecentScaleSleepMode.awake) {
+      _retainedSleepProfile = null;
+    }
+    final connectionAttempt = ++_connectionAttempt;
+    final attempt = _armProfileEvidence();
 
     try {
       await _waitForNotificationRecovery();
+      if (connectionAttempt != _connectionAttempt) return;
       await _device.connect();
+      if (connectionAttempt != _connectionAttempt) return;
 
       await subscription?.cancel();
-      subscription = _device.connectionState
+      if (connectionAttempt != _connectionAttempt) return;
+      late final StreamSubscription<ConnectionState> transportListener;
+      transportListener = _device.connectionState
           .where((state) => state == ConnectionState.disconnected)
           .listen((_) {
+            if (!identical(subscription, transportListener)) return;
             _log.info("Transport disconnected");
             unawaited(
-              _disconnect(powerOff: false).catchError((
-                Object error,
-                StackTrace stackTrace,
-              ) {
-                _log.severe(
-                  'Failed to tear down disconnected scale transport',
-                  error,
-                  stackTrace,
-                );
-              }),
+              _disconnect(powerOff: false)
+                  .catchError((Object error, StackTrace stackTrace) {
+                    _log.severe(
+                      'Failed to tear down disconnected scale transport',
+                      error,
+                      stackTrace,
+                    );
+                  }),
             );
           });
+      subscription = transportListener;
 
       final services = await _device.discoverServices();
+      if (connectionAttempt != _connectionAttempt) return;
       if (!serviceIdentifier.matchesAny(services)) {
         throw Exception(
           'Expected service ${serviceIdentifier.long} not found. '
           'Discovered services: $services',
         );
       }
-      if (_isSleeping) {
-        await _registerNotifications();
+      if (_sleepMode != _DecentScaleSleepMode.awake) {
+        await _registerNotifications(attempt);
+        if (_sleepMode == _DecentScaleSleepMode.displayOff &&
+            _desiredDisplaySleeping) {
+          final displayOffSent = await _sendDisplayOff();
+          if (connectionAttempt != _connectionAttempt) return;
+          if (!displayOffSent &&
+              _sleepMode == _DecentScaleSleepMode.displayOff &&
+              _desiredDisplaySleeping) {
+            _log.warning(
+              'Decent scale: display-off reassertion failed after reconnect; '
+              'retaining connection',
+            );
+          }
+        }
       } else {
-        await _confirmDataChannel();
+        await _confirmDataChannel(attempt);
+        unawaited(
+          _negotiateProfile(attempt)
+              .catchError((Object error, StackTrace stackTrace) {
+                _log.warning(
+                  'Decent scale: profile negotiation failed',
+                  error,
+                  stackTrace,
+                );
+              }),
+        );
       }
-      _heartbeatTimer?.cancel();
+      if (connectionAttempt != _connectionAttempt) return;
+      _maintenanceTimer?.cancel();
       _notificationWatchdog?.cancel();
       _ticksSinceLastNotification = 0;
       _watchdogRetryAttempted = false;
       _totalNotifications = 0;
-      _heartbeatTotalTicks = 0;
+      _maintenanceTicks = 0;
       _resetNotificationWatchdog();
-      if (isUsingHeartBeat && !await _sendHeartBeat()) {
-        throw const DeviceNotConnectedException.scale();
-      }
       if (await _device.getConnectionState() != ConnectionState.connected) {
         throw const DeviceNotConnectedException.scale();
       }
+      if (connectionAttempt != _connectionAttempt) return;
+      if (attempt != _profileAttempt) return;
       _connectionStateController.add(ConnectionState.connected);
       _startMaintenance();
     } catch (e, stackTrace) {
+      if (connectionAttempt != _connectionAttempt) {
+        Error.throwWithStackTrace(e, stackTrace);
+      }
       _log.warning('Failed to initialize scale: $e');
-      await subscription?.cancel();
-      subscription = null;
+      final ownedSubscription = subscription;
+      if (ownedSubscription != null) {
+        await ownedSubscription.cancel();
+        if (connectionAttempt != _connectionAttempt) {
+          Error.throwWithStackTrace(e, stackTrace);
+        }
+        if (identical(subscription, ownedSubscription)) {
+          subscription = null;
+        }
+      }
+      if (connectionAttempt != _connectionAttempt) {
+        Error.throwWithStackTrace(e, stackTrace);
+      }
       _stopMaintenance();
       try {
         await _device.disconnect();
@@ -190,13 +281,13 @@ class DecentScale implements Scale, TransportHandoffScale {
   }
 
   void _startMaintenance() {
-    final generation = ++_maintenanceGeneration;
+    final generation = _maintenanceGeneration;
     _scheduleMaintenance(generation);
   }
 
   void _scheduleMaintenance(int generation) {
-    _heartbeatTimer?.cancel();
-    _heartbeatTimer = Timer(const Duration(seconds: 4), () {
+    _maintenanceTimer?.cancel();
+    _maintenanceTimer = Timer(const Duration(seconds: 4), () {
       unawaited(_runMaintenance(generation));
     });
   }
@@ -204,11 +295,8 @@ class DecentScale implements Scale, TransportHandoffScale {
   Future<void> _runMaintenance(int generation) async {
     if (!_isCurrentMaintenance(generation)) return;
     try {
-      _heartbeatTotalTicks++;
-      if (_heartbeatTotalTicks.isEven && !_isSleeping) {
-        await _requestBatteryData();
-      }
-      if (!_isSleeping) {
+      _maintenanceTicks++;
+      if (_sleepMode != _DecentScaleSleepMode.softSleep) {
         _ticksSinceLastNotification++;
         if (_ticksSinceLastNotification >= _watchdogDisconnectTicks) {
           await _disconnect(powerOff: false);
@@ -220,7 +308,6 @@ class DecentScale implements Scale, TransportHandoffScale {
           await _retryNotifications();
         }
       }
-      await _sendHeartBeat();
     } on TimeoutException catch (error) {
       _log.warning('Scale maintenance timed out: $error');
     } catch (error, stackTrace) {
@@ -239,39 +326,135 @@ class DecentScale implements Scale, TransportHandoffScale {
 
   void _stopMaintenance() {
     _maintenanceGeneration++;
-    _heartbeatTimer?.cancel();
-    _heartbeatTimer = null;
+    _maintenanceTimer?.cancel();
+    _maintenanceTimer = null;
     _notificationWatchdog?.cancel();
     _notificationWatchdog = null;
   }
 
-  Future<bool> _confirmDataChannel({bool Function()? isCurrent}) async {
-    bool current() => isCurrent?.call() ?? true;
+  int _armProfileEvidence() {
+    final attempt = ++_profileAttempt;
+    _profile = DecentScaleProfile.conservative;
+    _statusResponseSeen = false;
+    _statusFirmwareMarker = null;
+    _hdsFirmwareVersion = null;
+    _sawTimestampedWeightFrame = false;
+    _voltageProbeAccepted = false;
+    _statusEvidence = Completer<void>();
+    _voltageEvidence = Completer<void>();
+    _log.info(
+      'Decent scale: initial profile=${_profile.identity.name} '
+      'capabilities=${_profile.capabilities.labels.join(',')}',
+    );
+    return attempt;
+  }
+
+  void _applyProfileEvidence() {
+    _profile = DecentScaleProfile.fromEvidence(
+      statusResponseSeen: _statusResponseSeen,
+      sawTimestampedWeightFrame: _sawTimestampedWeightFrame,
+      voltageProbeAccepted: _voltageProbeAccepted,
+      originalFirmwareMarker: _statusFirmwareMarker,
+      hdsFirmwareVersion: _hdsFirmwareVersion,
+    );
+  }
+
+  bool _isCurrentProfileAttempt(int attempt) =>
+      attempt == _profileAttempt &&
+      _sleepMode != _DecentScaleSleepMode.softSleep &&
+      !_isDisconnecting &&
+      _connectionStateController.value != ConnectionState.disconnected;
+
+  Future<void> _negotiateProfile(int attempt) async {
+    _log.info('Decent scale: profile negotiation started');
+    final statusSeen = await _awaitStatusEvidence();
+    if (!_isCurrentProfileAttempt(attempt)) return;
+    _statusResponseSeen = statusSeen;
+    _applyProfileEvidence();
+    final voltageAccepted = await _probeHdsCapabilities(attempt);
+    if (!_isCurrentProfileAttempt(attempt)) return;
+    _voltageProbeAccepted = _voltageProbeAccepted || voltageAccepted;
+    _applyProfileEvidence();
+    _retainedSleepProfile = null;
+    _log.info(
+      'Decent scale: profile=${_profile.identity.name} '
+      'capabilities=${_profile.capabilities.labels.join(',')}',
+    );
+    if (_profile.capabilities.supportsSoftSleep) {
+      if (_sleepMode == _DecentScaleSleepMode.awake) {
+        await _exitSoftSleep();
+      }
+    } else {
+      _log.info('Decent scale: SoftSleep withheld (capability not detected)');
+    }
+    _completedNegotiations++;
+  }
+
+  Future<bool> _awaitStatusEvidence() async {
+    final evidence = _statusEvidence;
+    if (evidence == null) return false;
+    try {
+      await evidence.future.timeout(_profileProbeTimeout);
+      return _statusResponseSeen;
+    } on TimeoutException {
+      _log.info('Decent scale: status probe: no response');
+      return false;
+    }
+  }
+
+  Future<bool> _probeHdsCapabilities(int attempt) async {
+    final evidence = _voltageEvidence;
+    if (evidence == null || !_isCurrentProfileAttempt(attempt)) {
+      return _voltageProbeAccepted;
+    }
+    final sent = await _writeNonEssentialCommand([
+      0x22,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+    ], timeout: _profileProbeTimeout);
+    if (!_isCurrentProfileAttempt(attempt) || !sent) {
+      _log.info('Decent scale: HDS voltage probe: no response');
+      return _voltageProbeAccepted;
+    }
+    try {
+      await evidence.future.timeout(_profileProbeTimeout);
+      _log.info('Decent scale: HDS voltage probe accepted');
+    } on TimeoutException {
+      _log.info('Decent scale: HDS voltage probe: no response');
+    }
+    return _voltageProbeAccepted;
+  }
+
+  Future<bool> _confirmDataChannel(
+    int attempt, {
+    bool Function()? isCurrent,
+  }) async {
+    if (attempt != _profileAttempt) return false;
+    bool current() => attempt == _profileAttempt && (isCurrent?.call() ?? true);
     final firstNotification = Completer<void>();
     _initializationNotification = firstNotification;
     try {
-      for (var attempt = 0; attempt < 2; attempt++) {
-        if (attempt == 0) {
-          await _registerNotifications();
+      for (var retry = 0; retry < 2; retry++) {
+        if (retry == 0) {
+          await _registerNotifications(attempt);
         } else {
           await _device.resetSubscription(
             serviceIdentifier.long,
             dataCharacteristic.long,
-            _parseNotification,
+            (data) => _parseNotification(data, attempt),
           );
         }
         if (!current()) return false;
-        final requestSent = await _sendOledOn(isCurrent: current);
+        await _sendLedOnAndRequestStatus(isCurrent: current);
         if (!current()) return false;
-        if (!requestSent) {
-          throw const DeviceNotConnectedException.scale();
-        }
         try {
           await firstNotification.future.timeout(_initializationProbeTimeout);
           return current();
         } on TimeoutException {
           if (!current()) return false;
-          if (attempt == 1) {
+          if (retry == 1) {
             await _readSilentDataChannelDiagnostic();
             rethrow;
           }
@@ -304,17 +487,38 @@ class DecentScale implements Scale, TransportHandoffScale {
   bool _isDisconnecting = false;
 
   @override
-  disconnect() async => _disconnect(powerOff: true);
+  disconnect() {
+    _resetSleepMode();
+    return _disconnect(powerOff: true);
+  }
 
   @override
-  Future<void> disconnectForHandoff() => _disconnect(powerOff: false);
+  Future<void> disconnectForHandoff() {
+    _resetSleepMode();
+    return _disconnect(powerOff: false);
+  }
+
+  void _resetSleepMode() {
+    _sleepMode = _DecentScaleSleepMode.awake;
+    _softSleepExitRequired = false;
+    _sleepConnectionAttempt = null;
+    _desiredDisplaySleeping = false;
+  }
+
+  bool get _supportsPowerOffForSleepLifecycle =>
+      _profile.capabilities.supportsPowerOff ||
+      (_retainedSleepProfile?.capabilities.supportsPowerOff ?? false);
+
+  bool get _supportsSoftSleepForSleepLifecycle =>
+      _profile.capabilities.supportsSoftSleep ||
+      (_retainedSleepProfile?.capabilities.supportsSoftSleep ?? false);
 
   Future<void> _disconnect({required bool powerOff}) async {
     if (_isDisconnecting) {
       return;
     }
     _isDisconnecting = true;
-    final uptimeSec = _heartbeatTotalTicks * 4;
+    final uptimeSec = _maintenanceTicks * 4;
     _log.info(
       "disconnecting (notifications=$_totalNotifications, "
       "uptime=${uptimeSec}s, powerOff=$powerOff)",
@@ -323,12 +527,14 @@ class DecentScale implements Scale, TransportHandoffScale {
     subscription = null;
     activeSubscription?.cancel();
     _stopMaintenance();
-    if (powerOff) {
+    if (powerOff && _supportsPowerOffForSleepLifecycle) {
       try {
         await _sendPowerOff().timeout(const Duration(seconds: 2));
       } catch (e) {
         _log.fine('power-off write skipped (device likely already off): $e');
       }
+    } else if (powerOff) {
+      _log.info('Decent scale: power-off withheld (capability not detected)');
     }
     try {
       await _device.disconnect();
@@ -340,73 +546,83 @@ class DecentScale implements Scale, TransportHandoffScale {
 
   @override
   Future<void> tare() async {
-    await _writeRequiredCommand([0x0F, 0x00, 0x00, 0x00, 0x01]);
+    final counter = _tareCounter;
+    _tareCounter = (_tareCounter + 1) & 0xFF;
+    await _writeRequiredCommand([0x0F, counter, 0x00, 0x00, 0x00]);
   }
 
-  Future<bool> _sendHeartBeat() async {
-    if (!isUsingHeartBeat) {
-      return true;
-    }
-    _log.finest("send hb");
-    try {
-      final sent = await _writeCommand(
-        [0x0A, 0x03, 0xFF, 0xFF, 0x00],
-        timeout: const Duration(seconds: 2),
-        withResponse: true,
-      );
-      if (!sent) {
-        await _disconnect(powerOff: false);
-      }
-      return sent;
-    } catch (e) {
-      _log.warning('Heartbeat write failed (transient): $e');
-      return true;
-    }
-  }
-
-  Future<bool> _requestBatteryData() async {
-    final heartbeatByte = isUsingHeartBeat ? 0x01 : 0x00;
-    return _writeCommand([0x0A, 0x01, 0x01, 0x00, heartbeatByte]);
-  }
-
-  Future<bool> _sendOledOn({bool Function()? isCurrent}) async {
+  Future<bool> _sendLedOnAndRequestStatus({bool Function()? isCurrent}) async {
     if (isCurrent?.call() == false) return false;
-    final heartbeatByte = isUsingHeartBeat ? 0x01 : 0x00;
-    if (!await _requestBatteryData()) {
-      return false;
+    final sent = await _writeNonEssentialCommand([
+      0x0A,
+      0x01,
+      0x01,
+      0x00,
+      0x00,
+    ]);
+    if (!sent &&
+        await _device.getConnectionState() != ConnectionState.connected) {
+      throw const DeviceNotConnectedException.scale();
     }
-    await Future.delayed(Duration(milliseconds: 100));
-    if (isCurrent?.call() == false) return false;
-    return _writeCommand([0x0A, 0x04, 0x00, 0x00, heartbeatByte]);
+    return sent;
   }
 
-  Future<void> _sendOledOff() async {
-    await _writeCommand([0x0A, 0x04, 0x01, 0x00, 0x01]);
-    await Future.delayed(Duration(milliseconds: 100));
-    await _writeCommand([0x0A, 0x00, 0x01, 0x00, 0x01]);
-  }
+  Future<bool> _sendDisplayOff() =>
+      _writeNonEssentialCommand([0x0A, 0x00, 0x00, 0x00, 0x00]);
 
-  bool _isSleeping = false;
+  Future<bool> _enterSoftSleep() =>
+      _writeNonEssentialCommand([0x0A, 0x04, 0x01, 0x00, 0x00]);
+
+  Future<bool> _exitSoftSleep() =>
+      _writeNonEssentialCommand([0x0A, 0x04, 0x00, 0x00, 0x00]);
+
+  _DecentScaleSleepMode _sleepMode = _DecentScaleSleepMode.awake;
+  bool _softSleepExitRequired = false;
+  int? _sleepConnectionAttempt;
+
+  static const int _softSleepExitAttempts = 2;
+  static const Duration _softSleepExitRetryDelay = Duration(milliseconds: 200);
 
   @override
   Future<void> sleepDisplay() async {
     _desiredDisplaySleeping = true;
-    _displayGeneration++;
-    _isSleeping = true;
-    _notificationWatchdog?.cancel();
-    _log.info('Putting Decent Scale display to sleep');
-    await _sendOledOff();
+    final generation = ++_displayGeneration;
+    if (_sleepMode == _DecentScaleSleepMode.awake) {
+      _retainedSleepProfile = _profile;
+    }
+    _sleepConnectionAttempt = _connectionAttempt;
+    if (_supportsSoftSleepForSleepLifecycle) {
+      _sleepMode = _DecentScaleSleepMode.softSleep;
+      _softSleepExitRequired = true;
+      _notificationWatchdog?.cancel();
+      _log.info('Decent scale: entering HDS SoftSleep');
+      if (await _enterSoftSleep()) return;
+      if (_displayGeneration != generation) return;
+      _log.warning(
+        'Decent scale: HDS SoftSleep failed, falling back to display off',
+      );
+    }
+    _sleepMode = _DecentScaleSleepMode.displayOff;
+    _log.info('Decent scale: display off (connection retained)');
+    final displayOffSent = await _sendDisplayOff();
+    if (_displayGeneration != generation) return;
+    if (!displayOffSent) {
+      _log.warning(
+        'Decent scale: display-off write failed; retaining connection',
+      );
+    }
+    _resetNotificationWatchdog();
   }
 
   Future<void> _sendPowerOff() async {
     _log.info("sending power off");
-    await _writeCommand([
+    await _writeNonEssentialCommand([
       0x0A,
       0x02,
       0x00,
       0x00,
       0x00,
-    ], timeout: Duration(seconds: 10));
+    ], timeout: const Duration(seconds: 10));
   }
 
   @override
@@ -420,28 +636,174 @@ class DecentScale implements Scale, TransportHandoffScale {
     try {
       while (!_desiredDisplaySleeping) {
         final generation = _displayGeneration;
-        _isSleeping = false;
+        bool current() =>
+            generation == _displayGeneration && !_desiredDisplaySleeping;
+        final wasAsleep = _sleepMode != _DecentScaleSleepMode.awake;
+        final wasSoftSleep = _sleepMode == _DecentScaleSleepMode.softSleep;
+        final mustExitSoftSleep = wasSoftSleep || _softSleepExitRequired;
+        final reconnected =
+            wasAsleep && _sleepConnectionAttempt != _connectionAttempt;
+        final sleepConnectionAttempt = _sleepConnectionAttempt;
+        _sleepMode = _DecentScaleSleepMode.awake;
+        _sleepConnectionAttempt = null;
         _notificationWatchdog?.cancel();
         try {
-          final confirmed = await _confirmDataChannel(
-            isCurrent: () =>
-                generation == _displayGeneration && !_desiredDisplaySleeping,
-          );
-          if (!confirmed) continue;
+          if (reconnected) {
+            final attempt = _profileAttempt;
+            if (mustExitSoftSleep) {
+              if (!await _ensureSoftSleepExited(
+                generation,
+                confirmApplied: () => _confirmSoftSleepWakeApplied(
+                  generation,
+                  requestStatus: () =>
+                      _confirmDataChannel(attempt, isCurrent: current),
+                ),
+              )) {
+                if (_desiredDisplaySleeping) return;
+                if (generation != _displayGeneration) continue;
+                return;
+              }
+            } else {
+              final confirmed = await _confirmDataChannel(
+                attempt,
+                isCurrent: current,
+              );
+              if (!confirmed) {
+                if (_desiredDisplaySleeping) return;
+                continue;
+              }
+            }
+            if (!current()) {
+              if (_desiredDisplaySleeping) return;
+              continue;
+            }
+            unawaited(
+              _negotiateProfile(attempt)
+                  .catchError((Object error, StackTrace stackTrace) {
+                    _log.warning(
+                      'Decent scale: profile negotiation failed',
+                      error,
+                      stackTrace,
+                    );
+                  }),
+            );
+          } else {
+            if (mustExitSoftSleep) {
+              if (!await _ensureSoftSleepExited(
+                generation,
+                confirmApplied: () => _confirmSoftSleepWakeApplied(
+                  generation,
+                  requestStatus: () =>
+                      _sendLedOnAndRequestStatus(isCurrent: current),
+                ),
+              )) {
+                if (_desiredDisplaySleeping) return;
+                if (generation != _displayGeneration) continue;
+                return;
+              }
+            } else {
+              await _sendLedOnAndRequestStatus(isCurrent: current);
+            }
+          }
+          if (!current()) {
+            if (_desiredDisplaySleeping) return;
+            continue;
+          }
           _ticksSinceLastNotification = 0;
           _watchdogRetryAttempted = false;
           _resetNotificationWatchdog();
           return;
-        } catch (_) {
+        } catch (error) {
           if (generation == _displayGeneration && !_desiredDisplaySleeping) {
-            await _disconnect(powerOff: false);
+            if (error is _SoftSleepExitException) {
+              _sleepConnectionAttempt = sleepConnectionAttempt;
+            } else {
+              await _disconnect(powerOff: false);
+            }
             rethrow;
           }
+          if (_desiredDisplaySleeping) return;
         }
       }
     } finally {
       _displayOperation = null;
     }
+  }
+
+  Future<bool> _confirmSoftSleepWakeApplied(
+    int generation, {
+    required Future<bool> Function() requestStatus,
+  }) async {
+    bool current() =>
+        generation == _displayGeneration && !_desiredDisplaySleeping;
+    if (!current()) return false;
+    final evidence = Completer<void>();
+    _wakeStatusEvidence = evidence;
+    try {
+      bool requested;
+      try {
+        requested = await requestStatus();
+      } on TimeoutException {
+        if (current()) {
+          _log.warning('Decent scale: SoftSleep wake status request timed out');
+        }
+        return false;
+      }
+      if (!requested || !current()) return false;
+      try {
+        await evidence.future.timeout(_initializationProbeTimeout);
+        return current();
+      } on TimeoutException {
+        if (current()) {
+          _log.warning(
+            'Decent scale: SoftSleep exit write completed but no post-wake '
+            'status response was observed',
+          );
+        }
+        return false;
+      }
+    } finally {
+      if (identical(_wakeStatusEvidence, evidence)) {
+        _wakeStatusEvidence = null;
+      }
+    }
+  }
+
+  Future<bool> _attemptSoftSleepExit(int generation) async {
+    final exited = await _exitSoftSleep();
+    return exited &&
+        generation == _displayGeneration &&
+        !_desiredDisplaySleeping;
+  }
+
+  Future<bool> _ensureSoftSleepExited(
+    int generation, {
+    required Future<bool> Function() confirmApplied,
+  }) async {
+    for (var attempt = 0; attempt < _softSleepExitAttempts; attempt++) {
+      if (generation != _displayGeneration || _desiredDisplaySleeping) {
+        return false;
+      }
+      if (await _attemptSoftSleepExit(generation) && await confirmApplied()) {
+        if (generation != _displayGeneration || _desiredDisplaySleeping) {
+          return false;
+        }
+        _softSleepExitRequired = false;
+        return true;
+      }
+      if (attempt + 1 < _softSleepExitAttempts) {
+        await Future<void>.delayed(_softSleepExitRetryDelay);
+      }
+    }
+    if (generation != _displayGeneration || _desiredDisplaySleeping) {
+      return false;
+    }
+    _sleepMode = _DecentScaleSleepMode.softSleep;
+    _log.warning(
+      'Decent scale: SoftSleep exit was not confirmed after '
+      '$_softSleepExitAttempts attempts',
+    );
+    throw const _SoftSleepExitException();
   }
 
   bool _timerCommandInFlight = false;
@@ -479,9 +841,10 @@ class DecentScale implements Scale, TransportHandoffScale {
     }
   }
 
-  Future<void> _registerNotifications() async {
+  Future<void> _registerNotifications(int attempt) async {
     await _waitForNotificationRecovery();
-    await _subscribeNotifications();
+    if (attempt != _profileAttempt) return;
+    await _subscribeNotifications(attempt);
   }
 
   Future<void> _waitForNotificationRecovery() async {
@@ -493,17 +856,17 @@ class DecentScale implements Scale, TransportHandoffScale {
     }
   }
 
-  Future<void> _subscribeNotifications() async {
+  Future<void> _subscribeNotifications(int attempt) async {
     await _device.subscribe(
       serviceIdentifier.long,
       dataCharacteristic.long,
-      _parseNotification,
+      (data) => _parseNotification(data, attempt),
     );
   }
 
   Future<void> _retryNotifications() async {
     if (_notificationRecovery != null || _isDisconnecting) return;
-    final operation = _subscribeNotifications();
+    final operation = _subscribeNotifications(_profileAttempt);
     _notificationRecovery = operation;
     try {
       await operation;
@@ -518,7 +881,7 @@ class DecentScale implements Scale, TransportHandoffScale {
 
   void _resetNotificationWatchdog() {
     _notificationWatchdog?.cancel();
-    if (!_isSleeping && !_isDisconnecting) {
+    if (_sleepMode != _DecentScaleSleepMode.softSleep && !_isDisconnecting) {
       _notificationWatchdog = Timer(_notificationWatchdogTimeout, () {
         _log.warning(
           'No BLE notifications for ${_notificationWatchdogTimeout.inMilliseconds}ms '
@@ -529,7 +892,8 @@ class DecentScale implements Scale, TransportHandoffScale {
     }
   }
 
-  void _parseNotification(List<int> data) {
+  void _parseNotification(List<int> data, int attempt) {
+    if (attempt != _profileAttempt) return;
     final frameType = _dataFrameType(data);
     if (frameType == null) return;
     if (!(_initializationNotification?.isCompleted ?? true)) {
@@ -541,11 +905,21 @@ class DecentScale implements Scale, TransportHandoffScale {
     _resetNotificationWatchdog();
     _log.finest("$hashCode recv: ${data[1].toHex()}");
     if (frameType == 'weight') {
+      _recordWeightFrame(data, attempt);
       _parseWeight(data);
+    } else if (frameType == 'status') {
+      _recordStatusFrame(data, attempt);
     } else {
-      _parseStatusResponse(data);
+      _recordVoltageFrame(data, attempt);
     }
   }
+
+  static String? _originalFirmwareVersion(int marker) => switch (marker) {
+    0xFE => '1.0',
+    0x02 => '1.1',
+    0x03 => '1.2',
+    _ => null,
+  };
 
   static String? _dataFrameType(List<int> data) {
     if (data.length < 2 || data[0] != 0x03) return null;
@@ -555,6 +929,7 @@ class DecentScale implements Scale, TransportHandoffScale {
       return 'weight';
     }
     if (command == 0x0A && data.length == 7) return 'status';
+    if (command == 0x22 && data.length == 7) return 'voltage';
     return null;
   }
 
@@ -571,9 +946,65 @@ class DecentScale implements Scale, TransportHandoffScale {
   }
 
   int _batteryLevel = 100;
-  void _parseStatusResponse(List<int> data) {
-    final level = data[4];
-    _log.fine("status response: ${data.map((e) => e.toRadixString(16))}");
-    _batteryLevel = min(level, 100);
+
+  void _recordWeightFrame(List<int> data, int attempt) {
+    if (!_isCurrentProfileAttempt(attempt)) return;
+    final frame = parseDecentWeightFrame(data);
+    if (frame?.timestamped == true) {
+      _sawTimestampedWeightFrame = true;
+      _applyProfileEvidence();
+    }
   }
+
+  void _recordStatusFrame(List<int> data, int attempt) {
+    if (!_isCurrentProfileAttempt(attempt)) return;
+    final frame = parseDecentStatusFrame(data);
+    if (frame == null) return;
+    if (!(_wakeStatusEvidence?.isCompleted ?? true)) {
+      _wakeStatusEvidence!.complete();
+    }
+    _statusResponseSeen = true;
+    _statusFirmwareMarker = frame.originalFirmwareMarker;
+    _hdsFirmwareVersion = frame.hdsFirmwareVersion;
+    _batteryLevel = min(frame.batteryLevel, 100);
+    _applyProfileEvidence();
+    final marker = frame.originalFirmwareMarker
+        .toRadixString(16)
+        .padLeft(2, '0');
+    final originalVersion = _originalFirmwareVersion(
+      frame.originalFirmwareMarker,
+    );
+    final evidence = originalVersion == null
+        ? 'original-fw=0x$marker'
+        : 'original-fw=0x$marker fw=$originalVersion';
+    final hdsVersion = frame.hdsFirmwareVersion;
+    _log.info(
+      'status response: $evidence'
+      '${hdsVersion == null ? '' : ' hds-fw=$hdsVersion'}',
+    );
+    if (!(_statusEvidence?.isCompleted ?? true)) {
+      _statusEvidence!.complete();
+    }
+  }
+
+  void _recordVoltageFrame(List<int> data, int attempt) {
+    if (!_isCurrentProfileAttempt(attempt)) return;
+    final frame = parseDecentVoltageFrame(data);
+    if (frame == null) return;
+    _voltageProbeAccepted = true;
+    _applyProfileEvidence();
+    _log.fine('voltage response: ${frame.voltage}');
+    if (!(_voltageEvidence?.isCompleted ?? true)) {
+      _voltageEvidence!.complete();
+    }
+  }
+}
+
+enum _DecentScaleSleepMode { awake, displayOff, softSleep }
+
+class _SoftSleepExitException implements Exception {
+  const _SoftSleepExitException();
+
+  @override
+  String toString() => 'Decent scale SoftSleep exit was not acknowledged';
 }

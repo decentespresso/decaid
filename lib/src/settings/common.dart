@@ -73,9 +73,8 @@ class InfoRow extends StatelessWidget {
         Expanded(
           child: Text(
             value,
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(fontFamily: 'monospace'),
+            style: Theme.of(context).textTheme.bodyMedium
+                ?.copyWith(fontFamily: 'monospace'),
           ),
         ),
       ],

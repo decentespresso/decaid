@@ -190,9 +190,9 @@ void main() {
         'profile': profileWithoutMetadata(),
         'metadata': {'source': 'import'},
       });
-      final created =
-          jsonDecode(await createResponse.readAsString())
-              as Map<String, dynamic>;
+      final created = jsonDecode(
+        await createResponse.readAsString(),
+      ) as Map<String, dynamic>;
       final id = created['id'] as String;
 
       final preserved = await putProfile(id, {});
@@ -215,9 +215,9 @@ void main() {
       final createResponse = await postProfile({
         'profile': profileWithoutMetadata(),
       });
-      final created =
-          jsonDecode(await createResponse.readAsString())
-              as Map<String, dynamic>;
+      final created = jsonDecode(
+        await createResponse.readAsString(),
+      ) as Map<String, dynamic>;
 
       final response = await putProfile(created['id'] as String, {
         'profile': null,

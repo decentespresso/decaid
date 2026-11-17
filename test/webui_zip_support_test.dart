@@ -134,9 +134,8 @@ void main() {
       expect(sanitised.existsSync(), isTrue);
       expect(jsonDecode(sanitised.readAsStringSync()), {'ok': true});
       expect(
-        File(
-          p.join(tempDir.path, 'shots', '2025-09-12T16:04:38.049213.json'),
-        ).existsSync(),
+        File(p.join(tempDir.path, 'shots', '2025-09-12T16:04:38.049213.json'))
+            .existsSync(),
         isFalse,
       );
     });

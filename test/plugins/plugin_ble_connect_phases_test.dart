@@ -322,18 +322,13 @@ void main() {
       await loadFelicitaPlugin(manager);
       final evidence = BleAdvertisementEvidence(name: 'Felicita Arc');
       final transport = FelicitaPluginTransport('AA:BB');
-      final scale =
-          await manager.bleService.createCandidate(
-                driver: manager.bleService.registry
-                    .decide(evidence)
-                    .drivers
-                    .single,
-                physicalId: 'AA:BB',
-                evidence: evidence,
-                admit: () => true,
-                createTransport: () => transport,
-              )
-              as Scale;
+      final scale = await manager.bleService.createCandidate(
+        driver: manager.bleService.registry.decide(evidence).drivers.single,
+        physicalId: 'AA:BB',
+        evidence: evidence,
+        admit: () => true,
+        createTransport: () => transport,
+      ) as Scale;
 
       final outcome = await scale.onConnect().then<Object?>(
         (_) => null,
@@ -369,18 +364,13 @@ void main() {
       );
       final evidence = BleAdvertisementEvidence(name: 'stall device');
       final transport = FelicitaPluginTransport('AA:BB');
-      final scale =
-          await manager.bleService.createCandidate(
-                driver: manager.bleService.registry
-                    .decide(evidence)
-                    .drivers
-                    .single,
-                physicalId: 'AA:BB',
-                evidence: evidence,
-                admit: () => true,
-                createTransport: () => transport,
-              )
-              as Scale;
+      final scale = await manager.bleService.createCandidate(
+        driver: manager.bleService.registry.decide(evidence).drivers.single,
+        physicalId: 'AA:BB',
+        evidence: evidence,
+        admit: () => true,
+        createTransport: () => transport,
+      ) as Scale;
 
       final outcome = await scale.onConnect().then<Object?>(
         (_) => null,
@@ -414,18 +404,13 @@ void main() {
         connectFailure: BleConnectException(code: '133'),
       );
       final evidence = BleAdvertisementEvidence(name: 'Felicita Arc');
-      final scale =
-          await manager.bleService.createCandidate(
-                driver: manager.bleService.registry
-                    .decide(evidence)
-                    .drivers
-                    .single,
-                physicalId: 'AA:BB',
-                evidence: evidence,
-                admit: () => true,
-                createTransport: () => transport,
-              )
-              as Scale;
+      final scale = await manager.bleService.createCandidate(
+        driver: manager.bleService.registry.decide(evidence).drivers.single,
+        physicalId: 'AA:BB',
+        evidence: evidence,
+        admit: () => true,
+        createTransport: () => transport,
+      ) as Scale;
 
       final outcome = await scale.onConnect().then<Object?>(
         (_) => null,
@@ -460,18 +445,13 @@ void main() {
       connectBlocker: acquisition,
     );
     final evidence = BleAdvertisementEvidence(name: 'Felicita Arc');
-    final scale =
-        await manager.bleService.createCandidate(
-              driver: manager.bleService.registry
-                  .decide(evidence)
-                  .drivers
-                  .single,
-              physicalId: 'AA:BB',
-              evidence: evidence,
-              admit: () => true,
-              createTransport: () => transport,
-            )
-            as Scale;
+    final scale = await manager.bleService.createCandidate(
+      driver: manager.bleService.registry.decide(evidence).drivers.single,
+      physicalId: 'AA:BB',
+      evidence: evidence,
+      admit: () => true,
+      createTransport: () => transport,
+    ) as Scale;
     final seen = <ConnectionState>[];
     final subscription = scale.connectionState.listen(seen.add);
     addTearDown(subscription.cancel);
@@ -504,18 +484,13 @@ void main() {
     await loadFelicitaPlugin(manager);
     final transport = FelicitaPluginTransport('AA:BB');
     final evidence = BleAdvertisementEvidence(name: 'Felicita Arc');
-    final scale =
-        await manager.bleService.createCandidate(
-              driver: manager.bleService.registry
-                  .decide(evidence)
-                  .drivers
-                  .single,
-              physicalId: 'AA:BB',
-              evidence: evidence,
-              admit: () => true,
-              createTransport: () => transport,
-            )
-            as Scale;
+    final scale = await manager.bleService.createCandidate(
+      driver: manager.bleService.registry.decide(evidence).drivers.single,
+      physicalId: 'AA:BB',
+      evidence: evidence,
+      admit: () => true,
+      createTransport: () => transport,
+    ) as Scale;
     final seen = <ConnectionState>[];
     final subscription = scale.connectionState.listen(seen.add);
     addTearDown(subscription.cancel);

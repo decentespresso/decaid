@@ -25,8 +25,10 @@ import 'package:reaprime/src/controllers/hot_water_sequencer.dart';
 import 'package:reaprime/src/controllers/steam_sequencer.dart';
 import 'package:reaprime/src/controllers/connection_error.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
+import 'package:reaprime/src/controllers/auxiliary_scale_registry.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
+import 'package:reaprime/src/controllers/grinder_controller.dart';
 import 'package:reaprime/src/controllers/remembered_device_sources.dart';
 import 'package:reaprime/src/controllers/remembered_devices_controller.dart';
 import 'package:reaprime/src/controllers/display_controller.dart';
@@ -43,7 +45,9 @@ import 'package:reaprime/src/models/device/simulated_device.dart';
 import 'package:reaprime/src/plugins/plugin_device_service.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/plugins/plugin_source_service.dart';
-import 'package:reaprime/src/services/android_updater.dart';
+import 'package:reaprime/src/notifications/notification_center.dart';
+import 'package:reaprime/src/services/github_credentials.dart';
+import 'package:reaprime/src/services/github_rate_limit.dart';
 import 'package:reaprime/src/services/wifi/wifi_scale_discovery_service.dart';
 import 'package:reaprime/src/services/database/database.dart' hide Workflow;
 import 'package:reaprime/src/models/data/shot_record.dart' as domain;
@@ -52,6 +56,7 @@ import 'package:reaprime/src/services/database/mappers/steam_mapper.dart';
 import 'package:reaprime/src/services/database/mappers/bean_mapper.dart';
 import 'package:reaprime/src/services/database/mappers/grinder_mapper.dart';
 import 'package:reaprime/src/services/storage/app_directories.dart';
+import 'package:reaprime/src/services/storage/windows_preferences.dart';
 import 'package:reaprime/src/services/storage/drift_bean_storage.dart';
 import 'package:reaprime/src/services/storage/drift_grinder_storage.dart';
 import 'package:reaprime/src/services/storage/drift_profile_storage.dart';
@@ -67,11 +72,14 @@ import 'package:reaprime/src/services/account/proxy_token_service.dart';
 import 'package:reaprime/src/services/account/proxy_token_store.dart';
 import 'package:reaprime/src/controllers/account_tokens_controller.dart';
 import 'package:reaprime/src/services/account/credential_store_factory.dart';
+import 'package:reaprime/src/services/account/development_identity.dart';
 import 'package:reaprime/src/services/app_log_upload_service.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'package:reaprime/src/services/storage/hive_store_service.dart';
 import 'package:reaprime/src/database_failure_view.dart';
+import 'package:reaprime/src/services/export/support_package.dart';
+import 'package:reaprime/src/services/storage/database_recovery.dart';
 import 'package:reaprime/src/services/universal_ble_discovery_service.dart';
 import 'package:reaprime/src/services/simulated_device_service.dart';
 import 'package:reaprime/src/services/webserver/data_export/backup_data_sources.dart';
@@ -83,7 +91,6 @@ import 'package:reaprime/src/services/update_check_service.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:reaprime/src/cli/cli_args.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'package:reaprime/src/controllers/scan_state_guardian.dart';
@@ -92,9 +99,9 @@ import 'src/app.dart';
 import 'src/launcher/launcher_view.dart';
 import 'src/services/foreground_service.dart';
 import 'src/services/network/multicast_lock_service.dart';
+import 'src/settings/machine_settings_store.dart';
 import 'src/settings/settings_controller.dart';
 import 'src/settings/settings_service.dart';
-import 'src/settings/update_dialog.dart';
 import 'src/services/serial/serial_service.dart';
 
 import 'package:firebase_core/firebase_core.dart';
@@ -238,9 +245,27 @@ Future<void> persistSkinPortAssignments(Map<String, int> assignments) async {
   );
 }
 
+Future<void> prepareShotUploadStartup(
+  SettingsController settings, {
+  required bool forceOnboarding,
+  required bool bypassOnboarding,
+}) async {
+  if (!settings.shotUploadStepSeen &&
+      await persistedShotUploadAutoUploadEnabled()) {
+    await settings.setShotUploadStepSeen(true);
+  }
+  if (bypassOnboarding && !forceOnboarding) {
+    await settings.setShotUploadStepSeen(true);
+  }
+  if (forceOnboarding) {
+    await settings.setShotUploadStepSeen(false);
+  }
+}
+
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
-  final cliArgs = parseCliArgs(args);
+  if (Platform.isWindows) await initializeWindowsPreferences();
+  final cliArgs = parseCliArgs(args, environment: Platform.environment);
   if (cliArgs.printStoragePaths) {
     await _printStoragePaths();
   }
@@ -277,9 +302,8 @@ void main(List<String> args) async {
   final logDir = await AppDirectories.logs;
   await Directory(logDir).create(recursive: true);
 
-  RotatingFileAppender(
-    baseFilePath: '$logDir/log.txt',
-  ).attachToLogger(Logger.root);
+  RotatingFileAppender(baseFilePath: '$logDir/log.txt')
+      .attachToLogger(Logger.root);
 
   final webViewLogService = WebViewLogService(logDirectoryPath: logDir);
   await webViewLogService.initialize();
@@ -375,17 +399,22 @@ void main(List<String> args) async {
       DatabaseFailureApp(
         logFilePath: '$logDir/log.txt',
         detail: databaseStartupError.runtimeType.toString(),
+        onSavePackage: (resolveShareOrigin) =>
+            saveSupportPackage(sharePositionOrigin: resolveShareOrigin),
+        onResetDatabase: () async =>
+            (await DatabaseReset.fromAppDirectories()).run(),
       ),
     );
     return;
   }
 
-  final persistenceController = PersistenceController(
-    storageService: DriftStorageService(appDatabase),
-  );
-
   final beanStorage = DriftBeanStorageService(appDatabase);
   final grinderStorage = DriftGrinderStorageService(appDatabase);
+
+  final persistenceController = PersistenceController(
+    storageService: DriftStorageService(appDatabase),
+    grinderStorageService: grinderStorage,
+  );
   final profileStorage = DriftProfileStorageService(appDatabase);
 
   final WorkflowController workflowController = WorkflowController();
@@ -408,9 +437,14 @@ void main(List<String> args) async {
 
   final deviceController = DeviceController(services);
   deviceController.telemetryService = telemetryService;
-  final de1Controller = De1Controller(controller: deviceController)
-    ..defaultWorkflow = workflowController.currentWorkflow;
+  final machineSettings = SharedPreferencesMachineSettingsStore();
+  final de1Controller = De1Controller(
+    controller: deviceController,
+    machineSettings: machineSettings,
+  )..defaultWorkflow = workflowController.currentWorkflow;
   final scaleController = ScaleController();
+  final grinderController = GrinderController();
+  final auxiliaryScaleRegistry = AuxiliaryScaleRegistry();
   final sensorController = SensorController(controller: deviceController);
 
   final rememberedDevicesController = RememberedDevicesController(
@@ -427,6 +461,8 @@ void main(List<String> args) async {
     deviceScanner: deviceController,
     de1Controller: de1Controller,
     scaleController: scaleController,
+    grinderController: grinderController,
+    auxiliaryScaleRegistry: auxiliaryScaleRegistry,
     settingsController: settingsController,
     rememberedDevices: rememberedDevicesController,
   );
@@ -490,7 +526,22 @@ void main(List<String> args) async {
     loadSkinPortAssignments: loadPersistedSkinPortAssignments,
     saveSkinPortAssignments: persistSkinPortAssignments,
   );
-  final WebUIStorage webUIStorage = WebUIStorage(settingsController);
+  final githubCredentials = GithubCredentialProvider();
+  if (!cliArgs.noAccount) {
+    try {
+      await githubCredentials.load();
+    } on GithubCredentialException {
+      log.warning(
+        'GitHub credential storage unavailable; requests will retry secure storage later',
+      );
+    }
+  }
+  final githubRateLimit = GithubRateLimit();
+  final WebUIStorage webUIStorage = WebUIStorage(
+    settingsController,
+    rateLimit: githubRateLimit,
+    credentials: githubCredentials,
+  );
 
   DecentAccountService? decentAccountService;
   DecentProxyService? decentProxyService;
@@ -498,17 +549,50 @@ void main(List<String> args) async {
   AccountTokensController? accountTokensController;
   CredentialStore? credentialStore;
   AccountConsentGate? consentGate;
+  AccountConsentStore? accountConsentStore;
   final proxyTokenService = ProxyTokenService();
+  final extensionsToken = cliArgs.extensionsToken;
+  if (extensionsToken != null &&
+      !proxyTokenService.registerProcessToken(
+        extensionsToken,
+        ProxyCaller(
+          id: 'cli',
+          scopes: const {ProxyTokenService.scopeExtensionsManage},
+          label: cliArgs.extensionsTokenSource,
+        ),
+      )) {
+    log.severe(
+      '${cliArgs.extensionsTokenSource} ignored: it must be at least '
+      '${ProxyTokenService.minimumProcessTokenLength} characters with no '
+      'spaces or commas',
+    );
+  }
   if (cliArgs.noAccount) {
     log.info('--no-account: skipping credential store and account service');
     decentAccountService = null;
     decentProxyService = null;
   } else {
-    credentialStore = await createCredentialStore();
+    final useDevelopmentIdentity =
+        cliArgs.dummyAccount && developmentIdentityEnabled;
+    if (cliArgs.dummyAccount && !developmentIdentityEnabled) {
+      log.warning(
+        '--dummy-account is disabled; use a debug build with '
+        '--dart-define=DECAID_ENABLE_DUMMY_ACCOUNT=true',
+      );
+    }
+    credentialStore = await createCredentialStore(
+      developmentIdentity: useDevelopmentIdentity,
+    );
+    if (useDevelopmentIdentity) {
+      log.info('--dummy-account: using an isolated in-memory identity');
+      await credentialStore.write(key: 'email', value: 'demo@example.com');
+      await credentialStore.write(key: 'password', value: 'demo-password');
+    }
     final consentPrompter = AccountConsentPrompter(
       navigatorKey: NavigationService.navigatorKey,
     );
     final consentStore = AccountConsentStore(credentialStore: credentialStore);
+    accountConsentStore = consentStore;
     final gate = AccountConsentGate(
       store: consentStore,
       prompt: consentPrompter.prompt,
@@ -520,20 +604,28 @@ void main(List<String> args) async {
       'DECENT_BASE_URL',
       defaultValue: 'https://decentespresso.com',
     );
+    final accountHttpClient = useDevelopmentIdentity
+        ? DevelopmentIdentityHttpClient()
+        : IOClient(
+            HttpClient()..connectionTimeout = const Duration(seconds: 30),
+          );
+    final proxyHttpClient = useDevelopmentIdentity
+        ? DevelopmentIdentityHttpClient()
+        : http.Client();
     decentAccountService = DecentAccountService(
-      httpClient: IOClient(
-        HttpClient()..connectionTimeout = const Duration(seconds: 30),
-      ),
+      httpClient: accountHttpClient,
       credentialStore: credentialStore,
       baseUrl: decentBaseUrl,
     );
     decentProxyService = DecentProxyService(
-      httpClient: http.Client(),
+      httpClient: proxyHttpClient,
       credentialStore: credentialStore,
       requireConsent: gate.requireConsent,
       baseUrl: decentBaseUrl,
       onAuthFailure: () => decentAccountService!.reportAuthenticationFailure(),
       isAuthKnownInvalid: decentAccountService.isAuthKnownInvalid,
+      authenticationGeneration: () =>
+          decentAccountService!.authenticationGeneration,
     );
     accountTokensController = AccountTokensController(
       tokenService: proxyTokenService,
@@ -578,22 +670,32 @@ void main(List<String> args) async {
   };
   webUIService.skinProxyTokenRevoker = proxyTokenService.revokeSkinToken;
 
+  final notificationCenter = NotificationCenter(
+    preferences: await SharedPreferences.getInstance(),
+  );
   pluginService = PluginLoaderService(
+    notifications: notificationCenter,
     kvStore: HiveStoreService(defaultNamespace: "plugins")..initialize(),
     decentProxyService: decentProxyService,
     credentialStore: credentialStore,
     deviceService: pluginDeviceService,
+    decentAccountChanges: decentAccountService?.identityAuthorityChanges,
   );
   await pluginService.pluginManager.attachDe1Controller(de1Controller);
   pluginService.pluginManager.attachWorkflowController(workflowController);
   persistenceController.onShotStored = (shotId) =>
       pluginService.pluginManager.broadcastEvent('shotStored', {'id': shotId});
+  persistenceController.onShotUpdated = (record, patch) =>
+      pluginService.pluginManager.broadcastEvent('shotUpdated', {
+        'id': record.id,
+        'shot': record.toJsonWithoutMeasurements(),
+        'patch': patch,
+      });
 
   BatteryController? batteryController;
   if (Platform.isAndroid || Platform.isIOS) {
     batteryController = BatteryController(
       de1Controller: de1Controller,
-      deviceController: deviceController,
       settingsController: settingsController,
     );
   }
@@ -605,10 +707,17 @@ void main(List<String> args) async {
   );
   displayController.initialize();
 
+  final pluginSourceService = PluginSourceService(
+    pluginService,
+    rateLimit: githubRateLimit,
+    credentials: githubCredentials,
+  );
   final updateCheckService = UpdateCheckService(
     settingsService: SharedPreferencesSettingsService(),
     webUIStorage: webUIStorage,
-    pluginSourceService: PluginSourceService(pluginService),
+    pluginSourceService: pluginSourceService,
+    rateLimit: githubRateLimit,
+    credentials: githubCredentials,
   );
 
   final macosUpdater = Platform.isMacOS && !BuildInfo.appStore
@@ -633,6 +742,7 @@ void main(List<String> args) async {
       batteryController,
       presenceController,
       displayController,
+      pluginSourceService: pluginSourceService,
       beanStorage: beanStorage,
       grinderStorage: grinderStorage,
       connectionManager: connectionManager,
@@ -676,6 +786,7 @@ void main(List<String> args) async {
       decentProxyService: decentProxyService,
       proxyTokenService: proxyTokenService,
       updateCheckService: updateCheckService,
+      credentials: githubCredentials,
     );
   } on WebServerPortInUse catch (e) {
     log.severe(
@@ -698,6 +809,11 @@ void main(List<String> args) async {
     };
   });
   await settingsController.loadSettings();
+  await prepareShotUploadStartup(
+    settingsController,
+    forceOnboarding: cliArgs.forceOnboarding,
+    bypassOnboarding: cliArgs.bypassOnboarding,
+  );
   if (macosUpdater != null) {
     try {
       await macosUpdater.configure(
@@ -715,11 +831,23 @@ void main(List<String> args) async {
   bleDiscoveryService.requestLargeMtuNonAndroid = () =>
       settingsController.isFeatureFlagEnabled(.largeBleMtuNonAndroid);
 
-  if (cliArgs.bypassOnboarding) {
+  if (cliArgs.bypassOnboarding && cliArgs.forceOnboarding) {
+    log.warning(
+      '--bypass-onboarding and --force-onboarding are mutually exclusive; '
+      '--force-onboarding wins',
+    );
+  }
+  if (cliArgs.bypassOnboarding && !cliArgs.forceOnboarding) {
     log.info('--bypass-onboarding: skipping onboarding screens');
     await settingsController.setOnboardingCompleted(true);
     await settingsController.setAccountStepSeen(true);
     await settingsController.setAndroidWarningDismissed(true);
+  }
+  if (cliArgs.forceOnboarding) {
+    log.info('--force-onboarding: re-arming onboarding screens');
+    await settingsController.setOnboardingCompleted(false);
+    await settingsController.setAccountStepSeen(false);
+    await settingsController.setAndroidWarningDismissed(false);
   }
   if (cliArgs.skinId != null) {
     log.info('--skin: setting default skin to ${cliArgs.skinId}');
@@ -753,8 +881,6 @@ void main(List<String> args) async {
 
   WidgetsBinding.instance.addObserver(
     AppLifecycleObserver(
-      updateCheckService: updateCheckService,
-      de1Controller: de1Controller,
       displayController: displayController,
       pluginLoaderService: pluginService,
       connectionManager: connectionManager,
@@ -778,6 +904,7 @@ void main(List<String> args) async {
         workflowController: workflowController,
         persistenceController: persistenceController,
         pluginLoaderService: pluginService,
+        pluginSourceService: pluginSourceService,
         webUIService: webUIService,
         webUIStorage: webUIStorage,
         updateCheckService: updateCheckService,
@@ -794,6 +921,8 @@ void main(List<String> args) async {
         appLogUploadService: appLogUploadService,
         batteryController: batteryController,
         displayController: displayController,
+        accountConsentStore: accountConsentStore,
+        credentials: githubCredentials,
       ),
     ),
   );
@@ -801,23 +930,15 @@ void main(List<String> args) async {
 
 class AppLifecycleObserver with WidgetsBindingObserver {
   final _log = Logger("App Lifecycle");
-  final UpdateCheckService? updateCheckService;
-  final De1Controller? de1Controller;
   final DisplayController? displayController;
   final PluginLoaderService? pluginLoaderService;
   final ConnectionManager? connectionManager;
   final AppLogUploadService? appLogUploadService;
 
   late Timer _memTimer;
-  bool _wasBackgrounded = false;
-  StreamSubscription? _machineStateSubscription;
-  StreamSubscription? _stateStreamSubscription;
-  int? _lastMachineState;
   Future<void>? _detachFuture;
 
   AppLifecycleObserver({
-    this.updateCheckService,
-    this.de1Controller,
     this.displayController,
     this.pluginLoaderService,
     this.connectionManager,
@@ -826,35 +947,6 @@ class AppLifecycleObserver with WidgetsBindingObserver {
     _memTimer = Timer.periodic(Duration(minutes: 5), (t) {
       final rss = ProcessInfo.currentRss / (1024 * 1024);
       _log.info("[MEM] RSS=${rss.toStringAsFixed(1)}MB");
-    });
-
-    if (updateCheckService?.hasAvailableUpdate == true) {
-      Future.delayed(const Duration(seconds: 3), () {
-        _showUpdateNotification();
-      });
-    }
-
-    _machineStateSubscription = de1Controller?.de1.listen((machine) {
-      if (_detachFuture != null) return;
-      _stateStreamSubscription?.cancel();
-
-      if (machine == null) return;
-
-      _stateStreamSubscription = machine.currentSnapshot.listen((snapshot) {
-        if (_detachFuture != null) return;
-        final currentState = snapshot.state.state.index;
-
-        if (_lastMachineState == 0 &&
-            currentState == 2 &&
-            updateCheckService?.hasAvailableUpdate == true) {
-          _log.info(
-            'Machine transitioned from sleep to idle, showing update notification',
-          );
-          _showUpdateNotification();
-        }
-
-        _lastMachineState = currentState;
-      });
     });
   }
 
@@ -866,17 +958,11 @@ class AppLifecycleObserver with WidgetsBindingObserver {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
       _log.info("state: $state");
-      _wasBackgrounded = true;
     }
     if (state == AppLifecycleState.resumed) {
       _log.info("state: resumed");
 
       unawaited(displayController?.onAppResumed() ?? Future<void>.value());
-
-      if (_wasBackgrounded && updateCheckService?.hasAvailableUpdate == true) {
-        _showUpdateNotification();
-      }
-      _wasBackgrounded = false;
     }
   }
 
@@ -897,20 +983,6 @@ class AppLifecycleObserver with WidgetsBindingObserver {
   }
 
   Future<void> _handleDetached() async {
-    final machineSubscription = _machineStateSubscription;
-    _machineStateSubscription = null;
-    try {
-      await machineSubscription?.cancel();
-    } catch (error, stackTrace) {
-      _log.warning('Machine subscription detach failed', error, stackTrace);
-    }
-    final stateSubscription = _stateStreamSubscription;
-    _stateStreamSubscription = null;
-    try {
-      await stateSubscription?.cancel();
-    } catch (error, stackTrace) {
-      _log.warning('State subscription detach failed', error, stackTrace);
-    }
     try {
       await connectionManager?.shutdown();
     } catch (error, stackTrace) {
@@ -924,75 +996,8 @@ class AppLifecycleObserver with WidgetsBindingObserver {
     appLogUploadService?.dispose();
   }
 
-  void _showUpdateNotification() {
-    final context = NavigationService.context;
-    if (context == null || !context.mounted) return;
-
-    final updateInfo = updateCheckService?.availableUpdate;
-    if (updateInfo == null) return;
-
-    final messenger = ScaffoldMessenger.of(context);
-
-    messenger.clearSnackBars();
-
-    final controller = messenger.showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Expanded(child: Text('Update: ${updateInfo.version}')),
-            SnackBarAction(
-              label: 'View',
-              onPressed: () {
-                final releaseUrl = updateCheckService?.getReleaseUrl();
-                if (releaseUrl != null) launchUrl(Uri.parse(releaseUrl));
-              },
-            ),
-            SnackBarAction(
-              label: 'Download',
-              onPressed: () {
-                if (Platform.isAndroid) {
-                  _showAndroidDownloadDialog(context, updateInfo);
-                } else {
-                  final releaseUrl = updateCheckService?.getReleaseUrl();
-                  if (releaseUrl != null) {
-                    launchUrl(Uri.parse(releaseUrl));
-                  }
-                }
-              },
-            ),
-          ],
-        ),
-        showCloseIcon: true,
-        duration: const Duration(days: 1),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-
-    controller.closed.then((reason) {
-      if (reason == SnackBarClosedReason.dismiss) {
-        updateCheckService?.skipCurrentUpdate();
-      }
-    });
-  }
-
-  void _showAndroidDownloadDialog(BuildContext context, UpdateInfo updateInfo) {
-    final updater = AndroidUpdater(owner: 'tadelv', repo: 'reaprime');
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AndroidQuickUpdateDialog(
-        updateInfo: updateInfo,
-        onDownload: (info, onProgress) =>
-            updater.downloadUpdate(info, onProgress: onProgress),
-        onInstall: updater.installUpdate,
-      ),
-    );
-  }
-
   void dispose() {
     _memTimer.cancel();
-    _machineStateSubscription?.cancel();
-    _stateStreamSubscription?.cancel();
   }
 }
 
@@ -1005,6 +1010,7 @@ class AppRoot extends StatefulWidget {
   final WorkflowController workflowController;
   final PersistenceController persistenceController;
   final PluginLoaderService pluginLoaderService;
+  final PluginSourceService pluginSourceService;
   final WebUIService webUIService;
   final WebUIStorage webUIStorage;
   final UpdateCheckService? updateCheckService;
@@ -1021,6 +1027,8 @@ class AppRoot extends StatefulWidget {
   final AppLogUploadService? appLogUploadService;
   final BatteryController? batteryController;
   final DisplayController displayController;
+  final AccountConsentStore? accountConsentStore;
+  final GithubCredentialProvider credentials;
 
   const AppRoot({
     super.key,
@@ -1032,6 +1040,7 @@ class AppRoot extends StatefulWidget {
     required this.workflowController,
     required this.persistenceController,
     required this.pluginLoaderService,
+    required this.pluginSourceService,
     required this.webUIService,
     required this.webUIStorage,
     required this.webViewLogService,
@@ -1048,6 +1057,8 @@ class AppRoot extends StatefulWidget {
     this.appLogUploadService,
     this.batteryController,
     required this.displayController,
+    this.accountConsentStore,
+    required this.credentials,
   });
 
   static void restart(BuildContext context) {
@@ -1123,6 +1134,7 @@ class _AppRootState extends State<AppRoot> {
         workflowController: widget.workflowController,
         persistenceController: widget.persistenceController,
         pluginLoaderService: widget.pluginLoaderService,
+        pluginSourceService: widget.pluginSourceService,
         webUIService: widget.webUIService,
         webUIStorage: widget.webUIStorage,
         updateCheckService: widget.updateCheckService,
@@ -1139,6 +1151,8 @@ class _AppRootState extends State<AppRoot> {
         appLogUploadService: widget.appLogUploadService,
         batteryController: widget.batteryController,
         displayController: widget.displayController,
+        accountConsentStore: widget.accountConsentStore,
+        credentials: widget.credentials,
       ),
     );
 

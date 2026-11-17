@@ -1,6 +1,11 @@
 #!/bin/bash
 set -e
 
+if [ "${CONFIGURATION}" = "Debug" ]; then
+  echo "note: skipping Crashlytics symbol upload for Debug build"
+  exit 0
+fi
+
 PATH="${PATH}:$FLUTTER_ROOT/bin:${PUB_CACHE}/bin:$HOME/.pub-cache/bin"
 
 PATH_TO_CRASHLYTICS_UPLOAD_SCRIPT=""

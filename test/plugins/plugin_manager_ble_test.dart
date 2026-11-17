@@ -116,17 +116,16 @@ void main() {
   }) async {
     final evidence = BleAdvertisementEvidence(serviceUuids: ['180f']);
     return await manager.bleService.createCandidate(
-          driver: manager.bleService.registry.decide(evidence).drivers.single,
-          physicalId: id,
-          evidence: evidence,
-          admit: () => true,
-          createTransport: () {
-            final transport = PluginBleFixtureTransport(id);
-            transports.add(transport);
-            return transport;
-          },
-        )
-        as Sensor;
+      driver: manager.bleService.registry.decide(evidence).drivers.single,
+      physicalId: id,
+      evidence: evidence,
+      admit: () => true,
+      createTransport: () {
+        final transport = PluginBleFixtureTransport(id);
+        transports.add(transport);
+        return transport;
+      },
+    ) as Sensor;
   }
 
   Future<void> load(PluginManager manager, {String source = bleSensorSource}) =>
@@ -259,9 +258,32 @@ void main() {
   );
 
   test(
-    'default capacity rejects a second Sensor without disturbing the first',
+    'default capacity allows a second Sensor without disturbing the first',
     () async {
       final manager = PluginManager(kvStore: FakeKeyValueStoreService());
+      addTearDown(manager.dispose);
+      await load(manager);
+      final transports = <PluginBleFixtureTransport>[];
+      final first = await candidate(manager, transports);
+      final second = await candidate(manager, transports, id: 'CC:DD');
+      await first.onConnect();
+      await second.onConnect();
+      expect(transports, hasLength(2));
+      expect(manager.bleService.registry.activeBindingCount, 2);
+      expect(await first.execute('sample', null), {'humidity': 52});
+      await first.disconnect();
+      expect(manager.bleService.registry.activeBindingCount, 1);
+      expect(await second.execute('sample', null), {'humidity': 52});
+    },
+  );
+
+  test(
+    'an explicit binding limit remains enforced without affecting active peers',
+    () async {
+      final manager = PluginManager(
+        kvStore: FakeKeyValueStoreService(),
+        bleRegistry: PluginBleRegistry(activeBindingLimit: 1),
+      );
       addTearDown(manager.dispose);
       await load(manager);
       final transports = <PluginBleFixtureTransport>[];
@@ -330,19 +352,17 @@ void main() {
     final evidence = BleAdvertisementEvidence(serviceUuids: ['180f']);
     final driver = manager.bleService.registry.decide(evidence).drivers.single;
     final transports = <PluginBleFixtureTransport>[];
-    final sensor =
-        await manager.bleService.createCandidate(
-              driver: driver,
-              physicalId: 'AA:BB',
-              evidence: evidence,
-              createTransport: () {
-                final transport = PluginBleFixtureTransport('AA:BB');
-                transports.add(transport);
-                return transport;
-              },
-              admit: () => true,
-            )
-            as Sensor;
+    final sensor = await manager.bleService.createCandidate(
+      driver: driver,
+      physicalId: 'AA:BB',
+      evidence: evidence,
+      createTransport: () {
+        final transport = PluginBleFixtureTransport('AA:BB');
+        transports.add(transport);
+        return transport;
+      },
+      admit: () => true,
+    ) as Sensor;
     expect(sensor.deviceId, 'plugin:ble.sensor:humidity:aa:bb');
     expect(sensor.transportType, TransportType.ble);
     expect(transports, isEmpty);

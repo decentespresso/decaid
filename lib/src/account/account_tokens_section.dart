@@ -3,6 +3,21 @@ import 'package:flutter/services.dart';
 import 'package:reaprime/src/controllers/account_tokens_controller.dart';
 import 'package:reaprime/src/services/account/proxy_token_service.dart';
 
+const _extensionManagementWarning =
+    'This token can install, replace, configure and remove plugins and skins, '
+    'and approve new plugin permissions. Anyone who holds it can run code on '
+    'this device. It is sent unencrypted over HTTP, so use it only on a '
+    'network you trust.';
+
+String _scopeSummary(Set<String> scopes) {
+  if (scopes.contains(ProxyTokenService.scopeExtensionsManage)) {
+    return 'plugin and skin management';
+  }
+  return scopes.contains(ProxyTokenService.scopeAccountProxyWrite)
+      ? 'read + write'
+      : 'read';
+}
+
 class AccountTokensSection extends StatefulWidget {
   const AccountTokensSection({super.key, required this.controller});
 
@@ -16,57 +31,85 @@ class _AccountTokensSectionState extends State<AccountTokensSection> {
   Future<void> _createToken() async {
     final controllerText = TextEditingController();
     var write = false;
-    final result = await showDialog<({String label, bool write})>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('New API token'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              TextField(
-                controller: controllerText,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: 'Name',
-                  hintText: 'e.g. my-laptop',
+    var manageExtensions = false;
+    final result =
+        await showDialog<({String label, bool write, bool manageExtensions})>(
+          context: context,
+          builder: (ctx) => StatefulBuilder(
+            builder: (ctx, setDialogState) => AlertDialog(
+              title: const Text('New API token'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: controllerText,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Name',
+                      hintText: 'e.g. my-laptop',
+                    ),
+                  ),
+                  SwitchListTile(
+                    key: const Key('token-extensions-toggle'),
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Manage plugins and skins'),
+                    subtitle: const Text(
+                      'Instead of account proxy access (extensions:manage).',
+                    ),
+                    value: manageExtensions,
+                    onChanged: (v) =>
+                        setDialogState(() => manageExtensions = v),
+                  ),
+                  if (manageExtensions)
+                    Text(
+                      _extensionManagementWarning,
+                      key: const Key('token-extensions-warning'),
+                      style: TextStyle(color: Theme.of(ctx).colorScheme.error),
+                    )
+                  else
+                    SwitchListTile(
+                      key: const Key('token-write-toggle'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Allow write access'),
+                      subtitle: const Text(
+                        'Permit POST/PUT through the proxy.',
+                      ),
+                      value: write,
+                      onChanged: (v) => setDialogState(() => write = v),
+                    ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Cancel'),
                 ),
-              ),
-              SwitchListTile(
-                key: const Key('token-write-toggle'),
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Allow write access'),
-                subtitle: const Text('Permit POST/PUT through the proxy.'),
-                value: write,
-                onChanged: (v) => setDialogState(() => write = v),
-              ),
-            ],
+                TextButton(
+                  onPressed: () {
+                    final text = controllerText.text.trim();
+                    if (text.isNotEmpty) {
+                      Navigator.of(ctx).pop((
+                        label: text,
+                        write: write,
+                        manageExtensions: manageExtensions,
+                      ));
+                    }
+                  },
+                  child: const Text('Create'),
+                ),
+              ],
+            ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () {
-                final text = controllerText.text.trim();
-                if (text.isNotEmpty) {
-                  Navigator.of(ctx).pop((label: text, write: write));
-                }
-              },
-              child: const Text('Create'),
-            ),
-          ],
-        ),
-      ),
-    );
+        );
     if (result == null || result.label.isEmpty) return;
 
-    final token = await widget.controller.create(
-      label: result.label,
-      write: result.write,
-    );
+    final token = result.manageExtensions
+        ? await widget.controller.createExtensionManager(label: result.label)
+        : await widget.controller.create(
+            label: result.label,
+            write: result.write,
+          );
     if (!mounted) return;
     setState(() {});
     await _showTokenOnce(token);
@@ -157,7 +200,7 @@ class _AccountTokensSectionState extends State<AccountTokensSection> {
         const SizedBox(height: 4),
         Text(
           'Named tokens let scripts and external tools call the account proxy '
-          'without seeing your credentials.',
+          'without seeing your credentials, or manage plugins and skins.',
           style: Theme.of(context).textTheme.bodySmall,
         ),
         const SizedBox(height: 8),
@@ -172,11 +215,7 @@ class _AccountTokensSectionState extends State<AccountTokensSection> {
               dense: true,
               contentPadding: EdgeInsets.zero,
               title: Text(t.label),
-              subtitle: Text(
-                t.scopes.contains(ProxyTokenService.scopeAccountProxyWrite)
-                    ? 'read + write'
-                    : 'read',
-              ),
+              subtitle: Text(_scopeSummary(t.scopes)),
               trailing: IconButton(
                 key: Key('revoke-${t.label}'),
                 icon: const Icon(Icons.delete_outline),

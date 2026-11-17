@@ -7,10 +7,17 @@ enum BackupImportStatus { complete, partial, failed }
 class BackupImportException implements Exception {
   final String message;
   final int? statusCode;
+  final String? reason;
 
-  const BackupImportException(this.message, {this.statusCode});
+  const BackupImportException(this.message, {this.statusCode, this.reason});
 
   bool get isInvalidBackup => statusCode == 400;
+
+  String get userMessage => reason == 'too_many_entries'
+      ? 'The selected file does not appear to be a normal Decaid backup. '
+            'If it is De1App data, extract the archive, use Import from De1App, '
+            'and select the de1plus folder.'
+      : message;
 
   @override
   String toString() => 'BackupImportException: $message';
@@ -55,7 +62,14 @@ class BackupImportResponse {
     final message = decoded is Map && decoded['message'] is String
         ? decoded['message'] as String
         : 'The server returned status $statusCode.';
-    throw BackupImportException(message, statusCode: statusCode);
+    final reason = decoded is Map && decoded['reason'] is String
+        ? decoded['reason'] as String
+        : null;
+    throw BackupImportException(
+      message,
+      statusCode: statusCode,
+      reason: reason,
+    );
   }
 
   static BackupImportStatus _statusForSections(Map<String, dynamic> sections) =>

@@ -17,7 +17,7 @@ flutter test                                   # All tests
 flutter test test/path/to_test.dart            # Specific file
 flutter test --name "test pattern"             # Specific test
 flutter analyze                                # Static analysis
-dart format lib/ test/                      # Format
+# Format changed Dart files: see AGENTS.md -> Verification step 1.
 
 # Build (Linux via Docker/Colima)
 make build-arm                                 # ARM64 binary
@@ -27,91 +27,8 @@ make dual-build                                # Both architectures
 
 ## Simulate Modes
 
-Simulated devices avoid hardware requirements for smoke testing. Available types:
-
-| Flag value | Devices |
-|------------|---------|
-| `1` | All: `MockDe1`, `MockScale`, `MockBengle`, `MockSensor` |
-| `machine` | `MockDe1` only |
-| `scale` | `MockScale` only |
-| `bengle` | `MockBengle` only |
-| `machine,scale` | `MockDe1` + `MockScale` |
-| `sensor` | `MockSensor` only |
-| `replay` | `MockReplayDe1` (replay recorded shots, matched to the profile) |
-| `0` | None (debug routes on, real hardware) |
-
-Also toggleable from the settings UI after launch.
-
-### Replay simulator (`simulate=replay`)
-
-`MockReplayDe1` is a single device that plays back a real recorded shot instead
-of synthesizing telemetry. On shot start it asks `SimulatedShotLibrary` for a
-bundled recording made with the currently selected profile (`forProfileTitle`,
-normalized match); if none exists it falls back to a generic shot, and streams
-the recording's samples at 10 Hz.
-
-It implements `BengleInterface`, so it is one device that is both machine and
-integrated scale — the connection manager auto-wraps its `weightSnapshot` as a
-`BengleVirtualScale` (no separate scale device), and target-weight uses the
-autonomous stop-at-weight path (the `ShotSequencer` bypasses its own SAW for
-`BengleInterface`; the device stops itself when the recorded weight reaches the
-target the `BengleSawBridge` pushes). It does NOT extend `MockDe1`: it
-*composes* one, delegating the De1Interface surface to it and falling back to it
-for steam / hot water / flush. `MockDe1`/`MockScale` are untouched.
-
-Replay is **opt-in**: `simulate=1` expands to the default set only (see
-`_defaultSimulatedDevices` in `main.dart`) and never enables it. To force a
-specific recording (instead of profile match) use the debug API:
-`GET /api/v1/debug/replay/shots` to list stable ids,
-`POST /api/v1/debug/replay/shot/{id}` to force one, `DELETE
-/api/v1/debug/replay/shot` to clear (session-only).
-
-`MockReplayDe1` implements `BengleInterface`, so it is one device that is both
-machine and integrated scale (the connection manager wraps its `weightSnapshot`
-as a `BengleVirtualScale`). Target weight uses the autonomous stop-at-weight
-path (the `ShotSequencer` bypasses its SAW for `BengleInterface`; the
-`BengleSawBridge` pushes the target; the device stops itself). It does NOT
-extend `MockDe1`: it composes one, delegates the De1Interface surface to it, and
-falls back to it for steam / hot water / flush (running a
-`SimulatedShotWeightModel` for the integrated scale when replay is inactive).
-`skipStep` seeks the replay to the next recorded frame; without a positive
-target the shot ends at the recording's real endpoint.
-
-### Replay profile matching
-
-`SimulatedShotLibrary.forProfileTitle` matches on a normalized key, most
-specific first: the whole title, then its last path segment (bundled titles are
-`prefix/name` — community shots `author/name`, Decent titles `category/name`, so
-the trailing segment is the profile's real name). Canonical (full-title) matches
-always win. A last-segment alias is only registered when it is unambiguous (one
-recording claims it) and does not collide with a canonical title — this is what
-keeps a generic segment like `default` from hijacking a distinct profile.
-
-### Replay corpus generation
-
-`test/tools/generate_simulation_assets_test.dart` (run with
-`REGEN_SIM_ASSETS=1`) converts `tool/simulation_sources/**.shot` into the
-`assets/simulations/` corpus:
-
-- **10 Hz resample** — de1app records at ~5 Hz; MockDe1 streams at 100 ms, so the
-  recorded head is resampled to a uniform 10 Hz grid (continuous channels
-  interpolated; discrete state/frame carried from the sample at or before each
-  grid point).
-- **Frame reconstruction** — `TclShotParser` yields empty-step profiles, so
-  `profileFrame` is rebuilt from the recorded `espresso_state_change` markers
-  (frame advances each time the marker changes).
-- **Tail extension** — each recording is extended to ~2.5 min with a steady-state
-  1 Hz tail (held pressure/flow/temperature, weight rising at the final pour
-  rate) so stop-at-weight has data for any target past the recorded final
-  weight. `manifest.json` records each recording's original (pre-tail) duration.
-- A placeholder `Replay` profile step is injected so `ShotRecord.fromJson`
-  round-trips; replay drives telemetry from samples, not the profile.
-
-The corpus lives in `assets/simulations/` (`manifest.json` maps profile titles
-to shot files). Profile-matched shots were pulled from visualizer.coffee, one
-per bundled profile where a public shot existed, and converted via the same
-`tool/simulation_sources/**.shot` → `TclShotParser` → 10 Hz pipeline. Rebuild
-with `REGEN_SIM_ASSETS=1 flutter test test/tools/generate_simulation_assets_test.dart`.
+Device selection, replay behavior, and corpus generation are documented in
+[`device-notes/simulators.md`](device-notes/simulators.md).
 
 ### `simulate=0` mode
 
@@ -128,10 +45,47 @@ temporary real-hardware tuning builds where debug endpoints must be reachable.
 
 **Supported platforms:** Android (primary), macOS, Linux, Windows, iOS.
 
+macOS PATs use a separate AES-256-GCM file while the existing account backend is unchanged; standard `flutter build macos --debug --no-pub` is supported without a new capability.
+
 - `flutter_with_commit.sh` injects the git commit hash as a compile-time constant via `--dart-define`.
 - CI uses pinned Flutter version. Linux build smoke runs via Docker.
 - Android uses `ForegroundTaskService` for background BLE. Auto-stops 5min after disconnect; auto-restarts on reconnect.
+- Skin `exitApp()` backgrounds Android with `moveTaskToBack(true)` on the `app/lifecycle` channel rather than finishing the activity, so the BLE connection and wake schedules keep running. Desktop quits through `exitApplication(AppExitType.cancelable)`; iOS cannot close itself, so the call does nothing there.
 - `Makefile` targets: `build-arm`, `build-amd`, `dual-build` (Linux only, requires Docker/Colima).
+
+## Skin Camera Permissions on Apple Platforms
+
+iOS uses the existing permission handler after per-skin consent. Swift Package
+Manager derives camera support from `NSCameraUsageDescription`; the CocoaPods
+build defines `PERMISSION_CAMERA=1`. macOS uses the
+`com.reaprime/skin_camera` method channel in `MainFlutterWindow` because the
+installed permission handler does not provide a macOS backend. Keep
+`NSCameraUsageDescription` and the camera entitlement in both Debug/Profile
+and Release builds. Neither path requests microphone access.
+
+Keep `NSMicrophoneUsageDescription` in the iOS app plist for native file-input
+recording. PR #939's iPhone crash report confirms that the iOS system video
+picker configures an audio input and TCC kills the process without this key,
+before the Dart permission callback runs. The description lets iOS ask for
+permission; it does not grant access. Native iOS video can include audio after
+OS consent. Keep live WebView microphone requests denied and do not add the
+macOS microphone description or audio-input entitlement. The pinned macOS file
+picker uses NSOpenPanel and does not record video.
+Run `python3 tool/ci/check_apple_camera_privacy_test.py` to check these privacy
+declarations and the macOS entitlement boundary. Normal PR CI runs this
+lightweight cross-platform check, not native Apple builds. PR #939 obtained
+successful unsigned iOS/macOS release compilation on `b5a50097` with Flutter
+3.44.2 and Xcode 26.3; see the evidence in
+`doc/plans/archive/skin-camera/native-video-privacy.md`. The temporary build
+jobs and unsigned symbol-upload bypass were removed afterward; this camera
+fix does not change the repository's Apple build or symbol-upload policy.
+
+The pinned WebView plugin exposes WKWebView media permission callbacks on iOS
+15+ and macOS 12+, but not an Apple file-input chooser callback. Do not treat
+live-camera consent as a native file-input capture guard. Another tester must
+verify system privacy prompts, localhost capture and lifecycle behavior on
+real Apple devices; neither CI compilation nor Windows widget tests cover
+those runtime paths.
 
 ## Footgun #1: Xcode 26.4 / flutter_inappwebview
 
@@ -155,26 +109,7 @@ temporary real-hardware tuning builds where debug endpoints must be reachable.
 
 ## Bengle EBus tap (hardware verification)
 
-Decaid identifies the tap by VID `0x2e8a`, PID `0x000a`, the exact USB
-product name `Bengle`, and logical USB interface `2`; it never relies on
-unstable device paths. VID/PID are shared Pico SDK identifiers, so the product
-name is required to reject other Pico boards. Interface `0` remains
-the Bengle machine with its existing stable ID. Discovery must not probe or
-write to the tap.
-
-The Sensor behavior contract — raw bytes, DTR, and single-reader ownership —
-lives in [`doc/DeviceManagement.md`](DeviceManagement.md#bengle-ebus-tap).
-
-**Hardware checks not covered by unit tests:**
-
-1. The machine and tap appear with distinct IDs and connect concurrently.
-2. Unplug removes only the detached physical device's logical entries; replug
-   rediscovers them.
-3. Android opens bulk-data interface `3` for logical interface `2`; devices
-   with duplicate USB descriptors receive distinct session IDs.
-4. Raw Sensor snapshots remain byte-exact and discovery performs no writes.
-
-Platform results must be observed independently on each claimed platform.
+See [`device-notes/bengle.md`](device-notes/bengle.md#ebus-tap).
 
 ## Footgun #3: `codesign --deep` destroys Sparkle's Installer XPC
 
@@ -204,27 +139,64 @@ Platform results must be observed independently on each claimed platform.
 
 **Impact:** iOS only; the channel is a no-op elsewhere (`Platform.isIOS` guard). Do not add new `FilePicker.getDirectoryPath()` consumers without routing them through `SecurityScopedFileService`.
 
+## Footgun #6: macOS App Sandbox grants only the selected save URL, not its siblings
+
+**Symptom:** an export that stages a temporary file next to the user's chosen
+save path works on Linux, Docker and CI, then fails in the signed macOS build
+with a permission error.
+
+**Root cause:** the macOS build runs with `com.apple.security.app-sandbox` and
+`com.apple.security.files.user-selected.read-write`
+(`macos/Runner/Release.entitlements`). The file picker grants access to the
+selected URL, not to arbitrary files in its directory, so creating a sibling
+temporary file or staging directory is denied. It does not reproduce on Linux
+because the Linux build is unsandboxed.
+
+**Handling:** stage in the app's own temporary directory (`TempArchiveDir`, i.e.
+`Directory.systemTemp`) and copy the finished file onto the selected path.
+`writeArchiveToDestination` (`lib/src/services/export/archive_export.dart`) does
+exactly this. Do not stage beside a user-selected destination. Do not substitute
+a plain `File.rename` as the final step either: it does not overwrite an
+existing destination on Windows, and it crosses directories that the sandbox may
+not permit.
+
+## Footgun #7: A fresh git worktree cannot build Android
+
+**Symptom:** `scripts/sb-dev.sh start --platform <serial>` inside a linked git
+worktree fails with
+`Execution failed for task ':app:validateSigningDebug'` /
+`Keystore file '<worktree>/android/app/debug.keystore' not found for signing config 'debug'`.
+
+**Root cause:** `android/app/debug.keystore` is gitignored, so it exists only in
+the primary checkout; `git worktree add` does not copy it.
+
+**Handling:** copy it from the primary repo before building:
+`cp <primary>/android/app/debug.keystore <worktree>/android/app/debug.keystore`.
+
 ## CLI Parameters
 
-The app supports several command-line flags for headless/calibration-station use. See PR #349 and #352 for full details.
+The app supports several command-line flags for headless/calibration-station use. See PR #349 and #352 for full details. This is an option catalogue, not a runnable script: pass the flags separately as described below the list.
 
-```bash
+```text
 ./flutter_with_commit.sh run --dart-define=simulate=1 \
-  --serial=<mac>              # Auto-connect to specific DE1 by MAC
+  --serial                    # Serial-only mode; skip BLE service creation
   --bypass-onboarding         # Skip onboarding, go straight to launcher
-  --direct                    # Skip scan, connect directly to --serial device
+  --force-onboarding          # Re-arm onboarding screens by clearing their completion flags
+  --direct                    # Auto-select the first discovered device; skip picker
   --skin=<id>                 # Pre-select skin by ID
   --skin-path=<path>          # Pre-select skin by filesystem path
   --no-account                # Skip DecentAccountService (headless Linux with no desktop session)
+  --dummy-account             # Isolated demo identity; debug + explicit dart-define only
   --trust-consent=<key>       # Trust one account-proxy caller for this process; repeatable
   --trust-all-consent         # Trust every account-proxy caller for this process
+  --extensions-token=<value>  # Accept this bearer for plugin and skin management (extensions:manage); 32+ chars
 ```
 
-All flags are optional. Combine as needed. `--no-account` is specifically for headless Linux stations where `libsecret` blocks on XDG secrets portal. Consent keys use `skin:<installed-id>`, `plugin:<id>`, or `api:<token-id>`; API token labels are presentation-only. Both trust flags are session-only and are never persisted. With `flutter run`, pass each app flag separately as `--dart-entrypoint-args=<flag>`; `--dart-define` does not populate `main()` arguments.
+All flags are optional. Combine as needed. `--dummy-account` is safe only with a debug build and `--dart-define=DECAID_ENABLE_DUMMY_ACCOUNT=true`; it uses an in-memory credential store and offline account clients. See [`shot-upload-onboarding.md`](shot-upload-onboarding.md) for isolated persona instructions. `--no-account` is specifically for headless Linux stations where `libsecret` blocks on XDG secrets portal. `--force-onboarding` is the inverse of `--bypass-onboarding`: it clears the persisted onboarding completion flags so the welcome, login, and import screens show again on the next launch, and it wins if both are passed. Consent keys use `skin:<installed-id>`, `plugin:<id>`, or `api:<token-id>`; API token labels are presentation-only. Both trust flags are session-only and are never persisted. `--extensions-token` registers a process-lifetime bearer token with the `extensions:manage` scope, which the plugin and skin management routes require (see `doc/Plugins.md` -> "Authorization"); it is never persisted, and a value shorter than 32 characters or containing spaces or commas is ignored with a severe log line. Generate one with `openssl rand -hex 32`. The `DECAID_EXTENSIONS_TOKEN` environment variable registers the same token without putting it in the process arguments, which other local users can read; the flag wins when both are set. Both are for development, headless testing and automation; a device in service gets a named, revocable token from the native API access tokens section. With `flutter run`, pass each app flag separately as `--dart-entrypoint-args=<flag>`; `--dart-define` does not populate `main()` arguments. With `scripts/sb-dev.sh`, pass each app flag separately as `--app-arg <flag>` and repeat `--app-arg` for multiple flags. Entrypoint arguments reach `main()` on desktop and `flutter-tester`; the Android and iOS launch paths in `flutter_tools` do not forward them, so on a tablet both mechanisms are inert. See `.agents/skills/decent-dev/SKILL.md` for the Android onboarding reset procedure.
 
-## Dev-Loop Skill
+## Dev-Loop Skills
 
-Driving a running app through its lifecycle: `.agents/skills/decent-app/SKILL.md`. Managed by `scripts/sb-dev.sh`:
+Driving a running app through its lifecycle: `.agents/skills/decent-app/SKILL.md`. Changing the code — gate, formatting, worktrees, tablet loop: `.agents/skills/decent-dev/SKILL.md`. A code change verified at runtime uses both. Managed by `scripts/sb-dev.sh`:
 
 ```bash
 scripts/sb-dev.sh start      # Launch in simulate mode
@@ -248,7 +220,7 @@ Prefer `reload` over `hot-restart` — state is preserved.
 ```sh
 flutter analyze          # Minimum before any commit
 flutter test             # Full suite before commit/PR
-dart format lib/ test/  # Format check
+# Format changed Dart files: see AGENTS.md -> Verification step 1.
 ```
 
 ## Keeping Notes Fresh

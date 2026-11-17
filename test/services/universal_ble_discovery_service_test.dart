@@ -38,6 +38,8 @@ class _FakeBlePlatform extends UniversalBlePlatform {
   int stopScanCalls = 0;
   Object? failNextStartScanWith;
   Object? failNextStopScanWith;
+  Completer<void>? holdNextStopScan;
+  Completer<void>? holdSystemDevices;
 
   @override
   Future<AvailabilityState> getBluetoothAvailabilityState() async =>
@@ -73,6 +75,7 @@ class _FakeBlePlatform extends UniversalBlePlatform {
   @override
   Future<void> stopScan() async {
     stopScanCalls++;
+    await holdNextStopScan?.future;
     final error = failNextStopScanWith;
     failNextStopScanWith = null;
     if (error != null) throw error;
@@ -171,6 +174,7 @@ class _FakeBlePlatform extends UniversalBlePlatform {
 
   @override
   Future<List<BleDevice>> getSystemDevices(List<String>? withServices) async {
+    await holdSystemDevices?.future;
     return List<BleDevice>.unmodifiable(systemDevices);
   }
 }
@@ -190,7 +194,9 @@ class _TrackingFakeBleTransport extends FakeBleTransport {
   Stream<domain.ConnectionState> get connectionState =>
       connectionStateOverride ?? super.connectionState;
 
-  int disconnectCalls = 0;
+  // disconnectCalls is inherited from FakeBleTransport, which now counts it.
+  // Re-declaring it here would SHADOW the parent's field, so the parent's
+  // disconnectCalls++ would update a different variable than the test reads.
   int disposeCalls = 0;
   bool _disposed = false;
 
@@ -427,6 +433,59 @@ void main() {
 
       expect(transports, 1);
     });
+  });
+
+  group('burst teardown', () {
+    for (final fail in [false, true]) {
+      test(
+        'early stop during system lookup preserves teardown (fail=$fail)',
+        () async {
+          platform.holdSystemDevices = Completer<void>();
+          platform.holdNextStopScan = Completer<void>();
+          addTearDown(() {
+            if (!platform.holdSystemDevices!.isCompleted) {
+              platform.holdSystemDevices!.complete();
+            }
+            if (!platform.holdNextStopScan!.isCompleted) {
+              platform.holdNextStopScan!.complete();
+            }
+          });
+          if (fail) {
+            platform.failNextStopScanWith = StateError('native stop failed');
+          }
+          var completed = false;
+          Object? observedError;
+          final burst = service.scanForDevices();
+          final observed = burst.then(
+            (_) {
+              completed = true;
+            },
+            onError: (Object error) {
+              completed = true;
+              observedError = error;
+              if (!fail) throw error;
+            },
+          );
+          await pump();
+          service.stopScan();
+          await pump();
+          platform.holdSystemDevices!.complete();
+          await pump();
+          expect(completed, isFalse);
+          expect(platform.nativeScanning, isTrue);
+          platform.holdNextStopScan!.complete();
+          await observed.timeout(const Duration(seconds: 1));
+          expect(observedError, fail ? isA<StateError>() : isNull);
+          expect(platform.stopScanCalls, 1);
+          expect(platform.nativeScanning, fail);
+          expect(service.scanOwner, BleScanOwner.none);
+          expect(
+            service.scanPhase,
+            fail ? BleScanPhase.faulted : BleScanPhase.idle,
+          );
+        },
+      );
+    }
   });
 
   group('watch ownership contract', () {
@@ -949,13 +1008,12 @@ void main() {
             watchSupportGate: () => true,
             requiresSystemDevice: () => apple,
             pluginBleService: () => manager.bleService,
-            transportFactory:
-                ({
-                  required device,
-                  required stopScan,
-                  required requestLargeMtuNonAndroid,
-                  required lifecycleGate,
-                }) => transport,
+            transportFactory: ({
+              required device,
+              required stopScan,
+              required requestLargeMtuNonAndroid,
+              required lifecycleGate,
+            }) => transport,
           );
           addTearDown(sut.dispose);
           await sut.initialize();
@@ -1764,64 +1822,61 @@ void main() {
       },
     );
 
-    test(
-      'fresh advertisement replaces a cached connected device after native link loss',
-      () async {
-        const deviceId = 'AA:BB:CC:DD:EE:03';
-        final transports = <_TrackingFakeBleTransport>[];
-        final sut = UniversalBleDiscoveryService(
-          watchSupportGate: () => true,
-          transportFactory:
-              ({
-                required device,
-                required stopScan,
-                required requestLargeMtuNonAndroid,
-                required lifecycleGate,
-              }) {
-                final transport = transportForModel(
-                  129,
-                  deviceId: device.deviceId,
-                );
-                transports.add(transport);
-                return transport;
-              },
-        );
-        addTearDown(sut.dispose);
-        platform.systemDevices.add(BleDevice(deviceId: deviceId, name: 'DE1'));
-        await sut.initialize();
-        final emissions = <List<domain.Device>>[];
-        final subscription = sut.devices.listen(emissions.add);
-        addTearDown(subscription.cancel);
+    test('fresh advertisement replaces a cached connected device after native link loss', () async {
+      const deviceId = 'AA:BB:CC:DD:EE:03';
+      final transports = <_TrackingFakeBleTransport>[];
+      final sut = UniversalBleDiscoveryService(
+        watchSupportGate: () => true,
+        transportFactory:
+            ({
+              required device,
+              required stopScan,
+              required requestLargeMtuNonAndroid,
+              required lifecycleGate,
+            }) {
+              final transport = transportForModel(
+                129,
+                deviceId: device.deviceId,
+              );
+              transports.add(transport);
+              return transport;
+            },
+      );
+      addTearDown(sut.dispose);
+      platform.systemDevices.add(BleDevice(deviceId: deviceId, name: 'DE1'));
+      await sut.initialize();
+      final emissions = <List<domain.Device>>[];
+      final subscription = sut.devices.listen(emissions.add);
+      addTearDown(subscription.cancel);
 
-        final remembered = RememberedDevice(
-          id: deviceId,
-          name: 'DE1',
-          type: domain.DeviceType.machine,
-          implementation: DeviceImplementation.unifiedDe1,
-          transportType: TransportType.ble,
-        );
-        final connected = await sut.tryQuickConnect(remembered);
-        expect(connected, isNotNull);
-        expect(transports, hasLength(1));
-        platform.connectionStates[deviceId.toLowerCase()] =
-            BleConnectionState.disconnected;
-        await sut.startDeviceWatch(_watchFilter);
+      final remembered = RememberedDevice(
+        id: deviceId,
+        name: 'DE1',
+        type: domain.DeviceType.machine,
+        implementation: DeviceImplementation.unifiedDe1,
+        transportType: TransportType.ble,
+      );
+      final connected = await sut.tryQuickConnect(remembered);
+      expect(connected, isNotNull);
+      expect(transports, hasLength(1));
+      platform.connectionStates[deviceId.toLowerCase()] =
+          BleConnectionState.disconnected;
+      await sut.startDeviceWatch(_watchFilter);
 
-        platform.updateScanResult(BleDevice(deviceId: deviceId, name: 'DE1'));
-        await pump();
+      platform.updateScanResult(BleDevice(deviceId: deviceId, name: 'DE1'));
+      await pump();
 
-        expect(
-          transports,
-          hasLength(2),
-          reason: 'fresh advertisement must create a new transport instance',
-        );
-        expect(transports.first.disconnectCalls, 0);
-        expect(platform.disconnectCalls, 0);
-        expect(emissions.last, hasLength(1));
-        expect(emissions.last.single, isNot(same(connected)));
-        await (connected as De1Interface).dispose();
-      },
-    );
+      expect(
+        transports,
+        hasLength(2),
+        reason: 'fresh advertisement must create a new transport instance',
+      );
+      expect(transports.first.disconnectCalls, 0);
+      expect(platform.disconnectCalls, 0);
+      expect(emissions.last, hasLength(1));
+      expect(emissions.last.single, isNot(same(connected)));
+      await (connected as De1Interface).dispose();
+    });
 
     test(
       'fresh advertisement preserves a cached device with a live native link',

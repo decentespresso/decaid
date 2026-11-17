@@ -3,7 +3,6 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart' show getCrc32;
-import 'package:reaprime/src/services/webserver/data_export/data_transfer_limits.dart';
 
 class ZipWriteException implements Exception {
   final String message;
@@ -14,9 +13,17 @@ class ZipWriteException implements Exception {
 }
 
 class StreamingZipWriter {
+  static const int maxZip32 = 0xFFFFFFFF;
+  static const int _maxZip16 = 0xFFFF;
+
   final File _file;
   final RandomAccessFile _raf;
-  final DataTransferLimits _limits;
+  final int _compressionLevel;
+  final int? _maxFilenameBytes;
+  final int? _maxEntryCount;
+  final int? _maxEntryUncompressedBytes;
+  final int? _maxTotalUncompressedBytes;
+  final int _maxArchiveBytes;
 
   int _offset = 0;
   int _entryCount = 0;
@@ -26,34 +33,67 @@ class StreamingZipWriter {
 
   final List<_CdEntry> _centralDirectory = [];
 
-  StreamingZipWriter._(this._file, this._raf, this._limits);
+  StreamingZipWriter._(
+    this._file,
+    this._raf,
+    this._compressionLevel,
+    this._maxFilenameBytes,
+    this._maxEntryCount,
+    this._maxEntryUncompressedBytes,
+    this._maxTotalUncompressedBytes,
+    this._maxArchiveBytes,
+  );
 
-  static Future<StreamingZipWriter> create(
-    Directory tempDir,
-    DataTransferLimits limits,
-  ) async {
-    final file = File('${tempDir.path}${Platform.pathSeparator}export.zip');
-    final raf = await file.open(mode: FileMode.write);
-    return StreamingZipWriter._(file, raf, limits);
+  static Future<StreamingZipWriter> create({
+    required File destination,
+    int compressionLevel = 1,
+    int? maxFilenameBytes,
+    int? maxEntryCount,
+    int? maxEntryUncompressedBytes,
+    int? maxTotalUncompressedBytes,
+    int? maxArchiveBytes,
+  }) async {
+    final raf = await destination.open(mode: FileMode.write);
+    return StreamingZipWriter._(
+      destination,
+      raf,
+      compressionLevel,
+      maxFilenameBytes,
+      maxEntryCount,
+      maxEntryUncompressedBytes,
+      maxTotalUncompressedBytes,
+      maxArchiveBytes ?? maxZip32,
+    );
   }
 
   File get file => _file;
+
+  int get _archiveLimit =>
+      _maxArchiveBytes > maxZip32 ? maxZip32 : _maxArchiveBytes;
 
   ZipEntrySink addEntry(String name) {
     if (_closed || _aborted) {
       throw const ZipWriteException('The ZIP writer is already closed.');
     }
     final nameBytes = Uint8List.fromList(utf8.encode(name));
-    if (nameBytes.length > _limits.maxFilenameBytes) {
+    if (nameBytes.length > _maxZip16) {
       throw ZipWriteException('ZIP entry name is too long: $name');
     }
-    if (_entryCount >= _limits.maxEntryCount) {
+    final maxFilenameBytes = _maxFilenameBytes;
+    if (maxFilenameBytes != null && nameBytes.length > maxFilenameBytes) {
+      throw ZipWriteException('ZIP entry name is too long: $name');
+    }
+    if (_entryCount >= _maxZip16) {
+      throw const ZipWriteException('Too many ZIP entries.');
+    }
+    final maxEntryCount = _maxEntryCount;
+    if (maxEntryCount != null && _entryCount >= maxEntryCount) {
       throw const ZipWriteException('Too many ZIP entries.');
     }
 
     final localHeaderOffset = _offset;
     final headerLen = 30 + nameBytes.length;
-    if (_offset + headerLen > DataTransferLimits.maxZip32) {
+    if (_offset + headerLen > _archiveLimit) {
       throw const ZipWriteException(
         'Export exceeds the 4 GiB ZIP limit; use selected-section export.',
       );
@@ -83,6 +123,22 @@ class StreamingZipWriter {
     return ZipEntrySink._(this, entry);
   }
 
+  Future<void> writeFile(File source, String entryName) async {
+    final sourceRaf = await source.open(mode: FileMode.read);
+    try {
+      final entry = addEntry(entryName);
+      final chunkSize = 1024 * 1024;
+      while (true) {
+        final chunk = sourceRaf.readSync(chunkSize);
+        if (chunk.isEmpty) break;
+        entry.write(chunk);
+      }
+      entry.close();
+    } finally {
+      await sourceRaf.close();
+    }
+  }
+
   Future<void> close() async {
     if (_closed || _aborted) return;
     _closed = true;
@@ -93,14 +149,9 @@ class StreamingZipWriter {
       _writeCdEntry(cd, entry);
     }
     final cdBytes = cd.takeBytes();
-    if (_offset + cdBytes.length > DataTransferLimits.maxZip32) {
+    if (_offset + cdBytes.length + 22 > _archiveLimit) {
       throw const ZipWriteException(
         'Export exceeds the 4 GiB ZIP limit; use selected-section export.',
-      );
-    }
-    if (_offset + cdBytes.length + 22 > _limits.maxImportRequestBytes) {
-      throw const ZipWriteException(
-        'Export exceeds the import size limit; use selected-section export.',
       );
     }
     _raf.writeFromSync(cdBytes);
@@ -168,8 +219,6 @@ class StreamingZipWriter {
     out.add(e.name);
   }
 
-  int get _currentOffset => _offset;
-
   void _writeBytes(Uint8List bytes) {
     _raf.writeFromSync(bytes);
     _offset += bytes.length;
@@ -181,6 +230,11 @@ class StreamingZipWriter {
     _writeUint32(buf, entry.crc32);
     _writeUint32(buf, entry.compressedSize);
     _writeUint32(buf, entry.uncompressedSize);
+    if (_offset + buf.length > _archiveLimit) {
+      throw const ZipWriteException(
+        'Export exceeds the 4 GiB ZIP limit; use selected-section export.',
+      );
+    }
     _writeBytes(buf.takeBytes());
   }
 
@@ -252,7 +306,10 @@ class ZipEntrySink {
   ZipEntrySink._(StreamingZipWriter writer, _EntryState entry)
     : _writer = writer,
       _entry = entry {
-    final encoder = ZLibCodec(raw: true, level: 6).encoder;
+    final encoder = ZLibCodec(
+      raw: true,
+      level: writer._compressionLevel,
+    ).encoder;
     _deflateSink = _DeflateFileSink(
       writer,
       entry,
@@ -269,12 +326,17 @@ class ZipEntrySink {
       throw const ZipWriteException('The ZIP entry is already closed.');
     }
     _entry.uncompressedSize += bytes.length;
-    if (_entry.uncompressedSize > _writer._limits.maxEntryUncompressedBytes) {
+    if (_entry.uncompressedSize > StreamingZipWriter.maxZip32) {
+      throw const ZipWriteException('ZIP entry exceeds the size limit.');
+    }
+    final maxEntryUncompressedBytes = _writer._maxEntryUncompressedBytes;
+    if (maxEntryUncompressedBytes != null &&
+        _entry.uncompressedSize > maxEntryUncompressedBytes) {
       throw const ZipWriteException('ZIP entry exceeds the size limit.');
     }
     _writer._totalUncompressed += bytes.length;
-    if (_writer._totalUncompressed >
-        _writer._limits.maxTotalUncompressedBytes) {
+    if (_writer._maxTotalUncompressedBytes != null &&
+        _writer._totalUncompressed > _writer._maxTotalUncompressedBytes) {
       throw const ZipWriteException(
         'Export exceeds the total uncompressed size limit.',
       );
@@ -300,7 +362,10 @@ class _DeflateFileSink implements Sink<List<int>> {
   @override
   void add(List<int> chunk) {
     _entry.compressedSize += chunk.length;
-    if (_writer._currentOffset + chunk.length > DataTransferLimits.maxZip32) {
+    if (_entry.compressedSize > StreamingZipWriter.maxZip32) {
+      throw const ZipWriteException('ZIP entry exceeds the size limit.');
+    }
+    if (_writer._offset + chunk.length > _writer._archiveLimit) {
       throw const ZipWriteException(
         'Export exceeds the 4 GiB ZIP limit; use selected-section export.',
       );

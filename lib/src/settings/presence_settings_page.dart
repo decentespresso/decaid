@@ -165,18 +165,16 @@ class _PresenceSettingsPageState extends State<PresenceSettingsPage> {
         children: [
           Text(
             'Sleep',
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            style: Theme.of(context).textTheme.titleMedium
+                ?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 4),
           Text(
             'Put the machine to sleep after a period of inactivity (0 = disabled). '
             'The timer resets whenever the machine is used.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(
-                context,
-              ).colorScheme.onSurface.withValues(alpha: 0.7),
+              color: Theme.of(context).colorScheme.onSurface
+                  .withValues(alpha: 0.7),
             ),
           ),
           const SizedBox(height: 16),
@@ -233,18 +231,16 @@ class _PresenceSettingsPageState extends State<PresenceSettingsPage> {
         children: [
           Text(
             'Wake schedule',
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            style: Theme.of(context).textTheme.titleMedium
+                ?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 4),
           Text(
             'Schedule times for the machine to automatically wake up. '
             'Useful for having the machine ready when you start your day.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(
-                context,
-              ).colorScheme.onSurface.withValues(alpha: 0.7),
+              color: Theme.of(context).colorScheme.onSurface
+                  .withValues(alpha: 0.7),
             ),
           ),
           if (widget.keepAwakeUntil != null &&
@@ -435,9 +431,8 @@ class _PresenceSettingsPageState extends State<PresenceSettingsPage> {
                 },
                 child: Text(
                   'Tap to select specific days',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: Theme.of(context).colorScheme.primary),
                 ),
               ),
             ),

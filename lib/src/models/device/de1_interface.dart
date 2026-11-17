@@ -123,6 +123,67 @@ enum De1HeaterVoltage {
   }
 }
 
+final class De1MachineSettings {
+  final int fanThreshold;
+  final bool usbChargerMode;
+  final double flushTemperature;
+  final double flushTimeout;
+  final double flushFlow;
+  final double hotWaterFlow;
+  final double steamFlow;
+  final int tankTempThreshold;
+  final int steamPurgeMode;
+
+  const De1MachineSettings({
+    required this.fanThreshold,
+    required this.usbChargerMode,
+    required this.flushTemperature,
+    required this.flushTimeout,
+    required this.flushFlow,
+    required this.hotWaterFlow,
+    required this.steamFlow,
+    required this.tankTempThreshold,
+    required this.steamPurgeMode,
+  });
+}
+
+final class De1AdvancedMachineSettings {
+  final double heaterPhase1Flow;
+  final double heaterPhase2Flow;
+  final double heaterIdleTemp;
+  final double heaterPhase2Timeout;
+
+  const De1AdvancedMachineSettings({
+    required this.heaterPhase1Flow,
+    required this.heaterPhase2Flow,
+    required this.heaterIdleTemp,
+    required this.heaterPhase2Timeout,
+  });
+}
+
+extension De1SettingsSnapshots on De1Interface {
+  Future<De1MachineSettings> getMachineSettingsSnapshot() async =>
+      De1MachineSettings(
+        fanThreshold: await getFanThreshhold(),
+        usbChargerMode: await getUsbChargerMode(),
+        flushTemperature: await getFlushTemperature(),
+        flushTimeout: await getFlushTimeout(),
+        flushFlow: await getFlushFlow(),
+        hotWaterFlow: await getHotWaterFlow(),
+        steamFlow: await getSteamFlow(),
+        tankTempThreshold: await getTankTempThreshold(),
+        steamPurgeMode: await getSteamPurgeMode(),
+      );
+
+  Future<De1AdvancedMachineSettings>
+  getAdvancedMachineSettingsSnapshot() async => De1AdvancedMachineSettings(
+    heaterPhase1Flow: await getHeaterPhase1Flow(),
+    heaterPhase2Flow: await getHeaterPhase2Flow(),
+    heaterIdleTemp: await getHeaterIdleTemp(),
+    heaterPhase2Timeout: await getHeaterPhase2Timeout(),
+  );
+}
+
 final class De1ShotSettings {
   final int steamSetting;
   final int targetSteamTemp;

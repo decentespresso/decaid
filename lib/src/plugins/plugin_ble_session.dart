@@ -428,9 +428,8 @@ class PluginBleSession {
     _queuedBytes = 0;
     _rejectPending();
     unawaited(
-      _retire(
-        initialized ? cleanup : null,
-      ).then(retirement.complete, onError: retirement.completeError),
+      _retire(initialized ? cleanup : null)
+          .then(retirement.complete, onError: retirement.completeError),
     );
     return retirement.future;
   }

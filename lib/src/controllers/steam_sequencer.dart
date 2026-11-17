@@ -12,6 +12,7 @@ import 'package:reaprime/src/models/device/bengle_interface.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/impl/bengle/bengle_mmr.dart';
 import 'package:reaprime/src/models/device/machine.dart';
+import 'package:reaprime/src/models/device/sensor.dart';
 import 'package:uuid/uuid.dart';
 
 class SteamSequencer {
@@ -25,6 +26,9 @@ class SteamSequencer {
        _workflow = workflowController,
        _persistence = persistenceController {
     _de1Sub = _de1.de1.listen(_onMachineChange);
+    _sensorRegistrySub = _sensors.sensorRegistry.listen((sensors) {
+      if (isRecording) _trackTemperatureSensor(sensors);
+    });
   }
 
   final De1Controller _de1;
@@ -36,8 +40,10 @@ class SteamSequencer {
   StreamSubscription<De1Interface?>? _de1Sub;
   StreamSubscription<MachineSnapshot>? _snapshotSub;
   StreamSubscription<bool>? _probeAttachedSub;
+  StreamSubscription<Map<String, Sensor>>? _sensorRegistrySub;
   StreamSubscription<Map<String, dynamic>>? _sensorSub;
   De1Interface? _machine;
+  Sensor? _temperatureSensor;
   double? _latestSensorTemperature;
   bool _bengleProbeAttached = false;
 
@@ -111,21 +117,39 @@ class SteamSequencer {
     _openWorkflow = _workflow.currentWorkflow;
     _measurements.clear();
     _appSideStopRequested = false;
-    _trackFirstSensor();
+    _trackTemperatureSensor(_sensors.sensors);
     _log.info('Steam record opened: $_openId');
   }
 
-  void _trackFirstSensor() {
+  void _trackTemperatureSensor(Map<String, Sensor> sensors) {
+    final sensor = _selectTemperatureSensor(sensors);
+    if (identical(sensor, _temperatureSensor)) return;
     _sensorSub?.cancel();
     _sensorSub = null;
+    _temperatureSensor = sensor;
     _latestSensorTemperature = null;
-    final entries = _sensors.sensors.entries;
-    if (entries.isEmpty) return;
-    final sensor = entries.first.value;
+    if (sensor == null) return;
     _sensorSub = sensor.data.listen((payload) {
+      if (!identical(_temperatureSensor, sensor)) return;
       final raw = payload['temperature'];
-      if (raw is num) _latestSensorTemperature = raw.toDouble();
+      final value = raw is num ? raw.toDouble() : null;
+      _latestSensorTemperature = value != null && value.isFinite ? value : null;
     });
+  }
+
+  Sensor? _selectTemperatureSensor(Map<String, Sensor> sensors) {
+    final temperatureSensors = sensors.values.where(
+      (sensor) => sensor.info.dataChannels.any(
+        (channel) => channel.key == 'temperature' && channel.type == 'number',
+      ),
+    );
+    for (final sensor in temperatureSensors) {
+      if (sensor.info.name == 'Bengle Milk Probe' &&
+          sensor.info.vendor == 'DecentEspresso') {
+        return sensor;
+      }
+    }
+    return temperatureSensors.firstOrNull;
   }
 
   void _maybeAppSideStop(MachineSnapshot s) {
@@ -142,7 +166,7 @@ class SteamSequencer {
       return;
     }
     final temp = _latestSensorTemperature;
-    if (temp == null) return;
+    if (temp == null || !temp.isFinite) return;
     if (temp < target) return;
     _appSideStopRequested = true;
     _log.info('App-side stop: probe $temp°C ≥ target $target°C');
@@ -186,6 +210,7 @@ class SteamSequencer {
     _appSideStopRequested = false;
     _sensorSub?.cancel();
     _sensorSub = null;
+    _temperatureSensor = null;
     _latestSensorTemperature = null;
   }
 
@@ -196,6 +221,8 @@ class SteamSequencer {
     _snapshotSub = null;
     await _probeAttachedSub?.cancel();
     _probeAttachedSub = null;
+    await _sensorRegistrySub?.cancel();
+    _sensorRegistrySub = null;
     await _sensorSub?.cancel();
     _sensorSub = null;
   }

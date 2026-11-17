@@ -77,7 +77,68 @@ class _DisconnectedBleTransport extends BLETransport {
   }
 }
 
-class _HangingBleTransport extends _DisconnectedBleTransport {
+class _HangingPowerOffTransport extends BLETransport {
+  final BehaviorSubject<ConnectionState> _connectionState =
+      BehaviorSubject.seeded(ConnectionState.discovered);
+  ConnectionState _nativeState = ConnectionState.disconnected;
+  void Function(Uint8List)? notificationCallback;
+  final writes = <Uint8List>[];
+
+  @override
+  String get id => 'decent-scale-hanging-power-off';
+
+  @override
+  String get name => 'Hanging Power Off Scale';
+
+  @override
+  Stream<ConnectionState> get connectionState => _connectionState.stream;
+
+  @override
+  Future<ConnectionState> getConnectionState() async => _nativeState;
+
+  @override
+  Future<void> connect() async {
+    _nativeState = ConnectionState.connected;
+    _connectionState.add(ConnectionState.connected);
+  }
+
+  @override
+  Future<void> disconnect() async {
+    _nativeState = ConnectionState.disconnected;
+    _connectionState.add(ConnectionState.disconnected);
+  }
+
+  @override
+  Future<List<String>> discoverServices() async => [
+    DecentScale.serviceIdentifier.long,
+  ];
+
+  @override
+  Future<Uint8List> read(
+    String serviceUUID,
+    String characteristicUUID, {
+    Duration? timeout,
+  }) async => Uint8List(0);
+
+  @override
+  Future<void> subscribe(
+    String serviceUUID,
+    String characteristicUUID,
+    void Function(Uint8List) callback,
+  ) async {
+    notificationCallback = callback;
+  }
+
+  @override
+  Future<void> resetSubscription(
+    String serviceUUID,
+    String characteristicUUID,
+    void Function(Uint8List) callback,
+  ) => subscribe(serviceUUID, characteristicUUID, callback);
+
+  @override
+  Future<void> setTransportPriority(bool prioritized) async {}
+
   @override
   Future<void> write(
     String serviceUUID,
@@ -85,16 +146,41 @@ class _HangingBleTransport extends _DisconnectedBleTransport {
     Uint8List data, {
     bool withResponse = true,
     Duration? timeout,
-  }) {
-    return Completer<void>().future;
+  }) async {
+    writes.add(Uint8List.fromList(data));
+    if (data.length == 7 && data[1] == 0x0A && data[2] == 0x01) {
+      scheduleMicrotask(
+        () => notificationCallback?.call(
+          Uint8List.fromList([0x03, 0x0A, 0, 0, 100, 0, 0]),
+        ),
+      );
+      return;
+    }
+    if (data.length == 7 && data[1] == 0x22) {
+      scheduleMicrotask(
+        () => notificationCallback?.call(
+          Uint8List.fromList([0x03, 0x22, 0x01, 0x89, 0, 0, 0xA9]),
+        ),
+      );
+      return;
+    }
+    if (data.length == 7 && data[1] == 0x0A && data[2] == 0x02) {
+      return Completer<void>().future;
+    }
+  }
+
+  @override
+  Future<void> dispose() async {
+    await _connectionState.close();
   }
 }
 
 class _RecordingBleTransport extends BLETransport {
   _RecordingBleTransport({
-    ConnectionState nativeState = ConnectionState.disconnected,
+    this._nativeState = ConnectionState.disconnected,
     this.responseSubscribeCalls = const [1],
-  }) : _nativeState = nativeState;
+    this.respondToVoltageProbe = true,
+  });
 
   final BehaviorSubject<ConnectionState> _connectionState =
       BehaviorSubject.seeded(ConnectionState.discovered);
@@ -113,6 +199,7 @@ class _RecordingBleTransport extends BLETransport {
   int? disconnectOnWrite;
   bool failSubscriptions = false;
   final List<int> responseSubscribeCalls;
+  final bool respondToVoltageProbe;
   Uint8List diagnosticRead = Uint8List(0);
 
   @override
@@ -207,7 +294,18 @@ class _RecordingBleTransport extends BLETransport {
         responseSubscribeCalls.contains(subscribeCalls) &&
         respondedSubscribeCall < subscribeCalls) {
       respondedSubscribeCall = subscribeCalls;
-      scheduleMicrotask(() => emitNotification([0x03, 0x0A, 0, 0, 100, 0, 0]));
+      scheduleMicrotask(
+        () => emitNotification(
+          respondToVoltageProbe
+              ? [0x03, 0x0A, 0, 0, 100, 0x03, 0x1E]
+              : [0x03, 0x0A, 0, 0, 100, 0, 0],
+        ),
+      );
+    }
+    if (data.length == 7 && data[1] == 0x22 && respondToVoltageProbe) {
+      scheduleMicrotask(
+        () => emitNotification([0x03, 0x22, 0x01, 0x89, 0x00, 0x00, 0xA9]),
+      );
     }
   }
 
@@ -242,12 +340,14 @@ void _elapse(FakeAsync async, Duration duration) {
   async.flushMicrotasks();
 }
 
-({DecentScale scale, _RecordingBleTransport transport}) _sleepingReconnect(
+({DecentScale scale, _RecordingBleTransport transport}) _connectedAndSlept(
   FakeAsync async, {
   required List<int> responseSubscribeCalls,
+  bool respondToVoltageProbe = false,
 }) {
   final transport = _RecordingBleTransport(
     responseSubscribeCalls: responseSubscribeCalls,
+    respondToVoltageProbe: respondToVoltageProbe,
   );
   final scale = DecentScale(transport: transport);
   var connected = false;
@@ -260,17 +360,26 @@ void _elapse(FakeAsync async, Duration duration) {
   async.flushMicrotasks();
   _elapse(async, const Duration(milliseconds: 100));
   expect(slept, isTrue);
-  var disconnected = false;
-  scale.disconnectForHandoff().then((_) => disconnected = true);
-  async.flushMicrotasks();
-  expect(disconnected, isTrue);
+  expect(transport.disconnectCalls, 0);
   transport.writes.clear();
-  var reconnected = false;
-  scale.onConnect().then((_) => reconnected = true);
+  return (scale: scale, transport: transport);
+}
+
+({DecentScale scale, _RecordingBleTransport transport}) _reconnectDuringSleep(
+  FakeAsync async,
+  DecentScale scale,
+  _RecordingBleTransport transport,
+) {
+  final connectsBefore = transport.connectCalls;
+  transport.emitDisconnected();
   async.flushMicrotasks();
-  expect(reconnected, isTrue);
-  expect(transport.writes, isEmpty);
-  transport.disconnectCalls = 0;
+  scale.onConnect();
+  async.flushMicrotasks();
+  _elapse(async, const Duration(milliseconds: 100));
+  expect(transport.connectCalls, connectsBefore + 1);
+  expect(transport.writes, [
+    [0x03, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x09],
+  ]);
   return (scale: scale, transport: transport);
 }
 
@@ -325,44 +434,71 @@ void main() {
       expect(states, isNot(contains(ConnectionState.connected)));
       expect(states.last, ConnectionState.disconnected);
       expect(_hasCommand(transport, 0x0A, 0x02), isFalse);
+      expect(_hasCommand(transport, 0x22), isFalse);
       transport.dispose();
     });
   });
 
-  test('sleeping reconnect stays dark and verifies FFF4 on wake', () {
+  test('reconnect during display off attaches dark and verifies FFF4', () {
     fakeAsync((async) {
-      final (:scale, :transport) = _sleepingReconnect(
+      final (:scale, :transport) = _connectedAndSlept(
         async,
         responseSubscribeCalls: const [1, 4],
       );
-      expect(transport.subscribeCalls, 2);
+
+      _reconnectDuringSleep(async, scale, transport);
+      final subscriptionsAfterReconnect = transport.subscribeCalls;
 
       var woke = false;
       scale.wakeDisplay().then((_) => woke = true);
       async.flushMicrotasks();
       _elapse(async, const Duration(milliseconds: 100));
       expect(woke, isFalse);
-      expect(transport.subscribeCalls, 3);
+      expect(transport.subscribeCalls, subscriptionsAfterReconnect + 1);
 
       _elapse(async, const Duration(seconds: 2));
       _elapse(async, const Duration(milliseconds: 100));
 
       expect(woke, isTrue);
-      expect(transport.subscribeCalls, 4);
+      expect(transport.subscribeCalls, subscriptionsAfterReconnect + 2);
       expect(_hasCommand(transport, 0x0A, 0x01), isTrue);
-      expect(_hasCommand(transport, 0x0A, 0x04), isTrue);
+      expect(_hasCommand(transport, 0x0A, 0x04), isFalse);
       scale.disconnectForHandoff();
       async.flushMicrotasks();
       transport.dispose();
     });
   });
 
-  test('sleep supersedes a silent wake before its retry', () {
+  test('original scale keeps streaming through display off', () async {
+    final transport = _RecordingBleTransport(respondToVoltageProbe: false);
+    final scale = DecentScale(transport: transport);
+    await scale.onConnect();
+    await pumpEventQueue();
+    transport.writes.clear();
+
+    await scale.sleepDisplay();
+
+    expect(transport.disconnectCalls, 0);
+    expect(_hasCommand(transport, 0x0A, 0x04), isFalse);
+    expect(_hasCommand(transport, 0x0A, 0x00), isTrue);
+
+    final snapshot = scale.currentSnapshot.first;
+    transport.emitNotification([0x03, 0xCE, 0x00, 100, 0x00, 0x00, 0x00]);
+    expect((await snapshot).weight, 10);
+
+    await scale.disconnectForHandoff();
+    await transport.dispose();
+  });
+
+  test('sleep supersedes an in-flight reconnect wake', () {
     fakeAsync((async) {
-      final (:scale, :transport) = _sleepingReconnect(
+      final (:scale, :transport) = _connectedAndSlept(
         async,
         responseSubscribeCalls: const [1],
       );
+      _reconnectDuringSleep(async, scale, transport);
+      transport.writes.clear();
+
       var woke = false;
       scale.wakeDisplay().then((_) => woke = true);
       async.flushMicrotasks();
@@ -376,7 +512,6 @@ void main() {
       _elapse(async, const Duration(seconds: 3));
 
       expect(woke, isTrue);
-      expect(transport.subscribeCalls, 3);
       expect(transport.writes, orderedEquals(writesAfterSleep));
       scale.disconnectForHandoff();
       async.flushMicrotasks();
@@ -384,43 +519,15 @@ void main() {
     });
   });
 
-  test('latest wake runs after a superseded wake probe', () {
+  test('silent reconnect wake disconnects once without powering off', () {
     fakeAsync((async) {
-      final (:scale, :transport) = _sleepingReconnect(
-        async,
-        responseSubscribeCalls: const [1, 4],
-      );
-      var firstWoke = false;
-      var secondWoke = false;
-      scale.wakeDisplay().then((_) => firstWoke = true);
-      async.flushMicrotasks();
-      _elapse(async, const Duration(milliseconds: 100));
-
-      scale.sleepDisplay();
-      async.flushMicrotasks();
-      scale.wakeDisplay().then((_) => secondWoke = true);
-      async.flushMicrotasks();
-      expect(secondWoke, isFalse);
-      _elapse(async, const Duration(seconds: 2));
-      expect(transport.subscribeCalls, 4);
-      _elapse(async, const Duration(milliseconds: 100));
-
-      expect(firstWoke, isTrue);
-      expect(secondWoke, isTrue);
-      expect(transport.writes.last[2], 0x04);
-      expect(transport.writes.last[3], 0);
-      scale.disconnectForHandoff();
-      async.flushMicrotasks();
-      transport.dispose();
-    });
-  });
-
-  test('silent wake disconnects once without powering off', () {
-    fakeAsync((async) {
-      final (:scale, :transport) = _sleepingReconnect(
+      final (:scale, :transport) = _connectedAndSlept(
         async,
         responseSubscribeCalls: const [1],
       );
+      _reconnectDuringSleep(async, scale, transport);
+      transport.writes.clear();
+      transport.disconnectCalls = 0;
 
       final wakeErrors = <Object>[];
       scale.wakeDisplay().then((_) {}, onError: wakeErrors.add);
@@ -430,15 +537,6 @@ void main() {
       expect(wakeErrors.single, isA<TimeoutException>());
       expect(transport.disconnectCalls, 1);
       expect(_hasCommand(transport, 0x0A, 0x02), isFalse);
-
-      final subscriptions = transport.subscribeCalls;
-      var secondWakeDone = false;
-      scale.wakeDisplay().then((_) => secondWakeDone = true);
-      async.flushMicrotasks();
-      expect(transport.subscribeCalls, subscriptions + 1);
-      scale.sleepDisplay();
-      _elapse(async, const Duration(seconds: 3));
-      expect(secondWakeDone, isTrue);
       transport.dispose();
     });
   });
@@ -483,9 +581,9 @@ void main() {
   );
 
   test(
-    'native drop on the second initialization write never publishes connected',
+    'native drop on the initialization write never publishes connected',
     () async {
-      final transport = _RecordingBleTransport()..disconnectOnWrite = 2;
+      final transport = _RecordingBleTransport()..disconnectOnWrite = 1;
       final scale = DecentScale(transport: transport);
       final states = <ConnectionState>[];
       final subscription = scale.connectionState.listen(states.add);
@@ -496,9 +594,9 @@ void main() {
       );
       await Future<void>.delayed(Duration.zero);
 
-      expect(transport.writes, hasLength(2));
+      expect(transport.writes, hasLength(1));
       expect(
-        transport.writes.first,
+        transport.writes.single,
         orderedEquals([0x03, 0x0A, 0x01, 0x01, 0x00, 0x00, 0x09]),
       );
       expect(states, isNot(contains(ConnectionState.connected)));
@@ -540,6 +638,7 @@ void main() {
       final scale = DecentScale(transport: transport);
 
       await scale.onConnect();
+      await pumpEventQueue();
 
       expect(_hasCommand(transport, 0x0F), isFalse);
       expect(
@@ -651,6 +750,7 @@ void main() {
       final explicitTransport = _RecordingBleTransport();
       final explicitScale = DecentScale(transport: explicitTransport);
       await explicitScale.onConnect();
+      await pumpEventQueue();
       explicitTransport.writes.clear();
 
       await explicitScale.disconnect();
@@ -664,6 +764,7 @@ void main() {
     final transport = _RecordingBleTransport();
     final scale = DecentScale(transport: transport);
     await scale.onConnect();
+    await pumpEventQueue();
 
     for (final data in [
       [0x03, 0x0A, 0x00, 0x00],
@@ -723,8 +824,15 @@ void main() {
 
   test('disconnect() returns within the power-off timeout window when the '
       'BLE write hangs forever', () async {
-    final transport = _HangingBleTransport();
+    final transport = _HangingPowerOffTransport();
     final scale = DecentScale(transport: transport);
+    await scale.onConnect();
+    await pumpEventQueue();
+    expect(
+      transport.writes.any((data) => data[1] == 0x22),
+      isTrue,
+      reason: 'the profile must be proven HDS before power off is sent',
+    );
 
     final stopwatch = Stopwatch()..start();
     await scale.disconnect();
@@ -737,7 +845,13 @@ void main() {
           'A hung BLE write must not stall the disconnect sequence — '
           'common on flaky links after wake-from-sleep.',
     );
+    expect(
+      transport.writes.any(
+        (data) => data.length == 7 && data[1] == 0x0A && data[2] == 0x02,
+      ),
+      isTrue,
+    );
 
-    transport.dispose();
+    await transport.dispose();
   }, timeout: const Timeout(Duration(seconds: 10)));
 }

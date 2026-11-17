@@ -25,6 +25,11 @@ class BackupTransferService {
   }) : _client = client ?? HttpClient();
 
   Future<File> downloadExportZip(String url, Directory tempDir) async {
+    final file = File('${tempDir.path}${Platform.pathSeparator}export.zip');
+    return downloadExportZipTo(url, file);
+  }
+
+  Future<File> downloadExportZipTo(String url, File destination) async {
     final request = await _client.getUrl(Uri.parse(url));
     final response = await request.close();
 
@@ -42,8 +47,7 @@ class BackupTransferService {
       );
     }
 
-    final file = File('${tempDir.path}${Platform.pathSeparator}export.zip');
-    final raf = await file.open(mode: FileMode.write);
+    final raf = await destination.open(mode: FileMode.write);
     try {
       await for (final chunk in response) {
         raf.writeFromSync(chunk);
@@ -51,7 +55,7 @@ class BackupTransferService {
     } finally {
       await raf.close();
     }
-    return file;
+    return destination;
   }
 
   Future<BackupImportResponse> uploadZip(

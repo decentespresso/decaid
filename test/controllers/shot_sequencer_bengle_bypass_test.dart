@@ -81,6 +81,12 @@ class _TestBengle extends TestDe1 implements BengleInterface {
   @override
   Future<void> setLedStrip(LedStripState state) async {}
   @override
+  Future<void> previewLedStrip({Color16? front, Color16? back}) async {}
+
+  @override
+  Future<void> clearLedStripPreview() async {}
+
+  @override
   Future<void> commitLedStrip() async {}
   @override
   Future<LedStripState?> resetLedStrip() async => const LedStripState();
@@ -210,6 +216,7 @@ class _NullStorageService implements StorageService {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
     bool ascending = false,
   }) async => [];
   @override
@@ -222,6 +229,7 @@ class _NullStorageService implements StorageService {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
   }) async => 0;
   @override
   Future<ShotRecord?> getLatestShot() async => null;

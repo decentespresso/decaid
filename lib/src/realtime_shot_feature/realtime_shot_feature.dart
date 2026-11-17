@@ -36,9 +36,8 @@ class _RealtimeShotFeatureState extends State<RealtimeShotFeature> {
       );
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Unable to skip step: $error')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Unable to skip step: $error')));
     }
   }
 

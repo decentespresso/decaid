@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:equatable/equatable.dart';
+
 import 'utils.dart';
 
 @immutable

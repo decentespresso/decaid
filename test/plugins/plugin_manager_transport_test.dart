@@ -853,9 +853,9 @@ void main() {
 
       final error = jsonDecode(result as String) as Map<String, dynamic>;
       expect(error['message'], contains('not owned'));
-      final aEcho =
-          jsonDecode(await echo.future.timeout(const Duration(seconds: 5)))
-              as Map<String, dynamic>;
+      final aEcho = jsonDecode(
+        await echo.future.timeout(const Duration(seconds: 5)),
+      ) as Map<String, dynamic>;
       expect(aEcho['data'], 'ping-A');
     });
 
@@ -959,41 +959,39 @@ void main() {
       },
     );
 
-    test(
-      'a plugin cannot monkey-patch Map.prototype to capture another plugin token',
-      () async {
-        final server = await startWsServer((ws) {
-          ws.listen((data) {
-            try {
-              ws.add(data);
-            } catch (_) {}
-          });
+    test('a plugin cannot monkey-patch Map.prototype to capture another plugin token', () async {
+      final server = await startWsServer((ws) {
+        ws.listen((data) {
+          try {
+            ws.add(data);
+          } catch (_) {}
         });
-        final armed = Completer<void>();
-        final capture = Completer<String>();
-        final echo = Completer<String>();
-        final sub = manager.emitStream.listen((e) {
-          if (e['event'] == 'armed' && !armed.isCompleted) armed.complete();
-          if (e['event'] == 'capture' && !capture.isCompleted) {
-            capture.complete(e['payload'] as String);
-          }
-          if (e['event'] == 'echo' && !echo.isCompleted) {
-            echo.complete(e['payload'] as String);
-          }
-        });
-        addTearDown(sub.cancel);
+      });
+      final armed = Completer<void>();
+      final capture = Completer<String>();
+      final echo = Completer<String>();
+      final sub = manager.emitStream.listen((e) {
+        if (e['event'] == 'armed' && !armed.isCompleted) armed.complete();
+        if (e['event'] == 'capture' && !capture.isCompleted) {
+          capture.complete(e['payload'] as String);
+        }
+        if (e['event'] == 'echo' && !echo.isCompleted) {
+          echo.complete(e['payload'] as String);
+        }
+      });
+      addTearDown(sub.cancel);
 
-        await manager.loadPlugin(
-          id: 'attacker.plugin',
-          manifest: testManifest(
-            'attacker.plugin',
-            permissions: const {
-              PluginPermissions.emit,
-              PluginPermissions.networkWebsocket,
-            },
-          ),
-          settings: {},
-          jsCode: '''
+      await manager.loadPlugin(
+        id: 'attacker.plugin',
+        manifest: testManifest(
+          'attacker.plugin',
+          permissions: const {
+            PluginPermissions.emit,
+            PluginPermissions.networkWebsocket,
+          },
+        ),
+        settings: {},
+        jsCode: '''
           function createPlugin(host) {
             return {
               id: "attacker.plugin",
@@ -1062,21 +1060,21 @@ void main() {
             };
           }
         ''',
-        );
-        await armed.future.timeout(const Duration(seconds: 5));
+      );
+      await armed.future.timeout(const Duration(seconds: 5));
 
-        await manager.loadPlugin(
-          id: 'victim.plugin',
-          manifest: testManifest(
-            'victim.plugin',
-            permissions: const {
-              PluginPermissions.emit,
-              PluginPermissions.networkWebsocket,
-            },
-          ),
-          settings: {},
-          jsCode:
-              '''
+      await manager.loadPlugin(
+        id: 'victim.plugin',
+        manifest: testManifest(
+          'victim.plugin',
+          permissions: const {
+            PluginPermissions.emit,
+            PluginPermissions.networkWebsocket,
+          },
+        ),
+        settings: {},
+        jsCode:
+            '''
           function createPlugin(host) {
             return {
               id: "victim.plugin",
@@ -1096,18 +1094,14 @@ void main() {
             };
           }
         ''',
-        );
-        expect(
-          await echo.future.timeout(const Duration(seconds: 5)),
-          'victim ping',
-        );
-        await manager.unloadPlugin('victim.plugin');
-        expect(
-          await capture.future.timeout(const Duration(seconds: 5)),
-          isEmpty,
-        );
-      },
-    );
+      );
+      expect(
+        await echo.future.timeout(const Duration(seconds: 5)),
+        'victim ping',
+      );
+      await manager.unloadPlugin('victim.plugin');
+      expect(await capture.future.timeout(const Duration(seconds: 5)), isEmpty);
+    });
 
     test('a handle cannot be reused by a newer plugin generation', () async {
       final server = await startWsServer((ws) {
@@ -1457,17 +1451,13 @@ void main() {
           }
         ''',
         );
-        final error =
-            jsonDecode(
-                  await errorResult.future.timeout(const Duration(seconds: 5)),
-                )
-                as Map<String, dynamic>;
+        final error = jsonDecode(
+          await errorResult.future.timeout(const Duration(seconds: 5)),
+        ) as Map<String, dynamic>;
         expect(error['code'], 'transport_error');
-        final resend =
-            jsonDecode(
-                  await resendResult.future.timeout(const Duration(seconds: 5)),
-                )
-                as Map<String, dynamic>;
+        final resend = jsonDecode(
+          await resendResult.future.timeout(const Duration(seconds: 5)),
+        ) as Map<String, dynamic>;
         expect(resend['code'], 'transport_error');
         await pumpEventQueue();
         expect(manager.liveTransportCount, 0);
@@ -1571,17 +1561,13 @@ void main() {
         ''',
         );
 
-        final error =
-            jsonDecode(
-                  await errorResult.future.timeout(const Duration(seconds: 10)),
-                )
-                as Map<String, dynamic>;
+        final error = jsonDecode(
+          await errorResult.future.timeout(const Duration(seconds: 10)),
+        ) as Map<String, dynamic>;
         expect(error['code'], 'transport_resource_limit');
-        final closed =
-            jsonDecode(
-                  await closeResult.future.timeout(const Duration(seconds: 10)),
-                )
-                as Map<String, dynamic>;
+        final closed = jsonDecode(
+          await closeResult.future.timeout(const Duration(seconds: 10)),
+        ) as Map<String, dynamic>;
         expect(closed['closed'], true);
       },
     );
