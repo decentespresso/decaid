@@ -481,10 +481,6 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
     await enableUserPresenceFeature();
   }
 
-  /// The ProfileModeCaps read makes one attempt with this timeout and no
-  /// retries, so a Bengle firmware WITHOUT the register settles to caps 0 and
-  /// frees the serial MMR gate after one attempt instead of holding the
-  /// connect flow for the full MMR-read retry budget.
   static const _profileModeCapsAttemptTimeout = Duration(seconds: 4);
 
   /// Outer bound on the ProfileModeCaps read, longer than the one attempt.

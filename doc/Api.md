@@ -530,6 +530,14 @@ bitmask as `extra.profileModeCaps`: `0x1` Power, `0x2` Lever, `0x4` HOLD, `0x8` 
 exit. An absent or zero mask means the machine cannot run those steps, and
 `POST /api/v1/machine/profile` refuses the upload with a `400` before it writes anything.
 
+A lever step also accepts `lever_spring` and `lever_give` as input; profiles are written back with
+`leverSpring` and `leverGive`. `POST /api/v1/machine/profile` also refuses these uploads with a
+`400` before it writes anything, whatever the mask:
+
+- a lever step with `transition: "hold"`, on every machine;
+- a power step whose limiter `value` is not finite, or encodes to zero in the frame;
+- an exit on `power` whose `value` is outside 0 to 25.5 W, the range of its one-byte field.
+
 ### Workflow
 
 | Method | Path | Description | Handler |

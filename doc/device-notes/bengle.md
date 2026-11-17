@@ -237,6 +237,16 @@ rather than blocking other writes indefinitely or claiming success.
   timeout or wake table, so it receives timeout 0 and a cleared, disabled
   table (the wake table runs without the tablet).
 
+## ProfileModeCaps read
+
+The app reads `ProfileModeCaps` on connect only when the machine is a Bengle; a stock DE1
+gets caps 0 with no read. The read is one MMR request with no retries. Its 4 s timeout
+starts before the write, and an outer 4.5 s bound covers the whole read. A firmware without
+the register, an error or a timeout gives caps 0, so the connect flow does not wait for the
+full MMR retry budget. The read ends only after the write returns. If the write is slow, the
+outer bound fires first: caps settle to 0, but the MMR gate stays held until the write
+returns, and the next MMR read waits.
+
 ## Integrated scale
 
 When Bengle is connected, `BengleVirtualScale` is attached automatically and
