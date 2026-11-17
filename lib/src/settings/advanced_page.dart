@@ -1,5 +1,6 @@
 import 'dart:ui' show AppExitType;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:reaprime/build_info.dart';
@@ -9,7 +10,10 @@ import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/settings/settings_service.dart';
 import 'package:reaprime/src/debug_feature/debug_item_list_view.dart';
 import 'package:reaprime/src/services/foreground_service.dart';
+import 'package:reaprime/src/services/github_credentials.dart';
+import 'package:reaprime/src/settings/github_token_section.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
+
 import 'dart:io';
 
 import 'package:reaprime/src/settings/gateway_mode.dart';
@@ -17,11 +21,12 @@ import 'package:reaprime/src/settings/gateway_mode_info_dialog.dart';
 import 'package:reaprime/src/skin_feature/simulated_webview_device.dart';
 
 class AdvancedPage extends StatelessWidget {
-  const AdvancedPage({super.key, required this.controller});
+  const AdvancedPage({super.key, required this.controller, this.credentials});
 
   static const routeName = '/advanced';
 
   final SettingsController controller;
+  final GithubCredentialProvider? credentials;
 
   @override
   Widget build(BuildContext context) {
@@ -60,7 +65,6 @@ class AdvancedPage extends StatelessWidget {
                 ),
               ),
               const SettingsDivider(),
-
               SettingsTile(
                 icon: Icons.settings_remote_outlined,
                 label: 'Gateway Mode',
@@ -68,6 +72,59 @@ class AdvancedPage extends StatelessWidget {
                 onTap: () => _showGatewayModePicker(context),
               ),
               const SettingsDivider(),
+
+              if (defaultTargetPlatform == TargetPlatform.android) ...[
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  child: InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: 'Skin composition (diagnostic)',
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<bool>(
+                        value: controller.isFeatureFlagEnabled(
+                          FeatureFlag.androidTextureLayerComposition,
+                        ),
+                        isExpanded: true,
+                        isDense: true,
+                        items: const [
+                          DropdownMenuItem(
+                            value: false,
+                            child: Text('HC (default)'),
+                          ),
+                          DropdownMenuItem(
+                            value: true,
+                            child: Text('TLHC (HC fallback)'),
+                          ),
+                        ],
+                        onChanged: (value) async {
+                          if (value == null) return;
+                          try {
+                            await controller.setFeatureFlag(
+                              FeatureFlag.androidTextureLayerComposition,
+                              value,
+                            );
+                          } catch (_) {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Composition setting could not be saved.',
+                                  ),
+                                ),
+                              );
+                            }
+                          }
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+                const SettingsDivider(),
+              ],
 
               Padding(
                 padding: const EdgeInsets.symmetric(
@@ -243,6 +300,10 @@ class AdvancedPage extends StatelessWidget {
                     exit(0);
                   },
                 ),
+              if (credentials != null) ...[
+                const SettingsDivider(),
+                GithubTokenSection(credentials: credentials!),
+              ],
             ],
           );
         },

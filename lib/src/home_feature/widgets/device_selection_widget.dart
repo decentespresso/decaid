@@ -152,9 +152,8 @@ class _DeviceSelectionWidgetState extends State<DeviceSelectionWidget> {
         children: [
           Text(
             widget.headerText ?? "Select a machine from the list",
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(fontWeight: FontWeight.w600),
           ),
           if (widget.errorMessage != null)
             Padding(

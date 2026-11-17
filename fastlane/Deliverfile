@@ -1,0 +1,19 @@
+app_identifier("net.tadel.reaprime")
+
+metadata_path("./fastlane/metadata")
+screenshots_path("./fastlane/screenshots")
+
+# Text and screenshots only; builds are uploaded by CI (see .github/workflows/release.yml).
+skip_binary_upload(true)
+
+# Replace the uploaded screenshot set only on request: deliver --overwrite_screenshots.
+overwrite_screenshots(false)
+
+# force(true) would skip the HTML preview check.
+force(false)
+
+# Submitting is a deliberate step: run deliver with --submit_for_review when ready.
+submit_for_review(false)
+automatic_release(false)
+run_precheck_before_submit(true)
+precheck_include_in_app_purchases(false)

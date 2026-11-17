@@ -51,15 +51,12 @@ void main() {
       expect(matches[0].group(1), equals('[M]0A0B0C'));
     });
 
-    test(
-      'complete message followed by partial separated by [ does not match the partial',
-      () {
-        const buffer = '[M]0A0B0C[N]0C0';
-        final matches = messagePattern.allMatches(buffer).toList();
-        expect(matches, hasLength(1));
-        expect(matches[0].group(1), equals('[M]0A0B0C'));
-      },
-    );
+    test('complete message followed by partial separated by [ does not match the partial', () {
+      const buffer = '[M]0A0B0C[N]0C0';
+      final matches = messagePattern.allMatches(buffer).toList();
+      expect(matches, hasLength(1));
+      expect(matches[0].group(1), equals('[M]0A0B0C'));
+    });
   });
 
   group('hexToBytes', () {

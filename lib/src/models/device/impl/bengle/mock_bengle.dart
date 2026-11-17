@@ -146,40 +146,14 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
   Future<LedStripState?> getLedStripState() async => _ledState.value;
 
   @override
-  Future<void> setLedStrip(LedStripState state) async {
-    Color16 quantize(Color16 color) =>
-        Color16(color.red & 0xFF00, color.green & 0xFF00, color.blue & 0xFF00);
+  Future<void> setLedStrip(LedStripState state) async =>
+      _ledState.add(state.canonical());
 
-    ZoneLedState quantizeZone(ZoneLedState zone) => ZoneLedState(
-      awake: quantize(zone.awake),
-      sleeping: quantize(zone.sleeping),
-    );
+  @override
+  Future<void> previewLedStrip({Color16? front, Color16? back}) async {}
 
-    ZoneLedState derive(ZoneLedState strip, int defaultRgb) {
-      Color16 fallback(int rgb) => Color16(
-        ((rgb >> 16) & 0xFF) << 8,
-        ((rgb >> 8) & 0xFF) << 8,
-        (rgb & 0xFF) << 8,
-      );
-
-      return ZoneLedState(
-        awake: strip.awake == Color16.off ? fallback(0xFFF0C8) : strip.awake,
-        sleeping: strip.sleeping == Color16.off
-            ? fallback(0x555043)
-            : strip.sleeping,
-      );
-    }
-
-    final frontStrip = quantizeZone(state.frontStrip);
-    final backStrip = quantizeZone(state.backStrip);
-    _ledState.add(
-      LedStripState(
-        frontStrip: frontStrip,
-        backStrip: backStrip,
-        frontSwitch: derive(frontStrip, 0),
-      ),
-    );
-  }
+  @override
+  Future<void> clearLedStripPreview() async {}
 
   @override
   Future<void> commitLedStrip() async {}

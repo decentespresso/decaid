@@ -4,14 +4,19 @@ import 'dart:math';
 class ProxyCaller {
   final String id;
   final Set<String> scopes;
+  final String? label;
 
-  const ProxyCaller({required this.id, required this.scopes});
+  const ProxyCaller({required this.id, required this.scopes, this.label});
 }
 
 class ProxyTokenService {
   static const String scopeAccountProxy = 'account:proxy';
 
   static const String scopeAccountProxyWrite = 'account:proxy:write';
+
+  static const String scopeExtensionsManage = 'extensions:manage';
+
+  static const int minimumProcessTokenLength = 32;
 
   final Map<String, ProxyCaller> _tokens = {};
   late String _skinToken;
@@ -39,6 +44,15 @@ class ProxyTokenService {
 
   void registerToken(String token, ProxyCaller caller) {
     _tokens[token] = caller;
+  }
+
+  bool registerProcessToken(String token, ProxyCaller caller) {
+    if (token.length < minimumProcessTokenLength ||
+        token.contains(RegExp(r'[\s,]'))) {
+      return false;
+    }
+    registerToken(token, caller);
+    return true;
   }
 
   void revokeToken(String token) {

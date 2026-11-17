@@ -26,6 +26,10 @@ import 'package:reaprime/src/skin_selector/skin_selector_page.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
+import '../notifications/notification_center.dart';
+import '../notifications/notification_actions.dart';
+import '../notifications/notification_overlay.dart';
+
 enum LauncherSkinSlot { browserHero, returnToSkin, skinUnavailable }
 
 LauncherSkinSlot resolveLauncherSkinSlot({
@@ -55,6 +59,9 @@ class LauncherView extends StatelessWidget {
     this.batteryController,
     this.decentAccountService,
     this.isDegradedAndroid = false,
+    this.notificationCenter,
+    this.notificationActions,
+    this.supportsWebView,
   });
 
   final De1Controller de1Controller;
@@ -68,12 +75,17 @@ class LauncherView extends StatelessWidget {
   final DecentAccountService? decentAccountService;
 
   final bool isDegradedAndroid;
+  final NotificationCenter? notificationCenter;
+  final NotificationActions? notificationActions;
+  @visibleForTesting
+  final bool? supportsWebView;
 
   bool get _supportsWebView =>
-      Platform.isIOS ||
-      Platform.isAndroid ||
-      Platform.isMacOS ||
-      Platform.isWindows;
+      supportsWebView ??
+      (Platform.isIOS ||
+          Platform.isAndroid ||
+          Platform.isMacOS ||
+          Platform.isWindows);
 
   @override
   Widget build(BuildContext context) {
@@ -114,11 +126,14 @@ class LauncherView extends StatelessWidget {
                             children: [
                               if (!hasMachine)
                                 ConnectDeviceHeroCard(
-                                  onScan: () => Navigator.of(
-                                    context,
-                                  ).pushNamed(LauncherScanPage.routeName),
+                                  onScan: () => Navigator.of(context)
+                                      .pushNamed(LauncherScanPage.routeName),
                                 ),
-                              _buildSkinSlot(context, slot),
+                              _buildSkinSlot(
+                                context,
+                                slot,
+                                hasMachine: hasMachine,
+                              ),
                             ],
                           );
                         },
@@ -136,12 +151,17 @@ class LauncherView extends StatelessWidget {
     );
   }
 
-  Widget _buildSkinSlot(BuildContext context, LauncherSkinSlot slot) {
+  Widget _buildSkinSlot(
+    BuildContext context,
+    LauncherSkinSlot slot, {
+    required bool hasMachine,
+  }) {
     switch (slot) {
       case LauncherSkinSlot.browserHero:
         return BrowserHeroCard(deviceIp: webUIService.deviceIp());
       case LauncherSkinSlot.returnToSkin:
         return _ReturnToSkinButton(
+          hasMachine: hasMachine,
           onTap: () {
             SkinView.open(Navigator.of(context));
           },
@@ -201,23 +221,31 @@ class LauncherView extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final crossAxisCount = constraints.maxWidth > 400 ? 4 : 3;
+        final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
+        final crossAxisCount = (constraints.maxWidth / (128 * textScale))
+            .floor()
+            .clamp(1, 4);
         return GridView.count(
           crossAxisCount: crossAxisCount,
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           mainAxisSpacing: 12,
           crossAxisSpacing: 12,
-          childAspectRatio: 1.0,
-          children: destinations
-              .map(
-                (d) => DestinationCard(
-                  icon: d.icon,
-                  label: d.label,
-                  onTap: () => Navigator.of(context).pushNamed(d.route),
-                ),
-              )
-              .toList(),
+          mainAxisExtent: 112 * textScale,
+          children: [
+            if (notificationCenter != null && notificationActions != null)
+              NotificationDestination(
+                center: notificationCenter!,
+                actions: notificationActions!,
+              ),
+            ...destinations.map(
+              (d) => DestinationCard(
+                icon: d.icon,
+                label: d.label,
+                onTap: () => Navigator.of(context).pushNamed(d.route),
+              ),
+            ),
+          ],
         );
       },
     );
@@ -237,24 +265,33 @@ class _Destination {
 }
 
 class _ReturnToSkinButton extends StatelessWidget {
-  const _ReturnToSkinButton({required this.onTap});
+  const _ReturnToSkinButton({required this.hasMachine, required this.onTap});
 
+  final bool hasMachine;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = ShadTheme.of(context);
 
-    return ShadButton(
-      size: ShadButtonSize.lg,
-      leading: const Icon(LucideIcons.arrowLeft, size: 18),
-      onPressed: onTap,
-      child: Text(
-        'Return to Skin',
-        style: theme.textTheme.p.copyWith(
-          color: theme.colorScheme.primaryForeground,
-        ),
-      ),
-    );
+    final button = hasMachine
+        ? ShadButton(
+            size: ShadButtonSize.lg,
+            leading: const Icon(LucideIcons.arrowLeft, size: 18),
+            onPressed: onTap,
+            child: Text(
+              'Return to Skin',
+              style: theme.textTheme.p.copyWith(
+                color: theme.colorScheme.primaryForeground,
+              ),
+            ),
+          )
+        : ShadButton.outline(
+            size: ShadButtonSize.lg,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            onPressed: onTap,
+            child: const Text('Return to Skin'),
+          );
+    return button;
   }
 }

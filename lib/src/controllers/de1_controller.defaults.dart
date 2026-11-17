@@ -5,9 +5,25 @@ extension Defaults on De1Controller {
     De1Interface device,
     bool Function() stillCurrent,
   ) async {
-    await device.setFanThreshhold(55);
+    final saved = await _machineSettings.read(_machineSettingsIdentity(device));
+    final savedRefill = saved?.refillKitSetting;
     if (!stillCurrent()) return;
-
+    await device.setFanThreshhold(saved?.fanThreshold ?? 55);
+    if (!stillCurrent()) return;
+    if (savedRefill != null) {
+      await device.setRefillKitSettings(savedRefill);
+      if (!stillCurrent()) return;
+    }
+    final savedFlowCalibration = saved?.flowCalibration;
+    if (savedFlowCalibration != null) {
+      await device.setFlowEstimation(savedFlowCalibration);
+      if (!stillCurrent()) return;
+    }
+    final savedRefillLevel = saved?.refillLevel;
+    if (savedRefillLevel != null) {
+      await device.setRefillLevel(savedRefillLevel);
+      if (!stillCurrent()) return;
+    }
     if (defaultWorkflow == null) {
       return;
     }
@@ -108,6 +124,7 @@ extension Defaults on De1Controller {
   }
 
   Future<void> applySettingsDefaults(De1Interface device) async {
+    final identity = _machineSettingsIdentity(device);
     await device.setFanThreshhold(55);
 
     await device.setHeaterIdleTemp(95);
@@ -117,7 +134,10 @@ extension Defaults on De1Controller {
 
     await device.setRefillKitSettings(.auto);
 
-    await device.setFlowEstimation(1.0);
+    // Generic settings reset leaves flow calibration and the refill level
+    // alone: both are managed by their own endpoints, so no A012 or water
+    // levels packet is sent and neither machine value is read or modified.
     await device.setSteamPurgeMode(0);
+    await _machineSettings.clearResetOverrides(identity);
   }
 }

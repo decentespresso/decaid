@@ -3,8 +3,7 @@ part of '../webserver_service.dart';
 class WebViewLogsHandler {
   final WebViewLogService _webViewLogService;
 
-  WebViewLogsHandler({required WebViewLogService webViewLogService})
-    : _webViewLogService = webViewLogService;
+  WebViewLogsHandler({required this._webViewLogService});
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/webview/logs', _handleGetLogs);

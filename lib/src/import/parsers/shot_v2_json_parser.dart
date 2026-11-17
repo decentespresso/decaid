@@ -1,6 +1,8 @@
 import 'dart:math';
 
 import 'package:reaprime/src/controllers/scale_controller.dart';
+import 'package:reaprime/src/import/parsers/enjoyment_scale.dart';
+import 'package:reaprime/src/import/parsers/state_change_frames.dart';
 import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/data/shot_annotations.dart';
 import 'package:reaprime/src/models/data/shot_record.dart';
@@ -31,6 +33,101 @@ class ParsedShot {
     this.grinderModel,
     this.grinderSetting,
   });
+
+  ParsedShot fillGapsFrom(ParsedShot other) {
+    final annotations = shot.annotations;
+    final otherAnnotations = other.shot.annotations;
+    final context = shot.workflow.context;
+    final otherContext = other.shot.workflow.context;
+
+    return ParsedShot(
+      shot: shot.copyWith(
+        annotations: annotations == null
+            ? otherAnnotations
+            : annotations.copyWith(
+                actualDoseWeight: _number(
+                  annotations.actualDoseWeight,
+                  otherAnnotations?.actualDoseWeight,
+                ),
+                actualYield: _number(
+                  annotations.actualYield,
+                  otherAnnotations?.actualYield,
+                ),
+                drinkTds: _number(
+                  annotations.drinkTds,
+                  otherAnnotations?.drinkTds,
+                ),
+                drinkEy: _number(
+                  annotations.drinkEy,
+                  otherAnnotations?.drinkEy,
+                ),
+                enjoyment: _number(
+                  annotations.enjoyment,
+                  otherAnnotations?.enjoyment,
+                ),
+                espressoNotes: _text(
+                  annotations.espressoNotes,
+                  otherAnnotations?.espressoNotes,
+                ),
+              ),
+        workflow: context == null
+            ? shot.workflow.copyWith(
+                id: shot.workflow.id,
+                context: otherContext,
+              )
+            : shot.workflow.copyWith(
+                id: shot.workflow.id,
+                context: context.copyWith(
+                  targetDoseWeight: _number(
+                    context.targetDoseWeight,
+                    otherContext?.targetDoseWeight,
+                  ),
+                  targetYield: _number(
+                    context.targetYield,
+                    otherContext?.targetYield,
+                  ),
+                  grinderModel: _text(
+                    context.grinderModel,
+                    otherContext?.grinderModel,
+                  ),
+                  grinderSetting: _text(
+                    context.grinderSetting,
+                    otherContext?.grinderSetting,
+                  ),
+                  coffeeName: _text(
+                    context.coffeeName,
+                    otherContext?.coffeeName,
+                  ),
+                  coffeeRoaster: _text(
+                    context.coffeeRoaster,
+                    otherContext?.coffeeRoaster,
+                  ),
+                  baristaName: _text(
+                    context.baristaName,
+                    otherContext?.baristaName,
+                  ),
+                  drinkerName: _text(
+                    context.drinkerName,
+                    otherContext?.drinkerName,
+                  ),
+                ),
+              ),
+      ),
+      beanBrand: _text(beanBrand, other.beanBrand),
+      beanType: _text(beanType, other.beanType),
+      beanNotes: _text(beanNotes, other.beanNotes),
+      roastDate: _text(roastDate, other.roastDate),
+      roastLevel: _text(roastLevel, other.roastLevel),
+      grinderModel: _text(grinderModel, other.grinderModel),
+      grinderSetting: _text(grinderSetting, other.grinderSetting),
+    );
+  }
+
+  static double? _number(double? primary, double? fallback) =>
+      (primary == null || primary == 0) ? (fallback ?? primary) : primary;
+
+  static String? _text(String? primary, String? fallback) =>
+      (primary == null || primary.isEmpty) ? fallback : primary;
 }
 
 class ShotV2JsonParser {
@@ -102,9 +199,10 @@ class ShotV2JsonParser {
     final ey =
         parse_utils.parseOptionalDouble(metaShot?['ey']) ??
         parse_utils.parseOptionalDouble(settings['drink_ey']);
-    final enjoyment =
-        parse_utils.parseOptionalDouble(metaShot?['enjoyment']) ??
-        parse_utils.parseOptionalDouble(settings['espresso_enjoyment']);
+    final enjoyment = rescaleDe1appEnjoyment(
+      parse_utils.parseOptionalDouble(metaShot?['enjoyment']) ??
+          parse_utils.parseOptionalDouble(settings['espresso_enjoyment']),
+    );
     final espressoNotes =
         _str(metaShot?['notes']) ?? _str(settings['espresso_notes']);
 
@@ -207,25 +305,27 @@ class ShotV2JsonParser {
     final totalWeight = _numList(totals?['weight']);
     final waterDispensed = _numList(totals?['water_dispensed']);
 
-    final allArrays = [
+    final machineArrays = [
       elapsed,
       pressureData,
       pressureGoal,
       flowData,
       flowGoal,
-      flowByWeight,
       tempBasket,
       tempMix,
       tempGoal,
-      totalWeight,
       waterDispensed,
     ];
-    final count = allArrays
+    final count = machineArrays
         .where((l) => l.isNotEmpty)
         .map((l) => l.length)
         .reduce(min);
 
     final boundaries = _stepBoundaries(profile);
+    final recordedFrames = framesFromStateChange(
+      _numList(json['state_change']),
+    );
+    final useRecordedFrames = recordedFrames.length >= count;
 
     final snapshots = <ShotSnapshot>[];
     for (var i = 0; i < count; i++) {
@@ -233,7 +333,9 @@ class ShotV2JsonParser {
         Duration(milliseconds: (elapsed[i] * 1000).round()),
       );
 
-      final frame = _frameForElapsed(elapsed[i], boundaries);
+      final frame = useRecordedFrames
+          ? recordedFrames[i]
+          : _frameForElapsed(elapsed[i], boundaries);
 
       final machineSnap = MachineSnapshot(
         timestamp: ts,

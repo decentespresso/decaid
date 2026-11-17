@@ -232,19 +232,16 @@ void main() {
       expect(r.transportType, TransportType.ble);
     });
 
-    test(
-      'fromJson tolerates missing implementation and transportType (old records)',
-      () {
-        final r = RememberedDevice.fromJson({
-          'id': 'a',
-          'name': 'DE1',
-          'type': 'machine',
-        });
-        expect(r, isNotNull);
-        expect(r!.implementation, isNull);
-        expect(r.transportType, isNull);
-      },
-    );
+    test('fromJson tolerates missing implementation and transportType (old records)', () {
+      final r = RememberedDevice.fromJson({
+        'id': 'a',
+        'name': 'DE1',
+        'type': 'machine',
+      });
+      expect(r, isNotNull);
+      expect(r!.implementation, isNull);
+      expect(r.transportType, isNull);
+    });
 
     test('fromJson tolerates unknown implementation name (graceful null)', () {
       final r = RememberedDevice.fromJson({

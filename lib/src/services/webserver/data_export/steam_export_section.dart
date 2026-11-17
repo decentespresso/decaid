@@ -11,11 +11,10 @@ class SteamExportSection implements DataExportSection {
   final int pageSize;
 
   SteamExportSection({
-    required PersistenceController controller,
-    required PageCursor<SteamRecord> pageSteams,
+    required this._controller,
+    required this._pageSteams,
     this.pageSize = DataTransferLimits.defaultExportPageSize,
-  }) : _controller = controller,
-       _pageSteams = pageSteams;
+  });
 
   @override
   String get filename => 'steams.json';

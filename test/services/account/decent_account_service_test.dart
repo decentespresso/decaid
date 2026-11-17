@@ -1039,12 +1039,12 @@ void main() {
 
     group('sendSupportMessage', () {
       test(
-        'sends an authenticated request and returns the contact id',
+        'sends an authenticated request and accepts only a message ID',
         () async {
           late http.Request capturedRequest;
           final client = http_testing.MockClient((request) async {
             capturedRequest = request;
-            return http.Response('  GhwAHSEAAAAAAAAGBgAdAxAcCUgGCgQ=\n', 200);
+            return http.Response('{"messageId":67890}', 200);
           });
           final supportService = DecentAccountService(
             httpClient: client,
@@ -1054,12 +1054,12 @@ void main() {
           await store.write(key: 'email', value: 'test@example.com');
           await store.write(key: 'password', value: 'cryptpw_abc123');
 
-          final contactId = await supportService.sendSupportMessage(
+          final receipt = await supportService.sendSupportMessage(
             subject: 'Decaid feedback #728 & details',
             body: 'https://github.com/decentespresso/decaid/issues/728?a=1&b=2',
           );
 
-          expect(contactId, 'GhwAHSEAAAAAAAAGBgAdAxAcCUgGCgQ=');
+          expect(receipt.messageId, '67890');
           expect(capturedRequest.method, 'GET');
           expect(capturedRequest.url.path, '/support/api/email');
           expect(capturedRequest.url.queryParameters, {
@@ -1074,34 +1074,130 @@ void main() {
         },
       );
 
-      test('rejects failed and unsafe responses', () async {
-        final responses = [
-          (statusCode: 500, body: 'failed'),
-          (statusCode: 200, body: ''),
-          (statusCode: 200, body: '0'),
-          (statusCode: 200, body: 'bad\ncontact'),
-          (statusCode: 200, body: 'bad`contact'),
-          (statusCode: 200, body: List.filled(257, 'x').join()),
-        ];
+      test('temporary acknowledgement succeeds without IDs', () async {
         await store.write(key: 'email', value: 'test@example.com');
         await store.write(key: 'password', value: 'cryptpw_abc123');
+        final supportService = DecentAccountService(
+          httpClient: _mockClient(statusCode: 200, body: ' 1\n'),
+          credentialStore: store,
+        );
 
-        for (final response in responses) {
+        final receipt = await supportService.sendSupportMessage(
+          subject: 'subject',
+          body: 'body',
+        );
+
+        expect(receipt.messageId, isNull);
+      });
+
+      test(
+        'accepts a decimal string message ID and ignores extra fields',
+        () async {
+          await store.write(key: 'email', value: 'test@example.com');
+          await store.write(key: 'password', value: 'cryptpw_abc123');
           final supportService = DecentAccountService(
             httpClient: _mockClient(
-              statusCode: response.statusCode,
-              body: response.body,
+              statusCode: 200,
+              body: '{"userId":"private-user","messageId":"67890"}',
             ),
             credentialStore: store,
-            baseUrl: _baseUrl,
           );
+          final receipt = await supportService.sendSupportMessage(
+            subject: 'subject',
+            body: 'body',
+          );
+          expect(receipt.messageId, '67890');
+        },
+      );
 
-          await expectLater(
-            supportService.sendSupportMessage(subject: 'subject', body: 'body'),
-            throwsA(isA<Exception>()),
-          );
-        }
-      });
+      test(
+        'separates delivery failure from an optional valid receipt',
+        () async {
+          final responses = [
+            (statusCode: 500, body: 'failed'),
+            (statusCode: 200, body: ''),
+            (statusCode: 200, body: '0'),
+            (statusCode: 200, body: 'legacy-success-token'),
+            (statusCode: 200, body: 'bad\ncontact'),
+            (statusCode: 200, body: 'bad`contact'),
+            (statusCode: 200, body: List.filled(257, 'x').join()),
+            (statusCode: 200, body: '12345.67890'),
+            (statusCode: 200, body: '{"userId":12345,'),
+            (statusCode: 200, body: '{"userId":12345}'),
+            (statusCode: 200, body: '{"userId":12345,"messageId":1}'),
+            (statusCode: 200, body: '{"userId":12345,"messageId":"1"}'),
+            (statusCode: 200, body: '{"userId":12345,"messageId":false}'),
+            (statusCode: 200, body: '{"userId":12345,"messageId":{}}'),
+            for (final messageId in [
+              -2,
+              0,
+              67890.5,
+              'customer@example.com',
+              'msg-67890',
+              '12345.67890',
+              '-2',
+              '+67890',
+              '6.789e4',
+              '067890',
+              '01',
+              ' 67890',
+              '67890 ',
+              '67890\n',
+              '\u0666\u0667\u0668\u0669\u0660',
+              '',
+              '0',
+              ' 1 ',
+              'bad\nmessage',
+              'bad`message',
+              'bad\rmessage',
+              'bad\u0000message',
+              List.filled(257, 'x').join(),
+              List.filled(257, '9').join(),
+            ])
+              (
+                statusCode: 200,
+                body: jsonEncode({'userId': 12345, 'messageId': messageId}),
+              ),
+          ];
+          await store.write(key: 'email', value: 'test@example.com');
+          await store.write(key: 'password', value: 'cryptpw_abc123');
+
+          for (final response in responses) {
+            final supportService = DecentAccountService(
+              httpClient: http_testing.MockClient(
+                (_) async => http.Response(
+                  response.body,
+                  response.statusCode,
+                  headers: {'content-type': 'application/json; charset=utf-8'},
+                ),
+              ),
+              credentialStore: store,
+              baseUrl: _baseUrl,
+            );
+
+            final delivery = supportService.sendSupportMessage(
+              subject: 'subject',
+              body: 'body',
+            );
+            if (response.statusCode != 200 ||
+                response.body.isEmpty ||
+                response.body == '0') {
+              await expectLater(
+                delivery,
+                throwsA(
+                  isA<Exception>().having(
+                    (error) => error.toString(),
+                    'does not disclose user ID',
+                    isNot(contains('12345')),
+                  ),
+                ),
+              );
+            } else {
+              expect((await delivery).messageId, isNull);
+            }
+          }
+        },
+      );
 
       test('invalidates cached authentication after a 401', () async {
         var requestCount = 0;
@@ -2417,9 +2513,9 @@ void main() {
         await pumpEventQueue();
 
         expect(service.usableRegisteredMachines.map((m) => m.serial), ['2222']);
-        final persisted =
-            jsonDecode((await store.read(key: 'registered_machines'))!)
-                as Map<String, dynamic>;
+        final persisted = jsonDecode(
+          (await store.read(key: 'registered_machines'))!,
+        ) as Map<String, dynamic>;
         expect(persisted['account'], 'new@example.com');
         expect(
           (persisted['machines'] as List).map((m) => (m as Map)['serial']),
@@ -2470,9 +2566,9 @@ void main() {
         await pumpEventQueue();
 
         expect(service.usableRegisteredMachines.map((m) => m.serial), ['2222']);
-        final persisted =
-            jsonDecode((await store.read(key: 'registered_machines'))!)
-                as Map<String, dynamic>;
+        final persisted = jsonDecode(
+          (await store.read(key: 'registered_machines'))!,
+        ) as Map<String, dynamic>;
         expect(persisted['account'], 'new@example.com');
         expect(
           (persisted['machines'] as List).map((m) => (m as Map)['serial']),
@@ -2562,9 +2658,9 @@ void main() {
           expect(service.usableRegisteredMachines.map((m) => m.serial), [
             '2222',
           ]);
-          final persisted =
-              jsonDecode((await store.read(key: 'registered_machines'))!)
-                  as Map<String, dynamic>;
+          final persisted = jsonDecode(
+            (await store.read(key: 'registered_machines'))!,
+          ) as Map<String, dynamic>;
           expect(persisted['account'], 'new@example.com');
         },
       );

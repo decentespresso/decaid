@@ -17,12 +17,15 @@ linked, so a *granted* plugin reaches the service and gets
 
 ## Preconditions
 
-Fixture plugins live in the app documents `plugins/` dir, which is scanned at boot.
-On sandboxed macOS that is:
+Fixture plugins live under `AppDirectories.plugins`, which is scanned at boot.
+Resolve the current path from the app instead of assuming an OS-specific location:
 
 ```bash
-PLUGINS_DIR="$HOME/Library/Containers/net.tadel.reaprime/Data/Documents/plugins"
-# Linux (non-sandboxed): $HOME/.local/share/net.tadel.reaprime/plugins  (verify per build)
+PLUGINS_DIR="$(
+  flutter run -d macos --dart-entrypoint-args=--print-storage-paths \
+    | sed -n 's/^plugins: //p'
+)"
+[[ -n "$PLUGINS_DIR" ]] || { echo "Could not resolve plugins path" >&2; exit 1; }
 mkdir -p "$PLUGINS_DIR/proxy-smoke-granted" "$PLUGINS_DIR/proxy-smoke-denied"
 ```
 
@@ -96,8 +99,12 @@ JSON
 Start (the boot scan picks up the fixtures — drop the files **before** start):
 
 ```bash
-scripts/sb-dev.sh start --platform macos --connect-machine MockDe1
+TOKEN="$(openssl rand -hex 32)"
+scripts/sb-dev.sh start --platform macos --connect-machine MockDe1 \
+  --app-arg "--extensions-token=$TOKEN"
 ```
+
+The token lets the enable calls below pass the plugin-management gate.
 
 ## Steps
 
@@ -107,8 +114,10 @@ curl -s http://localhost:8080/api/v1/plugins \
   | jq -c '.[] | select(.id|startswith("proxy-smoke")) | {id,loaded}'
 
 # Enable (loads them into the JS runtime)
-curl -sf -X POST http://localhost:8080/api/v1/plugins/proxy-smoke-granted/enable >/dev/null
-curl -sf -X POST http://localhost:8080/api/v1/plugins/proxy-smoke-denied/enable  >/dev/null
+curl -sf -X POST http://localhost:8080/api/v1/plugins/proxy-smoke-granted/enable \
+  -H "Authorization: Bearer $TOKEN" >/dev/null
+curl -sf -X POST http://localhost:8080/api/v1/plugins/proxy-smoke-denied/enable \
+  -H "Authorization: Bearer $TOKEN" >/dev/null
 
 # Probe each plugin's HTTP endpoint — the handler calls host.decentProxy()
 granted=$(curl -s http://localhost:8080/api/v1/plugins/proxy-smoke-granted/probe)

@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/services/telemetry/telemetry_service.dart';
 

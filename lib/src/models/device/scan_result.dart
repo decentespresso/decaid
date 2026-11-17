@@ -1,4 +1,5 @@
 import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:reaprime/src/models/scan_report.dart'
     show ScanTerminationReason;
 
@@ -21,11 +22,13 @@ class ScanResult {
 
 class ServiceScanFailure {
   final String serviceName;
+  final TransportType transportType;
   final Object error;
   final StackTrace stackTrace;
 
   const ServiceScanFailure({
     required this.serviceName,
+    this.transportType = TransportType.unknown,
     required this.error,
     required this.stackTrace,
   });

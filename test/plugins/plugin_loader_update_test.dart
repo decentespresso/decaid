@@ -38,9 +38,8 @@ function createPlugin() {
     Future<void> install(String id, {String version = '1.0.0'}) async {
       final dir = Directory('${tempDir.path}/source_${id}_$version')
         ..createSync(recursive: true);
-      File(
-        '${dir.path}/manifest.json',
-      ).writeAsStringSync(jsonEncode(manifestJson(id, version: version)));
+      File('${dir.path}/manifest.json')
+          .writeAsStringSync(jsonEncode(manifestJson(id, version: version)));
       File('${dir.path}/plugin.js').writeAsStringSync(pluginJs(id));
       await service.addPlugin(dir.path);
     }
@@ -173,9 +172,8 @@ function createPlugin() {
         const id = 'writefail.reaplugin';
         await install(id);
         await service.loadPlugin(id);
-        Directory(
-          '${tempDir.path}/plugins/$id/plugin.js.staged',
-        ).createSync(recursive: true);
+        Directory('${tempDir.path}/plugins/$id/plugin.js.staged')
+            .createSync(recursive: true);
 
         await expectLater(
           update(id, '2.0.0'),

@@ -22,22 +22,19 @@ void showGatewayModeInfoDialog(BuildContext context) {
         children: [
           _GatewayModeOption(
             title: 'Tracking',
-            description:
-                'External skins control the machine. This app adds weight tracking and stops the shot at your target. (Used by most skins.)',
+            description: 'External skins control the machine. This app adds weight tracking and stops the shot at your target. (Used by most skins.)',
             icon: Icons.track_changes,
             color: Colors.orange,
           ),
           _GatewayModeOption(
             title: 'Full',
-            description:
-                'External skins fully control the machine, including stopping the shot. This app only displays status.',
+            description: 'External skins fully control the machine, including stopping the shot. This app only displays status.',
             icon: Icons.open_in_browser,
             color: Colors.blue,
           ),
           _GatewayModeOption(
             title: 'Disabled',
-            description:
-                'This app controls the machine directly. External skins can\'t. (Legacy.)',
+            description: 'This app controls the machine directly. External skins can\'t. (Legacy.)',
             icon: Icons.block,
             color: Colors.grey,
           ),
@@ -45,9 +42,8 @@ void showGatewayModeInfoDialog(BuildContext context) {
           Builder(
             builder: (context) => Text(
               'Use gateway mode when you drive the machine from an external skin — a web dashboard, browser, or another tablet.',
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(fontStyle: FontStyle.italic),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(fontStyle: FontStyle.italic),
             ),
           ),
         ],
@@ -83,9 +79,8 @@ class _GatewayModeOption extends StatelessWidget {
             children: [
               Text(
                 title,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+                style: Theme.of(context).textTheme.titleSmall
+                    ?.copyWith(fontWeight: FontWeight.bold),
               ),
               Text(description, style: Theme.of(context).textTheme.bodySmall),
             ],

@@ -45,6 +45,8 @@
 	</dict>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Use BT to connect to DE1</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Needed for camera-enabled skins. Skins need your consent before receiving live camera images.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Needed to discover the WiFi scale on your local network</string>
 	<key>NSBonjourServices</key>

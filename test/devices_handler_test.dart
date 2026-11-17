@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/models/errors.dart';
 import 'package:shelf_plus/shelf_plus.dart';
 import 'package:reaprime/src/controllers/connection_error.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
@@ -11,13 +12,20 @@ import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
 import 'package:reaprime/src/models/device/impl/bengle/bengle_virtual_scale.dart';
 import 'package:reaprime/src/models/device/impl/bengle/mock_bengle.dart';
+import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
+import 'package:rxdart/rxdart.dart';
 
+import 'helpers/mock_de1_controller.dart';
 import 'helpers/mock_device_discovery_service.dart';
+import 'helpers/mock_device_scanner.dart';
+import 'helpers/mock_scale_controller.dart';
 import 'helpers/mock_settings_service.dart';
+import 'helpers/test_de1.dart';
 import 'helpers/test_scale.dart';
 import 'helpers/test_sensor.dart';
+import 'helpers/test_grinder.dart';
 
 void main() {
   late DeviceController deviceController;
@@ -27,6 +35,7 @@ void main() {
   late MockDeviceDiscoveryService mockDiscovery;
   late DevicesHandler devicesHandler;
   late Handler handler;
+  late SettingsController settingsController;
 
   setUp(() async {
     mockDiscovery = MockDeviceDiscoveryService();
@@ -36,7 +45,7 @@ void main() {
     de1Controller = De1Controller(controller: deviceController);
     scaleController = ScaleController();
 
-    final settingsController = SettingsController(MockSettingsService());
+    settingsController = SettingsController(MockSettingsService());
     await settingsController.loadSettings();
 
     connectionManager = ConnectionManager(
@@ -56,9 +65,9 @@ void main() {
     handler = app.call;
   });
 
-  tearDown(() {
+  tearDown(() async {
     devicesHandler.dispose();
-    connectionManager.dispose();
+    await connectionManager.dispose();
     deviceController.dispose();
   });
 
@@ -99,6 +108,14 @@ void main() {
         expect(response.statusCode, 400);
         final body = jsonDecode(await response.readAsString());
         expect(body['error'], 'Missing deviceId');
+      });
+
+      test('rejects an invalid connectionRole before device lookup', () async {
+        final response = await sendPut(
+          '/api/v1/devices/connect',
+          body: jsonEncode({'deviceId': 'missing', 'connectionRole': 42}),
+        );
+        expect(response.statusCode, 400);
       });
 
       test('returns 400 when body is empty JSON object', () async {
@@ -246,6 +263,7 @@ void main() {
         'outcome': 'connected',
         'state': 'connected',
         'connectionError': null,
+        'connectionRole': 'primary',
       });
     });
 
@@ -321,6 +339,95 @@ void main() {
     });
 
     group('disconnect', () {
+      test('disconnects a selected grinder after discovery loses it', () async {
+        final grinder = TestGrinder(deviceId: 'selected');
+        addTearDown(grinder.dispose);
+        mockDiscovery.addDevice(grinder);
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          (await connectionManager.connectGrinder(grinder)).success,
+          isTrue,
+        );
+        mockDiscovery.removeDevice(grinder.deviceId);
+        await Future<void>.delayed(Duration.zero);
+
+        final inventoryResponse = await sendGet('/api/v1/devices');
+        final inventory = jsonDecode(await inventoryResponse.readAsString());
+        expect(
+          (inventory as List).any((device) => device['id'] == grinder.deviceId),
+          isTrue,
+        );
+
+        final response = await sendPut(
+          '/api/v1/devices/disconnect',
+          body: jsonEncode({'deviceId': grinder.deviceId}),
+        );
+
+        expect(response.statusCode, 200);
+        expect(grinder.disconnectCalls, 1);
+        expect(
+          connectionManager.grinderController.connectedGrinder,
+          throwsA(isA<DeviceNotConnectedException>()),
+        );
+      });
+
+      test('reports selected grinder disconnect failures', () async {
+        final grinder = TestGrinder(
+          deviceId: 'selected',
+          disconnectError: StateError('disconnect failed'),
+        );
+        addTearDown(grinder.dispose);
+        mockDiscovery.addDevice(grinder);
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          (await connectionManager.connectGrinder(grinder)).success,
+          isTrue,
+        );
+
+        final response = await sendPut(
+          '/api/v1/devices/disconnect',
+          body: jsonEncode({'deviceId': grinder.deviceId}),
+        );
+        final body = jsonDecode(await response.readAsString());
+
+        expect(response.statusCode, 500);
+        expect(body['error'], contains('disconnect failed'));
+        expect(
+          connectionManager.grinderController.connectedGrinder,
+          throwsA(isA<DeviceNotConnectedException>()),
+        );
+      });
+
+      test(
+        'disconnects the requested grinder instead of the selected one',
+        () async {
+          final selected = TestGrinder(deviceId: 'selected');
+          final requested = TestGrinder(deviceId: 'requested');
+          addTearDown(selected.dispose);
+          addTearDown(requested.dispose);
+          mockDiscovery.addDevice(selected);
+          mockDiscovery.addDevice(requested);
+          await Future<void>.delayed(Duration.zero);
+          expect(
+            (await connectionManager.connectGrinder(selected)).success,
+            isTrue,
+          );
+
+          final response = await sendPut(
+            '/api/v1/devices/disconnect',
+            body: jsonEncode({'deviceId': requested.deviceId}),
+          );
+
+          expect(response.statusCode, 200);
+          expect(requested.disconnectCalls, 1);
+          expect(selected.disconnectCalls, 0);
+          expect(
+            connectionManager.grinderController.connectedGrinder(),
+            same(selected),
+          );
+        },
+      );
+
       test('reads deviceId from JSON body', () async {
         mockDiscovery.addDevice(
           TestScale(deviceId: 'scale-1', name: 'My Scale'),
@@ -387,6 +494,153 @@ void main() {
       });
     });
 
+    group('deferred scans during the post-wake scale lease', () {
+      const leaseNeverExpiresOnHostClock = Duration(minutes: 5);
+      late MockDeviceScanner scanner;
+      late MockDe1Controller leaseDe1Controller;
+      late ConnectionManager leaseManager;
+      late DevicesHandler leaseHandler;
+      late Handler leaseRoute;
+      late TestDe1 machine;
+
+      Future<Response> sendLeaseGet(String path) async {
+        return await leaseRoute(
+          Request('GET', Uri.parse('http://localhost$path')),
+        );
+      }
+
+      Future<void> waitUntil(bool Function() condition, String reason) async {
+        final deadline = DateTime.now().add(const Duration(seconds: 5));
+        while (!condition()) {
+          if (DateTime.now().isAfter(deadline)) {
+            fail('Timed out waiting for $reason');
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+      }
+
+      Future<void> waitForDeferredScanToQueue({required bool connect}) {
+        return waitUntil(
+          () =>
+              leaseManager.explicitScanDisposition(connect: connect) ==
+              'coalesced',
+          'the client scan to queue behind the post-wake lease',
+        );
+      }
+
+      setUp(() async {
+        scanner = MockDeviceScanner()..supportsWatch = true;
+        leaseDe1Controller = MockDe1Controller(controller: deviceController);
+        leaseManager = ConnectionManager(
+          deviceScanner: scanner,
+          de1Controller: leaseDe1Controller,
+          scaleController: MockScaleController(),
+          settingsController: settingsController,
+        )..deferredScaleScanDelay = leaseNeverExpiresOnHostClock;
+        leaseHandler = DevicesHandler(
+          controller: deviceController,
+          connectionManager: leaseManager,
+        );
+        final app = Router().plus;
+        leaseHandler.addRoutes(app);
+        leaseRoute = app.call;
+
+        await settingsController.setPreferredScaleId('lease-scale');
+        machine = TestDe1(deviceId: 'lease-de1');
+        leaseDe1Controller.de1Subject.add(machine);
+        await Future<void>.delayed(Duration.zero);
+        machine.emitStateAndSubstate(
+          MachineState.sleeping,
+          MachineSubstate.idle,
+        );
+        machine.emitStateAndSubstate(MachineState.idle, MachineSubstate.idle);
+        await waitUntil(
+          () =>
+              leaseManager.explicitScanDisposition(connect: false) == 'queued',
+          'the post-wake scale lease to arm',
+        );
+      });
+
+      tearDown(() async {
+        leaseHandler.dispose();
+        await leaseManager.dispose();
+      });
+
+      test(
+        'connect=false waits for the deferred scan after the lease',
+        () async {
+          final pending = sendLeaseGet('/api/v1/devices/scan?connect=false');
+          var completed = false;
+          pending.whenComplete(() => completed = true);
+          await waitForDeferredScanToQueue(connect: false);
+
+          expect(completed, isFalse);
+          expect(mockDiscovery.scanCallCount, 0);
+
+          leaseManager.debugExpirePostWakeScaleLease();
+
+          final response = await pending;
+          expect(response.statusCode, 200);
+          expect(mockDiscovery.scanCallCount, 1);
+        },
+      );
+
+      test('quick returns before the deferred scan runs', () async {
+        final response = await sendLeaseGet(
+          '/api/v1/devices/scan?connect=false&quick=true',
+        );
+
+        expect(response.statusCode, 200);
+        expect(await response.readAsString(), '[]');
+        await waitForDeferredScanToQueue(connect: false);
+        expect(mockDiscovery.scanCallCount, 0);
+
+        leaseManager.debugExpirePostWakeScaleLease();
+        await waitUntil(
+          () => mockDiscovery.scanCallCount == 1,
+          'the deferred discovery-only scan',
+        );
+        expect(mockDiscovery.scanCallCount, 1);
+      });
+
+      test('connect=true defers then runs the full scan policy', () async {
+        final response = await sendLeaseGet(
+          '/api/v1/devices/scan?connect=true&quick=true',
+        );
+
+        expect(response.statusCode, 200);
+        await waitForDeferredScanToQueue(connect: true);
+        expect(scanner.scanCallCount, 0);
+
+        leaseManager.debugExpirePostWakeScaleLease();
+        await waitUntil(
+          () => scanner.scanCallCount == 1,
+          'the deferred full scan policy',
+        );
+        expect(mockDiscovery.scanCallCount, 0);
+      });
+
+      test('repeated requests coalesce into one deferred scan', () async {
+        final first = sendLeaseGet('/api/v1/devices/scan?connect=false');
+        final second = sendLeaseGet('/api/v1/devices/scan');
+        await waitForDeferredScanToQueue(connect: true);
+
+        expect(mockDiscovery.scanCallCount, 0);
+        expect(scanner.scanCallCount, 0);
+
+        leaseManager.debugExpirePostWakeScaleLease();
+
+        final responses = await Future.wait([first, second]);
+        expect(
+          responses.map((response) => response.statusCode),
+          everyElement(200),
+        );
+
+        expect(scanner.scanCallCount, 1);
+        expect(mockDiscovery.scanCallCount, 0);
+      });
+    });
+
     group('scanning state', () {
       test('isScanning is initially false', () {
         expect(deviceController.isScanning, isFalse);
@@ -430,6 +684,9 @@ void main() {
         expect(body[0]['id'], 'AA:BB:CC:DD:EE:FF');
         expect(body[0]['name'], 'Test Scale');
         expect(body[0]['type'], 'scale');
+        expect(body[0].containsKey('deviceInfo'), isFalse);
+        expect(body[0].containsKey('firmwareVersion'), isFalse);
+        expect(body[0].containsKey('batteryLevel'), isFalse);
       });
 
       test('returns a connected scale that is outside discovery', () async {
@@ -605,6 +862,25 @@ void main() {
           .timeout(Duration(seconds: 2));
 
       expect(aggregator.activeDeviceSubscriptionCount, 0);
+    });
+
+    test('metadata refresh does not emit an inventory update', () async {
+      final scale = _MetadataScale(deviceId: 'scale-1', name: 'Scale 1');
+      addTearDown(scale.dispose);
+      mockDiscovery.addDevice(scale);
+
+      await aggregator.stateStream
+          .where((s) => (s['devices'] as List).isNotEmpty)
+          .first
+          .timeout(Duration(seconds: 2));
+
+      final updates = <Map<String, dynamic>>[];
+      final subscription = aggregator.stateStream.skip(1).listen(updates.add);
+      scale.emitMetadata(const DeviceInformation(firmwareVersion: 'R029'));
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      await subscription.cancel();
+
+      expect(updates, isEmpty);
     });
 
     test('emits update when device connection state changes', () async {
@@ -791,4 +1067,26 @@ class _BlockingTestScale extends TestScale {
 
   @override
   Future<void> onConnect() => blocker.future;
+}
+
+class _MetadataScale extends TestScale implements DeviceInformationCapable {
+  _MetadataScale({required super.deviceId, required super.name});
+
+  final BehaviorSubject<DeviceInformation?> _metadata = BehaviorSubject.seeded(
+    null,
+  );
+
+  @override
+  DeviceInformation? get currentDeviceInformation => _metadata.value;
+
+  @override
+  Stream<DeviceInformation?> get deviceInformation => _metadata.stream;
+
+  void emitMetadata(DeviceInformation metadata) => _metadata.add(metadata);
+
+  @override
+  void dispose() {
+    _metadata.close();
+    super.dispose();
+  }
 }

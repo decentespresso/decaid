@@ -1,0 +1,158 @@
+clock 1650551914
+local_time {Thu Apr 21 06:38:34 AKDT 2022}
+espresso_elapsed {0.0 0.043 0.223 0.448 0.628 0.898 1.078 1.258 1.528 1.708 1.888 2.158 2.338 2.518 2.743 2.968 3.148 3.374 3.598 3.778 3.958 4.273 4.408 4.588 4.813 5.085 5.218 5.533 5.623 5.848}
+espresso_pressure {0.0 0.28 0.39 0.39 0.59 0.66 0.67 0.65 0.6 0.59 0.63 0.77 0.87 0.95 1.03 1.1 1.2 1.31 1.45 1.57 1.74 1.88 2.04 2.2 2.38 2.6 2.73 2.87 2.99 3.06}
+espresso_weight {0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0}
+espresso_flow {0.0 3.91 4.4 5.27 6.01 6.46 6.82 7.21 7.43 7.67 7.81 7.91 7.99 8.09 8.05 8.05 8.01 7.95 7.9 7.77 7.62 7.56 7.43 7.29 7.13 6.92 6.75 6.51 6.28 6.05}
+espresso_flow_weight {0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0}
+espresso_flow_weight_raw {0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0}
+espresso_temperature_basket {89.0 87.65 87.76 87.92 87.89 87.84 87.88 88.0 88.06 87.95 87.89 87.8 87.71 87.6 87.54 87.43 87.46 87.46 87.49 87.57 87.7 87.67 87.73 87.75 87.77 87.8 87.78 87.72 87.75 87.76}
+espresso_temperature_mix {89.0 89.68 89.59 89.32 87.61 86.8 86.67 86.21 85.99 85.57 85.27 85.21 85.4 85.82 86.31 86.83 87.06 87.35 87.52 87.65 87.75 87.81 87.81 87.78 87.68 87.52 87.42 87.35 87.16 87.03}
+espresso_water_dispensed {0.0 0.08154805501302084 0.17317708333333337 0.28300984700520837 0.4083099365234375 0.5429890950520834 0.6851755777994794 0.8352966308593752 0.9900004069010419 1.1497039794921877 1.3124898274739587 1.4772593180338545 1.6436665852864587 1.8122456868489587 1.979990641276042 2.147705078125 2.31451416015625 2.4801890055338545 2.6447906494140625 2.80670166015625 2.965550740559896 3.123138427734375 3.277984619140625 3.4298553466796875 3.5784708658854165 3.72265625 3.863337198893229 3.9988861083984375 4.129781087239584 4.255742390950521}
+espresso_pressure_delta {0.0 0.0007664880087209302 0.0005320732903587444 5.449567522321429e-6 0.0003110071656050955 8.563952881403118e-5 9.05902133580705e-7 1.2420508744038157e-5 3.451202552356021e-5 6.289336943793911e-6 2.4827860169491527e-5 6.459884007182576e-5 4.093375748502994e-5 3.160835732724384e-5 3.124074348341232e-5 2.3278907302897573e-5 2.9935921616899618e-5 3.3357684684350915e-5 3.9898467898832685e-5 3.030755773557438e-5 4.434995183804952e-5 3.165314913409782e-5 3.7662346869328494e-5 3.5014065224498695e-5 3.7181607755038436e-5 4.215446779744346e-5 2.587385312859333e-5 2.4577322993855053e-5 2.1057834452249688e-5 1.2649557006668947e-5}
+espresso_flow_delta_negative {0.0}
+espresso_flow_delta_negative_2x {0.0}
+espresso_resistance {0.0 0.02 0.02 0.01 0.02 0.02 0.01 0.01 0.01 0.01 0.01 0.01 0.01 0.01 0.02 0.02 0.02 0.02 0.02 0.03 0.03 0.03 0.04 0.04 0.05 0.05 0.06 0.07 0.08 0.08}
+espresso_resistance_weight {0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0}
+espresso_state_change {0.0 10000000.0 10000000.0 10000000.0 10000000.0 10000000.0 10000000.0 10000000.0 10000000.0 10000000.0 10000000.0 10000000.0 10000000.0 10000000.0 10000000.0 10000000.0 10000000.0 -10000000.0 -10000000.0 -10000000.0 -10000000.0 -10000000.0 -10000000.0 -10000000.0 -10000000.0 -10000000.0 -10000000.0 -10000000.0 -10000000.0 -10000000.0}
+espresso_start 1650551927.78
+scale_raw_weight {-1.88 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0}
+scale_raw_arrival {-11.197 -10.975 -10.885 -10.840 -10.706 -10.616 -10.525 -10.434 -10.346 -10.256 -10.074 -9.941 -9.850 -9.804 -9.714 -9.580 -9.490 -9.400 -9.355 -9.220 -9.130 -9.038 -8.949 -8.860 -8.769 -8.679 -8.545 -8.500 -8.411 -8.319}
+espresso_pressure_goal {-1.0 2.0 2.0 2.0 2.0 2.0 2.0 2.0 2.0 2.0 2.0 2.0 2.0 2.0 2.0 2.0 2.0 1.625 2.125 2.4375 2.625 2.75 2.875 2.9375 2.9375 3.0 3.0 3.0 3.0 3.0}
+espresso_flow_goal {-1.0 -1.0 -1.0 -1.0 -1.0 -1.0 -1.0 -1.0 -1.0 -1.0 -1.0 -1.0 -1.0 -1.0 -1.0 -1.0 -1.0 -1.0 -1.0 -1.0 -1.0 -1.0 -1.0 -1.0 -1.0 -1.0 -1.0 -1.0 -1.0 -1.0}
+espresso_temperature_goal {89.0 89.0 89.0 89.0 89.0 89.0 89.0 89.0 89.0 89.0 89.0 89.0 89.0 89.0 89.0 89.0 89.0 88.5 88.5 88.5 88.5 88.5 88.5 88.5 88.5 88.5 88.5 88.5 88.5 88.5}
+timers(espresso_stop) 1650551957662
+timers(espresso_start) 1650551927780
+timers(espresso_pour_stop) 1650551957662
+timers(espresso_pour_start) 1650551943169
+timers(espresso_preinfusion_stop) 1650551943169
+timers(espresso_preinfusion_start) 1650551927780
+settings {
+	advanced_shot_chart_temp_max 100
+	bean_brand {}
+	bean_notes {}
+	bean_type {}
+	drink_ey 0
+	drink_tds 0
+	drink_weight 35.7
+	drinker_name {}
+	espresso_enjoyment 0
+	espresso_notes {}
+	my_name {}
+	profile_title Londonium
+	roast_date {}
+	roast_level {}
+}
+machine {
+	app_autostop_triggered True
+	app_stepskip_triggered False
+	water_level 27.51171875
+	wrote 0
+}
+app_version {1.39.0}
+profile {
+  "title": "Londonium",
+  "author": "Decent",
+  "notes": "This profile simulates a Londinium R machines extraction style. This is an advanced profile with some added steps to assist with less than ideal puck prep. Christee-Lee described it as like having a milkshake with extra syrup. Great body and flavour range.  By Damian Brakel https:\/\/www.diy.brakel.com.au\/londinium-r-style-profile\/",
+  "beverage_type": "espresso",
+  "steps": [
+    {
+      "name": "Fill",
+      "temperature": "89.00",
+      "sensor": "coffee",
+      "pump": "pressure",
+      "transition": "fast",
+      "pressure": "2.00",
+      "flow": "8",
+      "seconds": "25.00",
+      "volume": "100",
+      "weight": "0",
+      "exit": {
+        "type": "pressure",
+        "condition": "over",
+        "value": "1.5"
+      }
+    },
+    {
+      "name": "Infuse",
+      "temperature": "88.5",
+      "sensor": "coffee",
+      "pump": "pressure",
+      "transition": "fast",
+      "pressure": "3.0",
+      "flow": "8",
+      "seconds": "12.0",
+      "volume": "100",
+      "weight": "0"
+    },
+    {
+      "name": "Pressure Up",
+      "temperature": "88.5",
+      "sensor": "coffee",
+      "pump": "pressure",
+      "transition": "fast",
+      "pressure": "9.0",
+      "flow": "",
+      "seconds": "8.0",
+      "volume": "100",
+      "weight": "0"
+    },
+    {
+      "name": "Pressure Decline",
+      "temperature": "88.0",
+      "sensor": "coffee",
+      "pump": "pressure",
+      "transition": "smooth",
+      "pressure": "3.0",
+      "flow": "",
+      "seconds": "55.00",
+      "volume": "100",
+      "weight": "0",
+      "exit": {
+        "type": "flow",
+        "condition": "over",
+        "value": "2.50"
+      }
+    },
+    {
+      "name": "Pressure Hold",
+      "temperature": "88.0",
+      "sensor": "coffee",
+      "pump": "pressure",
+      "transition": "fast",
+      "pressure": "3.0",
+      "flow": "",
+      "seconds": "127",
+      "volume": "100",
+      "weight": "0",
+      "exit": {
+        "type": "flow",
+        "condition": "over",
+        "value": "2.50"
+      }
+    },
+    {
+      "name": "Flow Limit",
+      "temperature": "88.0",
+      "sensor": "coffee",
+      "pump": "flow",
+      "transition": "fast",
+      "pressure": "3.0",
+      "flow": "2.0",
+      "seconds": "127",
+      "volume": "100",
+      "weight": "0"
+    }
+  ],
+  "tank_temperature": "0",
+  "target_weight": "36",
+  "target_volume": "0",
+  "target_volume_count_start": "2",
+  "legacy_profile_type": "settings_2c",
+  "type": "advanced",
+  "lang": "en",
+  "hidden": "0",
+  "reference_file": "Londinium-R-by-Damian",
+  "changes_since_last_espresso": "",
+  "version": "2"
+}

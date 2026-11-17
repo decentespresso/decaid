@@ -26,6 +26,8 @@ class MockDeviceScanner implements DeviceScanner {
   final List<List<Device>> queuedScanResults = [];
 
   Object? failNextScanWith;
+  Object? failStopScanWith;
+  List<ServiceScanFailure> scanFailures = const [];
 
   bool supportsWatch = false;
 
@@ -130,7 +132,7 @@ class MockDeviceScanner implements DeviceScanner {
     }
     return ScanResult(
       matchedDevices: List.unmodifiable(scanDevices),
-      failedServices: const [],
+      failedServices: scanFailures,
       terminationReason: ScanTerminationReason.completed,
       duration: DateTime.now().difference(start),
     );
@@ -139,6 +141,7 @@ class MockDeviceScanner implements DeviceScanner {
   @override
   void stopScan() {
     stopScanCallCount++;
+    if (failStopScanWith != null) throw failStopScanWith!;
   }
 
   Device? quickConnectResult;

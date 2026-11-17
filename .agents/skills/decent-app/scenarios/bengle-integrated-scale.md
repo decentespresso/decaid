@@ -1,6 +1,6 @@
 # Scenario: Bengle integrated scale end-to-end
 
-Verifies that when a Bengle is the connected machine, the integrated scale is auto-attached as a virtual scale (no external scale connection needed), capability discovery advertises all Bengle surfaces, the `/api/v1/scale/*` REST surface and `/ws/v1/scale/snapshot` stream both flow through the integrated scale, and Bengle firmware stops an espresso shot autonomously when the integrated scale weight reaches the configured target.
+Verifies that when a Bengle is the connected machine, the integrated scale is auto-attached as a virtual scale (no external scale connection needed), capability discovery advertises all Bengle surfaces, the `/api/v1/scale/*` REST surface and `/ws/v1/scale/snapshot` stream both flow through the integrated scale, Bengle firmware stops an espresso shot autonomously when the integrated scale weight reaches the configured target, and `PUT /api/v1/workflow` refuses an explicit null `context.targetYield`, a null `context` and a non-numeric target, while accepting an explicit `0`.
 
 ## Preconditions
 
@@ -93,7 +93,101 @@ websocat --no-async-stdio -n -U -t --max-messages-rev 200 \
 
 Expected sequence ends with `state == "idle"` once the integrated scale reaches approximately 36 g. The transition originates from `MockBengle`, matching firmware-autonomous SAW.
 
-### 5. No external scale connection ever happened
+### 5. The workflow target cannot be cleared by accident at the API edge
+
+`targetYield` is the single source of truth for stop-at-weight, and null and `0` both mean the feature is off. An explicit null is therefore ambiguous and is refused; `0` is the deliberate disable. Run this after the shot — it leaves the target at `0` until the last command restores it.
+
+An explicit null is refused:
+
+```bash
+curl -s -o /tmp/decaid-workflow-null -w '%{http_code}\n' \
+  -X PUT http://localhost:8080/api/v1/workflow \
+  -H 'Content-Type: application/json' \
+  --data '{"context":{"targetYield":null}}'
+cat /tmp/decaid-workflow-null; echo
+```
+
+Expected: `400`, and a body naming the field:
+
+```json
+{"error":"Invalid request","message":"FormatException: Field \"targetYield\" cannot be null"}
+```
+
+Do not use `curl -sf` here: `-f` exits non-zero on a `400`, so the step would abort instead of asserting.
+
+The refused request changed nothing:
+
+```bash
+curl -sf http://localhost:8080/api/v1/workflow | jq -e '.context.targetYield == 36'
+```
+
+An explicit `0` is accepted and lands as `0`:
+
+```bash
+curl -sf -X PUT http://localhost:8080/api/v1/workflow \
+  -H 'Content-Type: application/json' \
+  --data '{"context":{"targetYield":0}}' | jq -e '.context.targetYield == 0'
+```
+
+Clearing the whole context is refused as well, because it would drop `targetYield` with it:
+
+```bash
+curl -s -o /tmp/decaid-workflow-ctx-null -w '%{http_code}\n' \
+  -X PUT http://localhost:8080/api/v1/workflow \
+  -H 'Content-Type: application/json' \
+  --data '{"context":null}'
+cat /tmp/decaid-workflow-ctx-null; echo
+```
+
+Expected: `400`, and a body naming the field:
+
+```json
+{"error":"Invalid request","message":"FormatException: Field \"context\" cannot be null"}
+```
+
+The target is still `0` from the previous command, not absent:
+
+```bash
+curl -sf http://localhost:8080/api/v1/workflow | jq -e '.context.targetYield == 0'
+```
+
+A target that is not a number is refused rather than silently clearing it:
+
+```bash
+curl -s -o /tmp/decaid-workflow-junk -w '%{http_code}\n' \
+  -X PUT http://localhost:8080/api/v1/workflow \
+  -H 'Content-Type: application/json' \
+  --data '{"context":{"targetYield":"abc"}}'
+cat /tmp/decaid-workflow-junk; echo
+```
+
+Expected: `400`, and a body naming the field:
+
+```json
+{"error":"Invalid request","message":"FormatException: Field \"targetYield\" must be a number or null"}
+```
+
+Every other context field still clears on an explicit null — only `targetYield` is refused:
+
+```bash
+curl -sf -X PUT http://localhost:8080/api/v1/workflow \
+  -H 'Content-Type: application/json' \
+  --data '{"context":{"grinderModel":"Niche Zero"}}' | jq -e '.context.grinderModel == "Niche Zero"'
+
+curl -sf -X PUT http://localhost:8080/api/v1/workflow \
+  -H 'Content-Type: application/json' \
+  --data '{"context":{"grinderModel":null}}' | jq -e '.context | has("grinderModel") | not'
+```
+
+Restore the 36 g target:
+
+```bash
+curl -sf -X PUT http://localhost:8080/api/v1/workflow \
+  -H 'Content-Type: application/json' \
+  --data '{"context":{"targetYield":36}}' | jq -e '.context.targetYield == 36'
+```
+
+### 6. No external scale connection ever happened
 
 ```bash
 curl -sf http://localhost:8080/api/v1/devices | jq '.[] | select(.type=="scale") | {name, state}'

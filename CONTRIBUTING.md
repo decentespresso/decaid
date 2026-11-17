@@ -26,11 +26,11 @@ Thanks for contributing. This guide tells you what's required to land a PR — i
 
 ## Local Setup
 
-Requirements: Flutter (stable), the [GitHub CLI](https://cli.github.com) (`gh`, authenticated — used to fetch the DYE2 bundled plugin), `jq` (validates the fetched plugin's manifest).
+Requirements: the Flutter SDK pinned in `.github/workflows/pr-checks.yml` (restated in [README prerequisites](README.md#prerequisites) along with the Dart SDK constraint), the [GitHub CLI](https://cli.github.com) (`gh`, authenticated — used to fetch the DYE2 bundled plugin), `jq` (validates the fetched plugin's manifest).
 
 ```bash
 flutter pub get
-./scripts/fetch_dye2_plugin.sh   # installs assets/plugins/dye2.reaplugin/ from the pinned decentespresso/dye2 release (scripts/fetch_dye2_plugin.sh)
+./scripts/fetch_dye2_plugin.sh   # installs assets/plugins/dye2.reaplugin/ from the latest decentespresso/dye2 release (DYE2_VERSION=vX.Y.Z pins one)
 
 # Run with simulated hardware (no DE1 / scale required):
 flutter run --dart-define=simulate=1
@@ -92,7 +92,7 @@ flutter test                             # all must pass
 ./scripts/fetch_dye2_plugin.sh           # assets/plugins/dye2.reaplugin/ must exist
 ```
 
-`dart format` is currently **advisory** in CI — the codebase predates the Dart 3.7 "tall style" formatter. Format your own changes (`dart format lib test`) but don't reformat untouched files in the same PR.
+`dart format` is **enforced** in CI on the Dart files your PR changed, using the SDK pinned in `.github/workflows/pr-checks.yml`. Use the merge-base-plus-untracked Dart formatting command in [`AGENTS.md` → Verification, step 1](AGENTS.md#verification) so in-progress edits and committed branch changes are covered without reformatting untouched files. A local SDK that differs from the pinned one reflows code CI would leave alone, so check out the pinned version (see [README prerequisites](README.md#prerequisites)) instead of matching your local formatter.
 
 ### 5. Architecture Boundaries (required)
 

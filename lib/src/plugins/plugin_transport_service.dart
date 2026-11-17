@@ -24,19 +24,22 @@ class TransportOpenResult {
   final String? protocol;
 }
 
-typedef PluginTransportEventSink =
-    void Function(
-      String pluginId,
-      int generation,
-      String handle,
-      Map<String, dynamic> event,
-    );
+typedef PluginTransportEventSink = void Function(
+  String pluginId,
+  int generation,
+  String handle,
+  Map<String, dynamic> event,
+);
 
-typedef WebSocketConnector =
-    Future<WebSocket> Function(String url, {Iterable<String>? protocols});
+typedef WebSocketConnector = Future<WebSocket> Function(
+  String url, {
+  Iterable<String>? protocols,
+});
 typedef SocketConnector = Future<Socket> Function(String host, int port);
-typedef SecureSocketConnector =
-    Future<SecureSocket> Function(String host, int port);
+typedef SecureSocketConnector = Future<SecureSocket> Function(
+  String host,
+  int port,
+);
 
 class PluginTransportService {
   PluginTransportService({
@@ -67,6 +70,22 @@ class PluginTransportService {
 
   int get liveTransportCount =>
       _records.values.where((record) => !record.terminal).length;
+  int get retiredDeviceConnectCount => _retiredDeviceConnects.length;
+
+  Set<String> deviceConnectInvocations(
+    String pluginId,
+    int generation,
+    String registrationHandle,
+  ) => _records.values
+      .where(
+        (record) =>
+            record.pluginId == pluginId &&
+            record.generation == generation &&
+            record.deviceRegistrationHandle == registrationHandle,
+      )
+      .map((record) => record.deviceInvocationId)
+      .whereType<String>()
+      .toSet();
 
   Future<TransportOpenResult> open({
     required String pluginId,

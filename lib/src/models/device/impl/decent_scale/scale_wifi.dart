@@ -23,12 +23,10 @@ class HDSWifi implements Scale, TransportHandoffScale {
 
   HDSWifi({
     required this.host,
-    required WebSocketTransportFactory transportFactory,
-    Duration recognitionTimeout = const Duration(seconds: 4),
-    Duration watchdogInterval = const Duration(seconds: 4),
-  }) : _transportFactory = transportFactory,
-       _recognitionTimeout = recognitionTimeout,
-       _watchdogInterval = watchdogInterval {
+    required this._transportFactory,
+    this._recognitionTimeout = const Duration(seconds: 4),
+    this._watchdogInterval = const Duration(seconds: 4),
+  }) {
     _log = Logger('HDSWifi#${host.replaceAll(RegExp(r'\.+$'), '')}');
   }
 

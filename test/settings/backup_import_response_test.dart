@@ -47,40 +47,83 @@ void main() {
     );
   });
 
-  test(
-    'partial results preserve counts and per-section errors for import UI',
-    () {
-      final response = BackupImportResponse.fromHttp(
-        207,
-        '{"profiles":{"imported":1,"skipped":2},"shots":{"errors":["bad row"]}}',
-      );
-      final result = response.toImportResult();
-
-      expect(response.status, BackupImportStatus.partial);
-      expect(response.shouldNotifyShotsChanged, isTrue);
-      expect(result.profilesImported, 1);
-      expect(result.profilesSkipped, 2);
-      expect(result.errors.single.filename, 'shots');
-      expect(result.errors.single.reason, 'bad row');
-    },
-  );
-
-  test('400 produces an invalid-backup failure with the server message', () {
-    expect(
-      () => BackupImportResponse.fromHttp(
-        400,
-        '{"error":"Invalid backup archive","message":"No recognized data sections."}',
-      ),
-      throwsA(
-        isA<BackupImportException>()
-            .having((error) => error.isInvalidBackup, 'invalid backup', isTrue)
-            .having(
-              (error) => error.message,
-              'message',
-              contains('No recognized'),
-            ),
-      ),
+  test('partial results preserve counts and per-section errors for import UI', () {
+    final response = BackupImportResponse.fromHttp(
+      207,
+      '{"profiles":{"imported":1,"skipped":2},"shots":{"errors":["bad row"]}}',
     );
+    final result = response.toImportResult();
+
+    expect(response.status, BackupImportStatus.partial);
+    expect(response.shouldNotifyShotsChanged, isTrue);
+    expect(result.profilesImported, 1);
+    expect(result.profilesSkipped, 2);
+    expect(result.errors.single.filename, 'shots');
+    expect(result.errors.single.reason, 'bad row');
+  });
+
+  test('400 preserves the server message and string rejection reason', () {
+    try {
+      BackupImportResponse.fromHttp(
+        400,
+        '{"error":"Invalid backup archive","message":"No recognized data sections.","reason":"too_many_entries"}',
+      );
+      fail('Expected BackupImportException');
+    } on BackupImportException catch (error) {
+      expect(error.isInvalidBackup, isTrue);
+      expect(error.message, 'No recognized data sections.');
+      expect(error.reason, 'too_many_entries');
+    }
+  });
+
+  test('only too_many_entries provides conditional De1App guidance', () {
+    const guidance =
+        'The selected file does not appear to be a normal Decaid backup. '
+        'If it is De1App data, extract the archive, use Import from De1App, '
+        'and select the de1plus folder.';
+
+    expect(
+      const BackupImportException(
+        'original',
+        reason: 'too_many_entries',
+      ).userMessage,
+      guidance,
+    );
+    expect(
+      const BackupImportException('original', reason: 'other').userMessage,
+      'original',
+    );
+    expect(const BackupImportException('original').userMessage, 'original');
+  });
+
+  test('non-string and missing reasons are ignored and message fallback is unchanged', () {
+    for (final body in [
+      '{"message":"specific message","reason":42}',
+      '{"message":"specific message"}',
+    ]) {
+      try {
+        BackupImportResponse.fromHttp(400, body);
+        fail('Expected BackupImportException');
+      } on BackupImportException catch (error) {
+        expect(error.reason, isNull);
+        expect(error.userMessage, 'specific message');
+      }
+    }
+
+    for (final body in ['not json', '[]', 'null']) {
+      expect(
+        () => BackupImportResponse.fromHttp(400, body),
+        throwsA(
+          isA<BackupImportException>().having(
+            (error) => error.message,
+            'message',
+            body == 'not json'
+                ? 'The server returned an invalid response.'
+                : 'The server returned status 400.',
+          ),
+        ),
+      );
+    }
   });
 
   test('archive-level failure has no refresh response', () {

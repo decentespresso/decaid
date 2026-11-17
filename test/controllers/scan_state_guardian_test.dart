@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/scan_state_guardian.dart';
 import 'package:reaprime/src/models/adapter_state.dart';
+
 import '../helpers/mock_device_discovery_service.dart';
 
 void main() {

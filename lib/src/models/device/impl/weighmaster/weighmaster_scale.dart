@@ -115,9 +115,9 @@ class WeighMasterScale implements Scale {
   Future<void> tare() async {
     await _write(const [_cmdTare]);
     unawaited(
-      Future<void>.delayed(
-        const Duration(milliseconds: 300),
-      ).then((_) => _write(const [_cmdBuzzer, 0x00])).catchError((_) {}),
+      Future<void>.delayed(const Duration(milliseconds: 300))
+          .then((_) => _write(const [_cmdBuzzer, 0x00]))
+          .catchError((_) {}),
     );
   }
 

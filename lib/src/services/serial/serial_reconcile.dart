@@ -1,4 +1,117 @@
 import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/services/serial/utils.dart';
+
+final _serialAliasPattern = RegExp(r'^(?:cu|tty)\.(.+)$');
+
+class SerialPortMetadata {
+  final String path;
+  final String name;
+  final String transport;
+  final String? productName;
+  final int? vid;
+  final int? pid;
+  final String? serial;
+  final int? interfaceNumber;
+
+  const SerialPortMetadata({
+    required this.path,
+    required this.name,
+    required this.transport,
+    this.productName,
+    this.vid,
+    this.pid,
+    this.serial,
+    this.interfaceNumber,
+  });
+
+  String get canonicalId =>
+      computeUsbStableId(
+        vid: vid,
+        pid: pid,
+        serial: serial,
+        interfaceNumber: interfaceNumber,
+      ) ??
+      'serial-${path.split('/').last}';
+
+  Set<String> get acceptedIds => {canonicalId, ...desktopSerialLegacyIds(path)};
+}
+
+Set<String> desktopSerialLegacyIds(String portPath) {
+  final basename = portPath.split('/').last;
+  final match = _serialAliasPattern.firstMatch(basename);
+  if (match == null) return {'serial-$basename'};
+  final suffix = match.group(1)!;
+  return {'serial-cu.$suffix', 'serial-tty.$suffix'};
+}
+
+List<SerialPortMetadata> dedupeSerialCandidates(
+  List<SerialPortMetadata> candidates,
+) {
+  final aliasIndexes = <String, int>{};
+  final merged = <SerialPortMetadata>[];
+  for (final candidate in candidates) {
+    final aliasMatch = _serialAliasPattern.firstMatch(
+      _basename(candidate.path),
+    );
+    if (aliasMatch == null) {
+      merged.add(candidate);
+      continue;
+    }
+    final alias = aliasMatch.group(1)!;
+    final existingIndex = aliasIndexes[alias];
+    if (existingIndex == null) {
+      aliasIndexes[alias] = merged.length;
+      merged.add(candidate);
+    } else {
+      merged[existingIndex] = _preferCu(merged[existingIndex], candidate);
+    }
+  }
+
+  final result = <SerialPortMetadata>[];
+  final seenIds = <String>{};
+  for (final candidate in merged) {
+    if (seenIds.add(candidate.canonicalId)) result.add(candidate);
+  }
+  return result;
+}
+
+Set<String> trackedSerialIdentities({
+  required Iterable<String> trackedIds,
+  required Iterable<String> trackedPaths,
+}) => {
+  ...trackedIds,
+  for (final path in trackedPaths) ...desktopSerialLegacyIds(path),
+};
+
+String _basename(String path) => path.split('/').last;
+
+bool _isCuPath(String path) => _basename(path).startsWith('cu.');
+
+SerialPortMetadata _preferCu(
+  SerialPortMetadata existing,
+  SerialPortMetadata incoming,
+) => _isCuPath(incoming.path) && !_isCuPath(existing.path)
+    ? _mergeUsbMetadata(incoming, existing)
+    : _mergeUsbMetadata(existing, incoming);
+
+SerialPortMetadata _mergeUsbMetadata(
+  SerialPortMetadata preferred,
+  SerialPortMetadata other,
+) {
+  final preferredHasUsb = preferred.vid != null && preferred.pid != null;
+  final otherHasUsb = other.vid != null && other.pid != null;
+  final usb = preferredHasUsb || !otherHasUsb ? preferred : other;
+  return SerialPortMetadata(
+    path: preferred.path,
+    name: preferred.name,
+    transport: preferred.transport,
+    productName: preferred.productName ?? other.productName,
+    vid: usb.vid,
+    pid: usb.pid,
+    serial: usb.serial,
+    interfaceNumber: usb.interfaceNumber,
+  );
+}
 
 class TrackedPortSnapshot {
   final String path;

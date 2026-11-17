@@ -24,6 +24,7 @@ abstract class StorageService {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
     bool ascending = false,
   });
 
@@ -36,6 +37,7 @@ abstract class StorageService {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
   });
 
   Future<ShotRecord?> getLatestShot();

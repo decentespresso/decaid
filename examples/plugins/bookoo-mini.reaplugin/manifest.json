@@ -1,0 +1,17 @@
+{
+  "id": "bookoo-mini.reaplugin",
+  "name": "Bookoo Mini Scale (Reference)",
+  "author": "Decaid contributors",
+  "description": "Opt-in Bookoo Mini protocol reference using host-owned BLE.",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "permissions": ["transport.ble"],
+  "drivers": [{
+    "id": "bookoo",
+    "type": "scale",
+    "capabilities": ["battery", "tare", "timerControl", "disconnectToSleep"],
+    "ble": {"match": {"name": {"contains": "bookoo"}, "serviceUuids": ["0ffe"]}}
+  }],
+  "settings": {},
+  "api": []
+}

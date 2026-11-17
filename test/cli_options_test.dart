@@ -7,10 +7,13 @@ void main() {
       final args = parseCliArgs([]);
       expect(args.serial, isFalse);
       expect(args.bypassOnboarding, isFalse);
+      expect(args.forceOnboarding, isFalse);
       expect(args.direct, isFalse);
       expect(args.noAccount, isFalse);
+      expect(args.dummyAccount, isFalse);
       expect(args.trustedConsentKeys, isEmpty);
       expect(args.trustAllConsent, isFalse);
+      expect(args.extensionsToken, isNull);
       expect(args.skinId, isNull);
       expect(args.skinPath, isNull);
     });
@@ -23,6 +26,18 @@ void main() {
     test('--bypass-onboarding', () {
       final args = parseCliArgs(['--bypass-onboarding']);
       expect(args.bypassOnboarding, isTrue);
+    });
+
+    test('--force-onboarding', () {
+      final args = parseCliArgs(['--force-onboarding']);
+      expect(args.forceOnboarding, isTrue);
+      expect(args.bypassOnboarding, isFalse);
+    });
+
+    test('--force-onboarding with --bypass-onboarding parses both', () {
+      final args = parseCliArgs(['--bypass-onboarding', '--force-onboarding']);
+      expect(args.bypassOnboarding, isTrue);
+      expect(args.forceOnboarding, isTrue);
     });
 
     test('--direct', () {
@@ -45,6 +60,11 @@ void main() {
       expect(args.noAccount, isTrue);
     });
 
+    test('--dummy-account', () {
+      final args = parseCliArgs(['--dummy-account']);
+      expect(args.dummyAccount, isTrue);
+    });
+
     test('--print-storage-paths', () {
       final args = parseCliArgs(['--print-storage-paths']);
       expect(args.printStoragePaths, isTrue);
@@ -64,12 +84,55 @@ void main() {
       expect(args.trustAllConsent, isTrue);
     });
 
+    test('--extensions-token=<value>', () {
+      final token = 'e' * 40;
+      final args = parseCliArgs(['--extensions-token=$token']);
+      expect(args.extensionsToken, token);
+    });
+
+    test('--extensions-token <value> as a separate argument', () {
+      final args = parseCliArgs(['--extensions-token', 'separate-value']);
+      expect(args.extensionsToken, 'separate-value');
+    });
+
+    test('--extensions-token is named as the source of its value', () {
+      final args = parseCliArgs(['--extensions-token=${'e' * 40}']);
+      expect(args.extensionsTokenSource, '--extensions-token');
+    });
+
+    test('DECAID_EXTENSIONS_TOKEN supplies the token without an argument', () {
+      final token = 'v' * 40;
+      final args = parseCliArgs(
+        [],
+        environment: {extensionsTokenEnvironmentVariable: token},
+      );
+      expect(args.extensionsToken, token);
+      expect(args.extensionsTokenSource, 'DECAID_EXTENSIONS_TOKEN');
+    });
+
+    test('--extensions-token wins over DECAID_EXTENSIONS_TOKEN', () {
+      final args = parseCliArgs(
+        ['--extensions-token=${'f' * 40}'],
+        environment: {extensionsTokenEnvironmentVariable: 'v' * 40},
+      );
+      expect(args.extensionsToken, 'f' * 40);
+      expect(args.extensionsTokenSource, '--extensions-token');
+    });
+
+    test('no token source without the flag or the variable', () {
+      final args = parseCliArgs([], environment: {'PATH': '/usr/bin'});
+      expect(args.extensionsToken, isNull);
+      expect(args.extensionsTokenSource, isNull);
+    });
+
     test('all flags combined', () {
       final args = parseCliArgs([
         '--serial',
         '--bypass-onboarding',
+        '--force-onboarding',
         '--direct',
         '--no-account',
+        '--dummy-account',
         '--trust-consent=skin:streamline.js',
         '--trust-all-consent',
         '--skin=streamline.js',
@@ -77,8 +140,10 @@ void main() {
       ]);
       expect(args.serial, isTrue);
       expect(args.bypassOnboarding, isTrue);
+      expect(args.forceOnboarding, isTrue);
       expect(args.direct, isTrue);
       expect(args.noAccount, isTrue);
+      expect(args.dummyAccount, isTrue);
       expect(args.trustedConsentKeys, {'skin:streamline.js'});
       expect(args.trustAllConsent, isTrue);
       expect(args.skinId, 'streamline.js');

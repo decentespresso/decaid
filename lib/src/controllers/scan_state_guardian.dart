@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 import 'package:reaprime/src/models/adapter_state.dart';
 import 'package:reaprime/src/services/ble/ble_discovery_service.dart';

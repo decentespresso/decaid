@@ -86,11 +86,9 @@ Map<String, dynamic> _shot(String id) => {
 
 PluginManifest _manifest() => PluginManifest.fromJson(
   jsonDecode(
-        File(
-          'assets/plugins/shot-upload.reaplugin/manifest.json',
-        ).readAsStringSync(),
-      )
-      as Map<String, dynamic>,
+    File('assets/plugins/shot-upload.reaplugin/manifest.json')
+        .readAsStringSync(),
+  ) as Map<String, dynamic>,
 );
 
 String _pluginSource() =>
@@ -123,6 +121,14 @@ void main() {
         credentialStore: store,
         requireConsent: (_) async => true,
         httpClient: http_testing.MockClient((request) async {
+          if (request.method == 'GET' &&
+              request.url.path.contains('support/api/sn')) {
+            return http.Response(
+              '6262',
+              200,
+              headers: {'content-type': 'text/plain'},
+            );
+          }
           captured.add(request);
           return http.Response(
             jsonEncode({'ok': true, 'profile_ref': 'damian@1'}),
@@ -160,7 +166,7 @@ void main() {
   }
 
   test(
-    'shotStored triggers an authenticated upload with correct provenance',
+    'existing bundled plugin uploads plain JSON with correct provenance',
     () async {
       final captured = <http.Request>[];
       final manager = await load(
@@ -189,31 +195,27 @@ void main() {
         req.url.toString(),
         'https://decentespresso.com/support/api/shot_upload',
       );
+      expect(req.headers.containsKey('content-encoding'), isFalse);
+      expect(req.contentLength, req.bodyBytes.length);
       final body = jsonDecode(req.body) as Map<String, dynamic>;
       expect(body['id'], 'shot-1');
       expect(body['machine']['serialNumber'], '6262');
       expect(body['machine']['firmwareVersion'], '1293');
       expect(body['machine'].containsKey('bleId'), isFalse);
       expect(body['app']['version'], '9.9.9');
-      final fetches =
-          jsonDecode(
-                manager.js
-                    .evaluate('JSON.stringify(globalThis.__fetches)')
-                    .stringResult,
-              )
-              as List;
+      final fetches = jsonDecode(
+        manager.js
+            .evaluate('JSON.stringify(globalThis.__fetches)')
+            .stringResult,
+      ) as List;
       expect(
         fetches.where((url) => url.toString().endsWith('/machine/info')),
         isEmpty,
       );
 
-      final puts =
-          jsonDecode(
-                manager.js
-                    .evaluate('JSON.stringify(globalThis.__puts)')
-                    .stringResult,
-              )
-              as List;
+      final puts = jsonDecode(
+        manager.js.evaluate('JSON.stringify(globalThis.__puts)').stringResult,
+      ) as List;
       expect(puts, hasLength(1));
       expect(puts.single['url'], endsWith('/api/v1/shots/shot-1'));
       final putBody =

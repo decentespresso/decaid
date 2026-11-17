@@ -1,17 +1,25 @@
+import 'dart:convert';
+
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/data/shot_record.dart';
 import 'package:reaprime/src/models/data/steam_record.dart';
 import 'package:reaprime/src/models/data/workflow.dart';
+import 'package:reaprime/src/services/storage/grinder_storage_service.dart';
 import 'package:reaprime/src/services/storage/storage_service.dart';
 import 'package:rxdart/rxdart.dart';
 
 class PersistenceController {
   final StorageService storageService;
+  final GrinderStorageService? grinderStorageService;
   final _log = Logger("PersistenceController");
 
-  PersistenceController({required this.storageService});
+  PersistenceController({
+    required this.storageService,
+    this.grinderStorageService,
+  });
 
   void Function(String shotId)? onShotStored;
+  void Function(ShotRecord record, Map<String, dynamic> patch)? onShotUpdated;
 
   final _shotsChangedSubject = PublishSubject<void>();
   Stream<void> get shotsChanged => _shotsChangedSubject.stream;
@@ -30,19 +38,65 @@ class PersistenceController {
   Future<void> persistShot(ShotRecord record) async {
     _log.info("Storing shot");
     try {
-      await storageService.storeShot(record);
-      _shotsChangedSubject.add(null);
-      onShotStored?.call(record.id);
+      await storeShot(await _withGrinderBurrsSnapshot(record));
     } catch (e, st) {
       _log.severe("Error saving shot:", e, st);
     }
   }
 
-  Future<void> updateShot(ShotRecord record) async {
+  Future<void> storeShot(
+    ShotRecord record, {
+    bool notifyApplication = true,
+  }) async {
+    await storageService.storeShot(record);
+    if (notifyApplication) _shotsChangedSubject.add(null);
+    onShotStored?.call(record.id);
+  }
+
+  Future<ShotRecord> _withGrinderBurrsSnapshot(ShotRecord record) async {
+    final detachedWorkflow = Workflow.fromRecordedJson(
+      jsonDecode(jsonEncode(record.workflow.toJson())) as Map<String, dynamic>,
+    );
+    final snapshot = record.copyWith(workflow: detachedWorkflow);
+    final context = snapshot.workflow.context;
+    final grinderId = context?.grinderId;
+    if (grinderId == null) return snapshot;
+
+    final grinders = grinderStorageService;
+    if (grinders == null) return snapshot;
+
+    String? burrs;
+    try {
+      burrs = (await grinders.getGrinderById(grinderId))?.burrs;
+    } catch (e, st) {
+      _log.warning("Could not read grinder burrs for shot", e, st);
+      burrs = null;
+    }
+    if (burrs != null && burrs.trim().isEmpty) burrs = null;
+    if (burrs == context!.grinderBurrs) return snapshot;
+
+    return snapshot.copyWith(
+      workflow: snapshot.workflow.copyWith(
+        id: snapshot.workflow.id,
+        context: context.copyWith(
+          grinderBurrs: burrs,
+          clearGrinderBurrs: burrs == null,
+        ),
+      ),
+    );
+  }
+
+  Future<void> updateShot(
+    ShotRecord record, {
+    required Map<String, dynamic> patch,
+    bool notifyPlugins = true,
+    bool notifyApplication = true,
+  }) async {
     _log.info("Updating shot: ${record.id}");
     try {
       await storageService.updateShot(record);
-      _shotsChangedSubject.add(null);
+      if (notifyApplication) _shotsChangedSubject.add(null);
+      if (notifyPlugins) onShotUpdated?.call(record, patch);
     } catch (e, st) {
       _log.severe("Error updating shot:", e, st);
       rethrow;

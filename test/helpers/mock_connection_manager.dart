@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:reaprime/src/controllers/connection_error.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
+import 'package:reaprime/src/controllers/auxiliary_scale_registry.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/device.dart' as dev;
 import 'package:reaprime/src/models/device/machine.dart';
@@ -54,6 +55,7 @@ class MockConnectionManager extends ConnectionManager {
 
   int connectCallCount = 0;
   int scanAndConnectCallCount = 0;
+  int connectMachineCallCount = 0;
   int selectMachineCallCount = 0;
   int selectScaleCallCount = 0;
   int cancelSelectionSessionCallCount = 0;
@@ -102,7 +104,9 @@ class MockConnectionManager extends ConnectionManager {
   Future<ConnectionResult> connectMachine(
     De1Interface machine, {
     bool automatic = false,
+    bool scanOwned = false,
   }) async {
+    connectMachineCallCount++;
     if (shouldFailMachineConnect) {
       final error = ConnectionError(
         kind: ConnectionErrorKind.machineConnectFailed,
@@ -138,8 +142,11 @@ class MockConnectionManager extends ConnectionManager {
   }
 
   @override
-  Future<ConnectionResult> connectScale(device_scale.Scale scale) async =>
-      const ConnectionResult.succeeded();
+  Future<ConnectionResult> connectScale(
+    device_scale.Scale scale, {
+    ScaleConnectionRole role = ScaleConnectionRole.primary,
+    bool scanOwned = false,
+  }) async => const ConnectionResult.succeeded();
 
   @override
   Future<ConnectionResult> selectScale(device_scale.Scale scale) async {

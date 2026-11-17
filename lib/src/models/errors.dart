@@ -8,7 +8,7 @@ class PermissionDeniedException implements Exception {
       : 'PermissionDeniedException: $message';
 }
 
-enum DeviceKind { machine, scale, unknown }
+enum DeviceKind { machine, scale, grinder, unknown }
 
 class DeviceNotConnectedException implements Exception {
   final DeviceKind kind;
@@ -16,6 +16,7 @@ class DeviceNotConnectedException implements Exception {
   const DeviceNotConnectedException(this.kind);
   const DeviceNotConnectedException.machine() : kind = DeviceKind.machine;
   const DeviceNotConnectedException.scale() : kind = DeviceKind.scale;
+  const DeviceNotConnectedException.grinder() : kind = DeviceKind.grinder;
   const DeviceNotConnectedException.unknown() : kind = DeviceKind.unknown;
 
   @override
@@ -129,6 +130,21 @@ class FirmwareUpdateCancelledException implements Exception {
   String toString() =>
       'FirmwareUpdateCancelledException: firmware update '
       'was cancelled';
+}
+
+class FirmwareUpdateStageException implements Exception {
+  final String stage;
+  final Object cause;
+  final StackTrace stackTrace;
+
+  const FirmwareUpdateStageException({
+    required this.stage,
+    required this.cause,
+    required this.stackTrace,
+  });
+
+  @override
+  String toString() => cause.toString();
 }
 
 class FirmwareImageValidationException implements Exception {

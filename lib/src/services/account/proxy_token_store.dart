@@ -42,10 +42,9 @@ class ProxyTokenStore {
   final String _storageKey;
 
   ProxyTokenStore({
-    required CredentialStore credentialStore,
-    String storageKey = 'account_proxy_tokens',
-  }) : _credentialStore = credentialStore,
-       _storageKey = storageKey;
+    required this._credentialStore,
+    this._storageKey = 'account_proxy_tokens',
+  });
 
   Future<List<PersistedProxyToken>> load() async {
     final raw = await _credentialStore.read(key: _storageKey);

@@ -148,7 +148,7 @@ void main() {
     },
   );
 
-  test('blocked maintenance stays single-flight', () {
+  test('maintenance performs no periodic writes', () {
     fakeAsync((async) {
       final transport = _IntegrityTransport();
       final scale = DecentScale(transport: transport);
@@ -157,21 +157,12 @@ void main() {
       async.elapse(const Duration(milliseconds: 100));
       async.flushMicrotasks();
       transport.writes.clear();
-      transport.blockedWrite = Completer<void>();
 
-      async.elapse(const Duration(seconds: 24));
+      async.elapse(const Duration(seconds: 30));
       async.flushMicrotasks();
-      expect(transport.writes, hasLength(1));
 
-      transport.blockedWrite!.complete();
-      async.flushMicrotasks();
-      transport.blockedWrite = null;
-      async.elapse(const Duration(seconds: 7));
-      async.flushMicrotasks();
-      expect(transport.writes, hasLength(1));
-      async.elapse(const Duration(seconds: 1));
-      async.flushMicrotasks();
-      expect(transport.writes, hasLength(2));
+      expect(transport.writes, isEmpty);
+      expect(transport.subscribeCalls, greaterThanOrEqualTo(2));
       scale.disconnectForHandoff();
       async.flushMicrotasks();
       transport.dispose();

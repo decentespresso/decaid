@@ -70,6 +70,37 @@ AFTER=$(curl -sf "$BASE/api/v1/devices" \
 test "$AFTER" = "$BEFORE"
 ```
 
+## Post-wake preferred-scale recovery
+
+The protected window is not reachable in the simulator: it only arms when a
+connected machine transitions from sleeping to awake while the preferred BLE
+scale is disconnected and background `ScaleWatch` is the selected
+reacquisition mechanism. Deterministic coverage of the deferral lives in
+`test/controllers/connection_manager_test.dart` and in the
+`deferred scans during the post-wake scale lease` groups of
+`test/devices_handler_test.dart` and `test/devices_ws_test.dart`.
+
+Contract that those tests assert, and that a hardware run confirms from the
+logs and from the device state:
+
+- a REST or WebSocket scan issued inside the window, `connect=false`
+  included, is deferred instead of started, and does not pause the background
+  watch;
+- repeated requests coalesce into one pending scan, and at most one scan runs
+  once the window closes;
+- the pending scan is dropped when the preferred scale reconnects first, the
+  machine disconnects, the preferred scale is cleared, or Decaid shuts down;
+- `quick=true` returns at once and never reports scan failures, whether the
+  scan starts immediately or after the window;
+- a native in-app scan control (launcher or retry UI) supersedes a deferred
+  discovery-only request and still performs the full connection policy.
+
+Support logs carry the arbitration: `Explicit scan source=REST|devices-WS ...`
+reports phase, active connection work and disposition, the deferred run logs
+`Post-wake lease ended; running one deferred client scan`, and superseding a
+deferred discovery-only request logs `Explicit scan superseded the deferred
+discovery-only client scan`.
+
 ## Postconditions
 
 ```bash
@@ -83,3 +114,17 @@ Confirm from the device LEDs, app status, and logs that neither BLE link drops
 or reconnects. Ambiguous multi-device selection and Bengle integrated-scale
 precedence require the corresponding physical devices and remain separate
 hardware validation steps.
+
+Then cover the post-wake window itself:
+
+1. connect the DE1 and the preferred BLE scale, then power the scale off;
+2. put the machine to sleep and wake it again;
+3. immediately after wake, run the REST and WebSocket scans above - including
+   repeated `connect=false` requests and one native scan from the app;
+4. confirm the scale reconnects without a manual scan, that the watch was not
+   paused by the client requests, and that the deferred scan ran at most once
+   after the window.
+
+`curl` and `websocat` steps are unchanged; only the timing and the scale power
+state differ, so run them from the host while the phone or desktop app drives
+the machine.

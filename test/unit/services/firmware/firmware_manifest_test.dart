@@ -13,13 +13,12 @@ void main() {
             'id': 'de1-1356',
             'source': 'bundled',
             'machineFamily': 'de1',
-            'supportedModels': ['DE1Pro', 'DE1XL'],
+            'supportedModels': ['DE1', 'DE1Plus', 'DE1Cafe', 'DE1Pro', 'DE1XL'],
             'build': 1356,
             'versionLabel': '1356',
             'imageFormat': 'de1',
             'byteLength': 123456,
-            'sha256':
-                'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+            'sha256': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
             'channel': 'stable',
             'releaseNotes': 'Initial bundled firmware.',
             'assetPath': 'assets/firmware/de1/de1-1356.bin',
@@ -93,6 +92,23 @@ void main() {
           throwsA(isA<FormatException>()),
         );
       }
+    });
+
+    test('accepts canonical DE1-family model names', () {
+      final entry = _validEntryJson()
+        ..['supportedModels'] = ['DE1', 'DE1Plus', 'DE1Cafe'];
+      final manifest = FirmwareManifest.parse(
+        jsonEncode({
+          'schemaVersion': 1,
+          'artifacts': [entry],
+        }),
+      );
+
+      expect(manifest.entries.single.artifact.supportedModels, {
+        'DE1',
+        'DE1Plus',
+        'DE1Cafe',
+      });
     });
 
     test('rejects unknown machine families and models', () {

@@ -27,16 +27,12 @@ class ScaleWatch {
   int _generation = 0;
 
   ScaleWatch({
-    required DeviceScanner scanner,
-    required bool Function() shouldWatch,
-    required String? Function() preferredScaleId,
-    required Future<void> Function(Scale) connectScale,
-    required void Function() onWatchUnavailable,
-  }) : _scanner = scanner,
-       _shouldWatch = shouldWatch,
-       _preferredScaleId = preferredScaleId,
-       _connectScale = connectScale,
-       _onWatchUnavailable = onWatchUnavailable;
+    required this._scanner,
+    required this._shouldWatch,
+    required this._preferredScaleId,
+    required this._connectScale,
+    required this._onWatchUnavailable,
+  });
 
   bool get armed => _armed;
   bool get hasPendingRequest =>

@@ -14,8 +14,7 @@ class ProfileController {
   final BehaviorSubject<int> _profileCountStream = BehaviorSubject.seeded(0);
   Stream<int> get profileCount => _profileCountStream.stream;
 
-  ProfileController({required ProfileStorageService storage})
-    : _storage = storage;
+  ProfileController({required this._storage});
 
   Future<void> initialize() async {
     _log.info('Initializing ProfileController');
@@ -106,13 +105,9 @@ class ProfileController {
   ) async {
     for (final filename in currentIdByFilename.keys) {
       try {
-        final profileJson =
-            jsonDecode(
-                  await rootBundle.loadString(
-                    'assets/defaultProfiles/$filename',
-                  ),
-                )
-                as Map<String, dynamic>;
+        final profileJson = jsonDecode(
+          await rootBundle.loadString('assets/defaultProfiles/$filename'),
+        ) as Map<String, dynamic>;
         final parentId = profileJson['parent_id'] as String?;
         if (parentId == null) continue;
 

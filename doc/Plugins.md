@@ -1,13 +1,70 @@
 
 # Decaid Plugin Development Guide
 
+## BLE Scale Sample Time
+
+The opt-in reference at `examples/plugins/bookoo-mini.reaplugin` implements the
+native Bookoo packet/command contract in JS using this path. It is not bundled.
+Its README separates deterministic API/protocol tests from required hardware
+acceptance and documents the provisional protocol-silence deadline.
+
+BLE notification callbacks receive `(base64Data, sample)`. The optional opaque
+`sample` token identifies a host-timestamped notification. After decoding, use
+`await session.publish({weight: grams}, sample)` to retain its ingress time even
+when JavaScript dispatch/publication is delayed. No timestamp supplied by JS is
+trusted. Existing one-argument callbacks/publications remain compatible.
+
+Tokens are binding/session-owned, single-use, ordered, and expire after two
+seconds (the existing shot freshness window). At most 256 tokens are retained;
+the oldest token is discarded when that bound is reached, without dropping the
+notification itself. A foreign, duplicate, out-of-order, evicted, or expired token
+returns `stale_sample`. That rejection remains visible to plugin code, but if it
+escapes a notification callback the host drops that sample and continues the
+subscription. Other callback failures remain fatal. Retirement invalidates all
+tokens. A backward clock change retires the BLE session rather than leaving
+publication blocked behind its previous timestamp. Reconnect establishes a fresh
+timestamp sequence and follows normal Scale recovery policy.
+
+Omitting the token retains publication-ingress time for non-BLE or synthetic
+measurements. Do not use that fallback to disguise delayed notification samples.
+Accurate sample timestamps do not reduce delivery latency or recover stop commands
+missed while JavaScript was stalled.
+
+Plugin Scale commands report stable error codes through the existing Scale REST
+routes, including `unsupported_operation` for undeclared tare or timer support.
+Automatic shot timer failures are logged without aborting the shot. A Scale with
+`disconnectToSleep` uses host deliberate-sleep policy: display-off disconnects it
+without recovery until the machine wakes. No plugin reconnect loop is needed.
+
 ## Overview
+
+The bundled Settings plugin checks `GET /api/v1/account/decent` before offering
+its feedback form. Signed-out or unavailable account status shows a sign-in
+message instead. `POST /api/v1/feedback` re-verifies the host account before
+sending feedback and returns `400` when authentication cannot be verified.
 
 > **Note on naming:** Plugin JS APIs use `Rea`-prefixed names (`fetchReaSettings`, `updateReaSetting`, `convertReaToVisualizerFormat`) for backwards compatibility with existing plugins. These were not renamed during the app rename from ReaPrime to Decaid.
 
 Decaid plugins are JavaScript modules that extend the functionality of Decaid.
 Plugins run in a sandboxed JavaScript environment and can react to machine events,
 store data, make HTTP requests, and emit events through the Decaid API.
+
+## External device plugins
+
+Concrete device integrations are maintained separately from the Decaid runtime
+and target the current `main` API baseline:
+
+- [Skale plugin](https://github.com/MaxRink/decaid-skale-plugin): opt-in Scale
+  integration. Skale machine actions remain held for the #845/#853 human review
+  decision; the repository does not make those actions part of the host contract.
+- [E64 WebSocket plugin](https://github.com/MaxRink/decaid-e64ws-plugin): opt-in
+  read-only `type: "grinder"` integration over the host network transport. It
+  must not bypass TLS trust or expose motor, calibration, or configuration-write
+  commands.
+
+These repositories are consumer plugins, not bundled runtime features. Validate
+their manifest and API compatibility against the Decaid `main` revision before
+installing or reviewing a change.
 
 ## Plugin Structure
 
@@ -75,15 +132,36 @@ A Decaid plugin consists of two required files:
   - `log`: Call `host.log`
   - `api`: Use plugin `fetch` and expose declared HTTP endpoints
   - `emit`: Call `host.emit`
+  - `notifications`: Show, update, and dismiss plugin-attributed native notices
   - `pluginStorage`: Call `host.storage`
   - `events.machine`: Receive `stateUpdate`
   - `events.shots`: Receive `shotStored` and `shotUpdated`
+  - `events.workflow`: Receive `workflowUpdated`
   - `proxy.decent_api`: Send read requests through `host.decentProxy`
   - `proxy.decent_api.write`: Send allowlisted write requests through `host.decentProxy`
   - `network.websocket`: Open outbound WebSocket connections (`ws://` and `wss://`) through `host.transport`
   - `network.tcp`: Open outbound raw TCP connections through `host.transport`
   - `network.tls`: Open outbound TLS connections (platform trust store) through `host.transport`
-- **drivers**: Device classes the plugin may register. Each declaration has a plugin-local `id` and a `type`. The only currently supported type is `sensor`. A manifest may declare at most 8 drivers. Driver declarations authorize registration; they do not grant transport access. For example, a WebSocket-backed sensor also needs `network.websocket`.
+  - `manage.extensions`: Call `host.localApi`, which reaches the plugin and skin
+    management routes. A plugin holding it can install, replace, configure,
+    enable, disable and remove any plugin or skin, change the default skin, start
+    and stop the skin server, and approve pending permission updates for any
+    plugin, itself included. Decaid shows a warning naming these powers when the
+    plugin is installed from the native screens, on the plugin's card, and in the
+    approval dialog when an update adds the permission. A plugin cannot obtain it
+    by itself: an update that adds it waits for approval like any added
+    permission, and without the permission the management routes refuse the
+    plugin and `host.localApi` rejects. `host.localApi` covers plugin and skin
+    management only and does not stand in for `api`, as `api` gives no
+    management authority: it refuses every route outside that surface, such as
+    machine control, and a plugin that also needs the rest of the REST API
+    declares `api` and uses `fetch`. Management itself is still full trust: a
+    plugin that can install plugins and approve permissions can install one
+    holding any permission, or give itself `api` by rewriting its own source
+    (`PUT /api/v1/plugins/:id/source`), which applies the new manifest at once.
+    See
+    [`host.localApi`](#hostlocalapipath-options).
+- **drivers**: Device classes the plugin may register. Each declaration has a plugin-local `id` and a `type`: `sensor`, `scale`, or `grinder`. A manifest may declare at most 8 drivers. Driver declarations authorize registration; they do not grant transport access. For example, a WebSocket-backed device also needs `network.websocket`. A driver may declare up to 8 `surfaces`, each with a unique safe `id`, `role` (`settings` or `diagnostics`), and a safe non-reserved `endpoint` naming a declared same-plugin HTTP endpoint. At most one surface has role `settings`. Surfaces require the `api` permission; optional `label` is display text. Plugins cannot supply URLs, authority, credentials, or routes through surfaces. Surface endpoints must not contain unpaired UTF-16 surrogates, which cannot round-trip through URI encoding; valid surrogate pairs remain supported.
 - **settings**: User-configurable options with `type` (`string`, `number`, `boolean`, `enum`), an optional `label` giving the setting a human-friendly name, an optional `description` explaining what the setting does, an optional `default`, and an optional `secure` flag for credentials such as passwords. Enum `values` are a JSON array of strings. Secure values use platform credential storage, are supplied in memory to `onLoad(settings)`, and are never returned by the REST API.
 
   `GET /api/v1/plugins` returns this schema verbatim under `settings`, so a skin can render a settings form — labels, help text and defaults included — without reading the plugin's repository. `GET /api/v1/plugins/:id/settings` returns the stored values only.
@@ -140,6 +218,92 @@ Log messages to the Flutter app's logger. Requires `log`.
 ### `host.emit(eventName, payload)`
 Emit events to the Flutter app. Requires `emit`.
 
+### `host.notify(notification)` / `host.dismissNotification(id?)`
+
+Requires `notifications`. Save or update a native notice using a plugin-local ID:
+
+```javascript
+const requestId = host.notify({
+  id: "connection",
+  message: "The service needs your attention.",
+  action: {
+    id: "help",
+    label: "Help",
+    type: "openExternalUrl",
+    url: "https://example.com/help"
+  }
+});
+host.dismissNotification("connection");
+```
+
+`action` is optional. IDs are nonempty strings of at most 128 characters; messages
+are limited to 600, action labels to 40, and URLs to 2,048. Missing permission
+throws `PluginPermissionError`; Dart also checks the permission and live caller
+generation before accepting bridge calls.
+
+`notify` returns an opaque request ID. The host delivers `notificationResult`
+only to the originating live generation, with `{requestId, id, status}`. Status
+is `accepted` after saving, or `rejected` with a `reason` of `validation`,
+`capacity`, or `storage`. A rejected result includes `id` only when that ID is
+valid. Acceptance means retained for presentation, not displayed, read, or
+acknowledged. A plugin can retry capacity or storage rejection while its
+condition remains relevant; it must correlate each result with its request ID.
+
+Only two action types are supported: `openExternalUrl` opens an absolute HTTPS
+URL without embedded credentials in the external browser; `openDecentAccount`
+opens native account settings and additionally requires `proxy.decent_api`.
+Both require an explicit user tap. Plugins cannot supply native routes, custom
+URL schemes, executable callbacks, automatic actions, or UI priority. The host
+displays the plugin name/ID and external destination hostname alongside the copy.
+
+Notifications represent current conditions, not transient feedback or history.
+The launcher Notifications destination shows all current conditions, including
+read ones and their approved actions. The skin bell appears only when unread
+conditions exist and opens a compact unread-at-opening snapshot with a Go to
+notification center control. That control exits the skin to the dashboard before
+opening the full center. Marking that snapshot read hides the bell but does
+not empty or close the open list. Later arrivals and revisions remain unread.
+Opening or closing the compact list does not resize or remount the skin WebView.
+Transient SnackBars remain independent. Closing either view does not resolve a
+condition or resume plugin work.
+
+The app retains source identity, approved actions, order and read status in one
+private SharedPreferences snapshot, outside skin-accessible Hive namespaces.
+Identical publications preserve read state and order across restarts. Changing
+the message or action marks a notice unread. Restored notices say "Awaiting
+confirmation" and disable actions until the current generation republishes them.
+
+At most five notices per plugin and twenty plugin notices overall fit in the
+center. The host reserves a separate app-update entry. Capacity rejection does
+not evict existing notices. Omit the ID when dismissing to remove only the calling
+plugin's notices. Shutdown and reload retain messages but retire action bindings;
+explicit unload, disable, uninstall, removal of the notification permission,
+programmatic resolution remove the relevant messages. Startup also removes
+retained notices from missing or disabled plugins.
+Failed saves preserve the previous visible state and report an error. Corrupt or
+unknown saved snapshots remain untouched rather than resetting the center.
+
+`notificationAction` is delivered only to the originating plugin, with payload
+`{id, actionId, phase}`. `activated` means the user invoked an action; `failed`
+reports an unsuccessful external launch. `returned` is delivered once after a
+successful external launch and a subsequent leave/resume transition, provided the
+notification and plugin generation remain current. It is not evidence that an
+external task succeeded. The plugin decides whether to refresh or retry.
+The app tracks browser return independently of the overlay. Closing the overlay
+or marking a notice read does not cancel an outstanding return; replacement,
+removal and generation retirement do.
+
+There is no generic user dismissal, trash control, Dismiss all, or user-dismissal
+event. `host.dismissNotification(id?)` remains the originating plugin's operation
+for withdrawing resolved conditions, isolated to that plugin. Reading retains
+the condition and never runs an action. Only explicit domain actions may change
+application state; the trusted app update has a separate Skip this version
+action. Resolved conditions are removed without a history entry.
+
+Hosts that reject unknown manifest permissions cannot load a plugin declaring
+`notifications` until they support this contract. No new REST or WebSocket route
+is introduced.
+
 ### `host.storage(command)`
 Interact with persistent storage. Requires `pluginStorage`. Commands:
 ```javascript
@@ -178,11 +342,133 @@ if (response.status === 200) {
 const upload = await host.decentProxy("support/api/shot_upload", {
   method: "POST",
   body: JSON.stringify(shot),
-  contentType: "application/json"
+  contentType: "application/json",
+  gzip: true
 });
 ```
 
 The returned object has `{ status, headers, body }`. Consent denial or non-decision rejects with `error.code === "account_consent_denied"`. `GET` (read) needs `proxy.decent_api`; `POST` (write) needs `proxy.decent_api.write` and a path on the write allowlist. Credentials are attached in Dart and never exposed to plugin JS.
+
+Missing or known-invalid stored credentials reject with
+`error.code === "account_authentication_required"` before any upstream request.
+An upstream HTTP 401 remains a response with `status: 401`.
+Only a 401 for unchanged credentials and authentication generation invalidates
+the host account. A late response cannot invalidate a newer login, even when
+that login uses the same stored credentials.
+The generation is captured with the final post-consent credential snapshot;
+account changes during that snapshot or an unfinished login abort before sending.
+Failure to reread credentials after an upstream 401 suppresses invalidation but
+does not replace the upstream response with a storage exception.
+
+The optional `gzip` boolean lets a plugin request host-side compression for its
+POST body. It defaults to false; omitting it or passing false forwards the body
+unchanged, even for shot-upload JSON. Invalid types reject the request before
+upstream traffic. With `gzip: true`, Decaid compresses bodies of at least 1,024
+UTF-8 bytes only when gzip reduces their size, setting `Content-Encoding: gzip`
+and preserving `Content-Type`. The proxy does not infer compression from an
+endpoint or media type. Permissions, the write allowlist, and native account
+consent still apply. A failed compressed POST has no automatic plain-body
+fallback. This transport option is not a user-facing upload setting.
+
+### `host.localApi(path, options)`
+Call the plugin and skin management routes of Decaid's own REST API in-process,
+with the authority to manage plugins and skins. Requires the `manage.extensions`
+permission. This is the only way a plugin reaches the management routes listed in
+[Plugin Lifecycle Management](#plugin-lifecycle-management-rest-api); `fetch` and
+`host.transport` reach the same server without any authority and get 401.
+
+`path` is a path under `/api/v1/`, optionally with a query string. A scheme, a
+host, a port or a fragment is refused.
+
+`host.localApi` reaches these routes and no others:
+
+| Routes | What they are |
+|--------|---------------|
+| The 18 plugin and skin routes that need an `extensions:manage` token: those marked **yes** in [Plugin Lifecycle Management](#plugin-lifecycle-management-rest-api) and the skin routes in `doc/Skins.md` (`doc/Api.md` lists them all) | The plugin and skin management operations |
+| `GET /api/v1/plugins`, `GET /api/v1/plugins/{id}/settings` | Reading plugins and their settings |
+| `GET /api/v1/webui/skins`, `GET /api/v1/webui/skins/default`, `GET /api/v1/webui/skins/{id}`, `GET /api/v1/webui/server/status` | Reading skins and the skin server |
+| `POST /api/v1/settings` with a JSON object holding only `defaultSkinId` or `automaticUpdateCheck` | The settings that choose the default skin and turn automatic update checks on or off (plugin and skin updates are installed; app updates are only offered) |
+
+Any other request is rejected before it is sent, whatever the plugin's other
+permissions: machine control, workflow, other settings (`webUiPath` included,
+which serves an arbitrary folder and stays with token holders), reading
+settings, data export, import and sync, the key-value store, the account proxy,
+skin assets and plugin-defined endpoints (`/api/v1/plugins/{id}/{endpoint}`) are
+all out of reach. `host.localApi` does not stand in for the `api` permission,
+and `api` gives no management authority. A plugin that holds `api` keeps calling
+the rest of the API with `fetch`, which carries no management authority and is
+how it reads `GET /api/v1/settings`; a plugin that holds only
+`manage.extensions` has no call of its own into the rest of the API.
+
+That limit is on what the plugin itself can call, not on what it can cause.
+Managing extensions means choosing the code that runs on the device: a plugin
+with `manage.extensions` can install or rewrite a plugin whose manifest holds
+`api` or any other permission, and can approve an update that adds one,
+including to itself. With one call it can rewrite its own source with `api`
+added: a source write applies the manifest directly, without a pending update.
+Treat the permission as full trust in the plugin; the install warning says to
+allow it only for a plugin you trust completely.
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `method` | `GET` | `GET`, `POST`, `PUT` or `DELETE` |
+| `body` | none | A string is sent as is; any other value is JSON-encoded |
+| `contentType` | `application/json` when there is a body | Request `Content-Type` |
+
+The promise resolves to `{ status, headers, body }`, where `body` is the response
+text. An HTTP error such as 400 or 409 is a resolved response, not a rejection.
+
+```javascript
+const list = await host.localApi("/api/v1/plugins");
+const plugins = JSON.parse(list.body);
+
+await host.localApi("/api/v1/plugins/my.other.reaplugin/enable", {
+  method: "POST"
+});
+
+const install = await host.localApi("/api/v1/plugins/install/github-release", {
+  method: "POST",
+  body: { repo: "acme/my-plugin" }
+});
+if (install.status !== 200) {
+  host.log("install failed: " + install.status + " " + install.body);
+}
+```
+
+Errors (the promise rejects with an `Error`):
+
+- `PluginPermissionError` when the manifest does not hold `manage.extensions`.
+  Decaid checks this in JavaScript and again on the Dart side.
+- `Plugin generation changed` when the plugin was unloaded or reloaded after the
+  call started.
+- `localApi path must start with /api/v1/` for any other path, and
+  `localApi does not support method ...` for another method.
+- `localApi reaches only the plugin and skin management routes, not ...` for a
+  route outside the table above, and `localApi changes only these settings: ...`
+  for a settings body that is not a JSON object of those two keys.
+- `Local API request timed out` after 60 seconds, and an error when the response
+  is larger than the plugin fetch response limit.
+
+Authority rules:
+
+- The authority belongs to the loaded generation of the plugin. It ends when the
+  plugin is unloaded, disabled, uninstalled or reloaded, before `onUnload` runs,
+  and a reloaded plugin gets a new one only if its manifest still holds the
+  permission.
+- It is checked again on every request, so a request sent after the plugin
+  stopped is refused even if the call was prepared earlier. A request that was
+  admitted while the authority was valid runs to completion, as a request
+  admitted before a token was revoked does.
+- It is attached only to `host.localApi`. `fetch` and `host.transport` never
+  carry it, including requests to `localhost` or the device's own address.
+- No token exists in JavaScript. The request is dispatched in-process and carries
+  the plugin's grant, which a network caller cannot present.
+- The plugin cannot supply headers or a host. A redirect response is returned to
+  the plugin as data and is not followed.
+
+A plugin with this permission can approve pending permission updates, including
+its own. That delegation is what the permission is for: hand it only to plugins
+you trust as much as the native settings screens.
 
 ## Events System
 
@@ -191,7 +477,7 @@ The returned object has `{ status, headers, body }`. Consent denial or non-decis
 Plugins receive events in the `onEvent` method:
 
 Machine broadcasts require `events.machine`. Shot lifecycle broadcasts require
-`events.shots`.
+`events.shots`. Workflow broadcasts require `events.workflow`.
 
 - **`stateUpdate`**: Machine state changes (temperature, pressure, flow, etc.)
 
@@ -208,7 +494,43 @@ Machine broadcasts require `events.machine`. Shot lifecycle broadcasts require
   }
   ```
 
+- **`workflowUpdated`**: Contains exactly the current workflow serialization
+  returned by `WorkflowController.currentWorkflow.toJson()`. A permitted plugin
+  receives the current workflow when a controller is attached or replaced and
+  after each successful load or reload. Later events are delivered when the
+  workflow revision changes.
+
+  ```javascript
+  {
+    name: "workflowUpdated",
+    payload: {
+      id: "workflow-id",
+      name: "Espresso",
+      description: "",
+      profile: { /* profile fields */ },
+      context: {
+        targetDoseWeight: 18.0,
+        targetYield: 36.0
+      },
+      steamSettings: { /* steam fields */ },
+      hotWaterData: { /* hot-water fields */ },
+      rinseData: { /* rinse fields */ }
+    }
+  }
+  ```
+
 - **`shutdown`**: Plugin is about to be unloaded
+- **`notificationAction`**: A host-approved notification action or browser-return
+  event. Requires `notifications`; see `host.notify` for the targeted payload
+  and lifecycle. No action event is broadcast to unrelated plugins.
+- **`notificationResult`**: A targeted persistence result for `host.notify`.
+  Requires `notifications`; see the request ID, status and rejection reasons
+  above. Other plugins cannot receive the result.
+- **`decentAccountChanged`**: The host account's authentication or registered
+  machines changed, or an explicit account refresh was requested. Payload is
+  `{}` and requires `proxy.decent_api`. Invalidate account-derived caches and
+  refetch required data before retrying account operations. The event
+  contains no account identifiers or credentials.
 - **`storageRead`**: Response to a storage read request
 
   ```javascript
@@ -222,8 +544,8 @@ Machine broadcasts require `events.machine`. Shot lifecycle broadcasts require
   ```
 
 - **`storageWrite`**: Confirmation of storage write
-- **`shotStored`**: A shot finished persisting
-- **`shotUpdated`**: A stored shot was edited via `PUT /api/v1/shots/<id>` (e.g. metadata changes — notes, enjoyment, bean/grinder). Broadcast to every plugin so they can react to edits (the Visualizer plugin uses it to forward-sync edited metadata).
+- **`shotStored`**: A new shot finished persisting, including successful backup, Settings JSON, and De1App/onboarding backup imports. Payload: `{id: "<shot id>"}`.
+- **`shotUpdated`**: A stored shot was edited (e.g. notes in History, `PUT /api/v1/shots/<id>`, or a changed backup overwrite). The payload always contains `id`, `shot` (current metadata without measurements), and `patch` (fields changed by this mutation). PUT preserves the submitted request patch; native edits provide an equivalent field patch; backup overwrites provide changed replacement metadata, with removed fields set to `null`. Measurement-only overwrites can have an empty metadata patch. Unchanged, skipped, and failed imports emit no Shot event. Events are per Shot, not batched. The Visualizer plugin uses the patch to forward-sync only edited fields without overwriting unrelated remote edits.
 
   ```javascript
   {
@@ -231,7 +553,7 @@ Machine broadcasts require `events.machine`. Shot lifecycle broadcasts require
     payload: {
       id: "shot-12345",       // local shot id
       shot: { /* full shot without measurements */ },
-      patch: { /* the partial update body that was PUT */ }
+      patch: { annotations: { espressoNotes: 'edited notes' } }
     }
   }
   ```
@@ -239,6 +561,8 @@ Machine broadcasts require `events.machine`. Shot lifecycle broadcasts require
 #### Visualizer Forward Sync
 
 The bundled Visualizer plugin merges recipe and shot-review tags, reads the current Visualizer tags before replacing them, and forwards later local edits in order. Visualizer tag writes require a Visualizer Premium account. The upload endpoint returns `202` with `visualizer_id` after the Visualizer upload succeeds while the tag PATCH continues in memory. Follow-up failures, including Visualizer's premium-account rejection, are reported through `shotForwardSyncError` and `forwardSyncStatus`; tag ownership is restored after an app or plugin restart. Pending work is not restored though.
+
+Upload folds the `grinderBurrs` snapshot recorded on the shot into the uploaded `grinder_model` (Visualizer has no separate field for them). Back-sync suppresses only a value that matches the string it uploaded, compared on normalized text, so a genuine remote edit still applies; an applied edit takes ownership of the field, clearing the shot's burrs snapshot so a re-upload does not decorate the edited text again — see `doc/AI_PLUGINS_NOTES.md` for why and how.
 
 ### Events from Plugin → Flutter
 
@@ -258,6 +582,64 @@ When Decaid matches an external request to an endpoint that is defined in the
 plugins manifest,
 it will send over events emitted by the plugin.
 
+The bundled `time-to-ready.reaplugin` records the group temperature when the
+machine first reports below-target operation, with the reference reset on `ready`,
+sleep, a target temperature change, or cooling 2 K below the session start. It
+estimates the remaining time from the recent heating rate rather than the whole
+climb: it keeps an 18-second trailing temperature window, requires at least eight
+samples, and measures the rate over the shortest span that shows a clear rise
+(six, twelve, then eighteen seconds, trimming any leading plateau). The estimate is
+`max(targetGroupTemperature - currentTemperature, 0) / heatingRate`, rounded to
+ten seconds and clamped to 5-300 s.
+
+This deliberately departs from the de1app Streamline formula, which divides
+elapsed time by progress toward `targetGroupTemperature - 10`. That `-10` offset
+absorbed a slow tail for the original machine but collapses the denominator near
+target: it makes a slow machine reach the floor too early and makes a fast machine
+compress most of its countdown into the last few steps. A recent rate adapts to
+machines with very different heating speeds. `heatingRate` reports that recent
+rate in degrees per second.
+
+The plugin holds the `api` permission to read `GET /api/v1/machine/info` and
+cache `model`. Discovery treats a non-2xx response, an unparseable body or an
+empty model as a failure, retries five times at 30 s intervals, and re-runs at most
+once a minute from the state stream, so a machine that connects after startup is
+classified without a restart and a machine swap resets the heating session instead
+of inheriting the previous classification. Pending retries are cancelled on unload
+and a response that arrives after unload is discarded.
+
+On a Bengle the first published countdown of a heating session becomes its
+ceiling, and later publications may only decrease. Other machines - the DE1 family
+heats exponentially, decelerating hard near target - get a bounded allowance: when
+the measured rate falls below 80% of the session peak, the estimate is lengthened
+by up to 1.4x and the ceiling is released for that update, so a decelerating ramp
+is not under-reported. On the recorded DE1 cold start that moved the mid-ramp
+error from -47 s to +5 s. If machine info is unavailable the plugin stays on the
+conservative ceiling with no allowance.
+
+Stall detection keeps its own 60 second history, separate from the 18 second rate
+window, so it judges a real minute of observations; the history retains the sample
+just before the cutoff, so ordinary sampling jitter cannot make the window look
+incomplete and suppress a stall indefinitely. The continued-heating threshold is
+derived from the same numbers - a rise of `0.5 K * 18 / 60` over the rate window -
+so there is no band of slow-but-real heating that neither publishes nor stalls. An established session whose
+temperature stops climbing reports `status: "not_heating"` - not
+`insufficient_data` - once that minute gained less than 0.5 K, and the display cap
+is released so a later resume starts clean. Short pauses stay in the countdown.
+
+Once a session has published, the five-kelvin start gate is no longer required:
+a slow positive ramp keeps its countdown as long as the window gained more than
+0.2 K, which is what a decelerating DE1 approaches near target. Below that, the
+stall detector decides between `not_heating` and continued measurement.
+
+That ceiling is stricter than de1app, whose own monotonic guard is unreachable: its
+`force_update` flag is set to `1` immediately before the comparison, so the guard
+never runs.
+
+`status: "insufficient_data"` with `remainingTimeMs: null` is published until the
+recent rate is established, or while the machine is not heating. The heating skin
+renders that state as "Heating" without a countdown.
+
 Example:
 
 ```bash
@@ -272,6 +654,13 @@ Plugins can make HTTP requests using the standard `fetch` API (polyfilled by the
 
 Plugin `fetch` requires `api`. Declared HTTP endpoints also require `api` before
 Decaid dispatches a request to the plugin.
+
+`fetch` can reach Decaid's own API at `localhost:8080` or the device address,
+but it does so as an ordinary network client with no authority: the plugin and
+skin management routes answer 401 to it, whatever headers the plugin sets. Use
+[`host.localApi`](#hostlocalapipath-options) with the `manage.extensions`
+permission for those routes. The rest of the API stays open to `fetch`, as it is
+to any client on the network.
 
 ```javascript
 // Basic GET request
@@ -295,6 +684,248 @@ const upload = await fetch("https://api.example.com/upload", {
 - `fetch()` for HTTP requests
 - `btoa()` for base64 encoding (polyfilled)
 - Standard JavaScript language features
+
+## BLE Declaration Work in Progress (#809)
+
+Manifest parsing accepts the separate `transport.ble` permission, `scale` and
+`grinder` driver types, their type-specific capabilities, and one `ble.match`
+declaration per plugin. BLE binding and public non-BLE registration use the same
+typed adapter for each driver type.
+Accepting a declaration does not grant GATT access. See
+`doc/plans/issue-809-design.md` for the remaining implementation and tests.
+
+The matcher supports one case-insensitive `name` predicate (`exact`, `prefix`,
+or `contains`, 1-248 characters), and/or `serviceUuids` (1-64 UUIDs). It does not
+trim names. UUIDs accept 16-, 32-, and 128-bit forms and serialize as lowercase
+128-bit UUIDs. Name and service predicates combine with AND; the service list
+uses any-of semantics. Unknown keys and unconstrained matchers are invalid.
+
+Incomplete evidence remains indeterminate. A complete observation proving a
+required name is absent makes the matcher a non-match. The evidence cache keeps
+complete observations over incomplete ones regardless of source, uses observation
+time between equally complete records, and never merges records. A proven false
+predicate makes the matcher a non-match. A definite match cannot win against an
+indeterminate competing driver. Two definite matches conflict. Discovery and connection
+admission still need to use these arbitration primitives.
+
+### Runtime-v2 session info
+
+Plugin-created and BLE-backed device connection contexts share
+`context.publishInfo(info)`. The device type defines the accepted fields.
+Publications use the existing plugin-generation, registration/binding and
+connection-session fencing and shared 64 KiB JSON payload bound. Oversized info
+returns `resource_limit`; retired contexts return `stale_session`.
+The shared device-request bridge rejects non-finite JavaScript numbers (`NaN`,
+`Infinity`, `-Infinity`), all boxed numbers (`new Number(...)`, including finite
+values), and primitive or boxed BigInt values (`1n`, `Object(1n)`) at any JSON depth
+with `invalid_argument` before serialization. This
+applies to info, snapshots and other device request payloads; explicit `null`
+remains supported.
+Session info clears when the connection retires, including replacement startup,
+disconnect, failed startup, reported connection/protocol failure, replacement or
+unregister, plugin unload/reload and dispose. Info does not satisfy readiness.
+Invalid info may propagate from a BLE notification callback without retiring an
+otherwise healthy connection; snapshot and protocol failures retain their
+existing failure semantics.
+
+### Non-BLE Scale Registration
+
+Declare a Scale driver in the manifest. No `transport.ble` permission is needed:
+
+```json
+"drivers": [{"id": "memory", "type": "scale"}]
+```
+
+A minimal synthetic Scale plugin can register an instance during `onLoad`:
+
+```javascript
+function createPlugin(host) {
+  return {
+    id: "example.scale",
+    onLoad() {
+      return host.devices.register({
+        driverId: "memory",
+        instanceId: "one",
+        name: "Memory Scale"
+      }, {
+        async connect(context) {
+          await context.publish({weight: 0});
+        },
+        disconnect() {}
+      });
+    }
+  };
+}
+```
+
+Each connect invocation receives a fresh context with `transport`,
+`publish(snapshot)`, and `reportDisconnected()`. Network `transport` uses the
+existing invocation-owned transport API and requires the corresponding network
+permission. Capture this context in protocol callbacks; do not look up a mutable
+current context when a delayed callback runs. The host rejects stale-session
+publications and failure reports. The persistent registration exposes `deviceId`
+and `unregister()`, not publication or failure-reporting methods.
+
+Scale disconnect remains in progress until the manager's bounded handler
+invocation and host transport cleanup finish. Reconnect waits for that retirement,
+including when the handler throws or times out. Host cleanup also closes transports
+opened by a connect handler that already completed; old handles cannot send into
+a replacement session. The adapter does not apply a separate disconnect timeout.
+
+Weight is finite signed grams. Optional `battery` is an integer from 0 to 100;
+omission or null means unknown, including in existing controller serialization.
+Optional finite `flow` and nonnegative integer `timerMs` require `flow` and
+`timerTelemetry` capabilities respectively. Battery requires `battery`.
+Arbitrary timestamps and unknown publication fields are rejected.
+
+Declare optional commands in manifest `capabilities`: `tare` requires a `tare`
+handler; `timerControl` requires `startTimer`, `stopTimer`, and `resetTimer`;
+`displayControl` requires `sleepDisplay` and `wakeDisplay`. Host registration
+validates handlers against these declarations, including direct bridge calls.
+Unsupported operations fail with `unsupported_operation`, not success.
+Disconnect-to-sleep recovery policy is not yet complete in this branch.
+
+Readiness requires both successful `connect` completion and a valid weight.
+Up to 256 initialization samples are retained for controller activation, then
+delivered once. Initialization is bounded; invalid samples cannot mark ready.
+Publication-ingress timestamps are provisional pending the required timing gate.
+
+#### Scale session info
+
+Both plugin-created and BLE-backed Scales use the
+[shared runtime-v2 session info lifecycle](#runtime-v2-session-info):
+
+```javascript
+await context.publishInfo({firmwareVersion: "R029", batteryLevel: 87});
+```
+
+Only `firmwareVersion` and `batteryLevel` are accepted. Firmware is an opaque
+string (including an empty string) or `null`. Battery is an integer from 0 to
+100 inclusive or `null`; a non-null battery requires the existing `battery`
+capability. Omitted fields preserve accepted values; explicit `null` clears
+that field. Empty objects, unknown keys, malformed values, capability mismatches
+and out-of-range values, including `NaN`, `Infinity`, `-Infinity`, all boxed
+numbers, and primitive or boxed BigInt values, return `invalid_argument` without
+changing accepted info.
+
+Accepted info is available to native `DeviceInformationCapable` consumers and
+`GET /api/v1/scale/info`; cleared fields are omitted from the response. Info is
+separate from weight snapshots and does not replace the valid-weight readiness
+requirement. No info enters device inventory, persistence or a new WebSocket.
+Existing v1 Scale plugins that never call `publishInfo` remain compatible.
+
+### Grinder Registration
+
+Declare a Grinder driver with only the controls it supports:
+
+```json
+{"drivers":[{"id":"grinder","type":"grinder","capabilities":["startStop","grindSetting","rpmControl"]}]}
+```
+
+A read-only Grinder may declare observations without any command capabilities:
+
+```json
+{"drivers":[{"id":"grinder","type":"grinder","observations":["setting","rpm"]}]}
+```
+
+`observations` is a unique array of standard names (`setting`, `rpm`), valid only
+for Grinder drivers. Unsupported names and invalid declarations are rejected.
+Observations never enable handlers, command capabilities or writable controls.
+No observation metadata is exposed as a control; unknown vendor values stay in
+plugin diagnostics unless mapped to a standard observation.
+
+Optional driver `controls` describe only declared `grindSetting` and `rpmControl`
+capabilities. `grindSetting` supports `{ "kind": "opaque" }`, finite numeric
+`min`/`max` and optional positive `step`, or a nonempty unique string `values`
+array with `kind: "enumerated"`. `rpmControl` supports numeric descriptors
+with nonnegative integer `min`/`max` and optional positive integer `step`.
+Bounds are inclusive; `step` guides adjustment only. For example, numeric
+grind 1–80 / step 1 and RPM 60–120 need no vendor-specific host logic.
+Unknown descriptor fields and unsupported capabilities fail manifest acceptance.
+
+Registered Scale, Sensor and Grinder adapters share a fixed
+`PluginDeviceSurfaceAuthority`: explicit plugin ownership, validated declared
+surfaces and one host URL resolver. Ownership is never inferred from `deviceId`.
+Grinder session availability filters this authority without changing declarations.
+
+### Native per-device settings
+
+Device management consumes the driver's declared surface with `role: "settings"`
+through `PluginDeviceSurfaceAuthority`. This applies to Scale, Sensor, Grinder,
+and other plugin-backed devices, without requiring a connection or filtering by
+session availability. Devices with no settings-role surface have no settings action.
+The host validates surfaces against declared same-plugin HTTP endpoints and the
+`api` permission when parsing the manifest.
+
+```json
+{
+  "permissions": ["api", "pluginStorage"],
+  "drivers": [{
+    "id": "grinder",
+    "type": "grinder",
+    "surfaces": [{"id": "settings", "role": "settings", "endpoint": "device-settings"}]
+  }],
+  "api": [{"id": "device-settings", "type": "http", "data": {}}]
+}
+```
+
+The native action opens the authority-built `href` against `http://localhost:8080`
+in the platform in-app browser, preserving its `ui=1`, `deviceId`, and optional
+display-only `deviceName` query. Native device management supplies the name to the
+shared authority, which encodes all query values once; the UI does not rebuild
+the query. The name is not identity, and ownership is not inferred from device IDs.
+Other authority callers that omit the name retain their existing hrefs. Only
+the current device instance may launch; retired, replaced, and unloaded instances
+are fenced. The plugin owns identity validation and per-device persistence through
+its namespaced KV store (`pluginStorage` permission), separate from plugin-global
+settings and native auto-connect preferences. No native mirror store is created.
+
+Both `host.devices.register` and BLE `host.devices.bindDriver` create the same
+runtime `PluginGrinder`. Every connection receives a fresh session context and
+must publish a valid initial snapshot before it is ready. Snapshots require
+`state` (`idle`, `grinding`, `error`, or `unknown`); optional string `setting`
+requires `grindSetting`, and optional nonnegative integer `rpm` requires
+`rpmControl`; these existing v1 fields retain their compatibility semantics and
+are not redefined as observations. Optional string `observedSetting` requires a
+`setting` observation declaration; optional nonnegative integer `observedRpm`
+requires an `rpm` observation declaration, independently of command support.
+For example, `context.publish({state: "idle", observedSetting: "espresso/A",
+observedRpm: 900})` reports read-only values. Explicit nulls and invalid types
+are rejected. Each snapshot is self-contained: omitted observed fields mean
+currently unavailable, never zero or reuse of a previous value. Drivers decide
+freshness during an active session; Decaid rejects disconnected, retired,
+superseded and stale-session callbacks before they can become current state.
+No `stale` operational state is added. Unknown fields, plugin timestamps, and stale-session publications
+are rejected. Decaid supplies the timestamp. `context.publish(...)` accepts
+only typed snapshots; controls and surfaces are never snapshot fields. The same
+connection context provides `context.publishInfo({controls, surfaces})` for
+session-only info, with the same generation, registration, session fencing and
+64 KiB payload bound. Info publication does not satisfy initial snapshot readiness.
+A supplied
+control descriptor replaces that entire session override; `null` clears that
+control back to its fixed declaration, and `controls: null` clears all overrides.
+Omitted keys preserve existing overrides. `surfaces: ["settings"]` selects a
+subset of manifest-declared IDs; `[]` hides all, `null` restores all, and
+omission preserves selection. Invalid metadata is rejected with
+`invalid_argument` without changing accepted state or disconnecting the device.
+BLE notification callbacks may propagate an invalid `publishInfo` rejection
+without retiring a healthy connection. Snapshot/protocol failures retain their
+existing failure semantics regardless of earlier info publication.
+Session metadata clears on reconnect, disconnect, unload, replacement and
+dispose. The host validates effective settings/RPM before sending the original
+command unchanged. No metadata enters snapshots, inventory, persisted Grinder
+records or a new WebSocket.
+
+Network and BLE grinders use a default 10-second invocation budget for protocol
+initialization and commands. Initialization includes the connect handler and
+first valid snapshot. Grinder timing does not change scale invocation budgets.
+
+Handlers are always `connect` and `disconnect`. `startStop` additionally
+requires `start` and `stop`; `grindSetting` requires `setGrindSetting(setting)`;
+`rpmControl` requires `setRpm(rpm)`. BLE grinders also require `bleEvent`.
+Unsupported controls fail with `unsupported_operation` before a plugin handler
+is invoked. Runtime control uses the singular `/api/v1/grinder/*` API and the
+generic device connect/disconnect routes.
 
 ## Network Transports (`host.transport`)
 
@@ -594,14 +1225,243 @@ commands; the failure is surfaced to the caller.
 object. Handler failures propagate through the existing sensor command API.
 Calls time out after 10 seconds.
 
+### Sensor snapshot values
+
+SensorBasket snapshots preserve all declared channel keys and represent invalid
+channel readings as `null`; valid numbers are unchanged.
+
 Definitions, snapshots, command parameters and command results are limited to
 64 KiB of JSON. A plugin generation can register at most 8 devices. Registration
 is not remembered across app restarts. On plugin unload, Decaid runs each
 device's `disconnect()` handler, removes every device, and rejects in-flight
 commands owned by the retiring generation, even if `onUnload()` fails. Late
-publications and command results from older generations
-are ignored. BLE-backed drivers, discovery, probing and grinder registration are
-not supported by this first sensor registration contract.
+publications and command results from older generations are ignored. BLE-backed
+drivers use the separate binding contract below.
+
+### BLE Driver Binding (`host.devices.bindDriver`)
+
+Declare a BLE matcher and `transport.ble` permission, then bind its factory from
+`onLoad()`. Binding does not open a connection or register a synthetic device.
+The existing scanner selects physical candidates before invoking the factory.
+
+```json
+{
+  "permissions": ["transport.ble"],
+  "drivers": [{
+    "id": "humidity",
+    "type": "sensor",
+    "ble": {"match": {"serviceUuids": ["180f"]}}
+  }]
+}
+```
+
+`await host.devices.bindDriver('humidity', {create(device) { ... }})` binds one
+factory per plugin generation. `create` must synchronously return `connect`,
+`disconnect`, and `execute` handlers plus Sensor `vendor`, `dataChannels`, and
+`commands` metadata using the schema above. Async factories are rejected: all
+hardware initialization belongs in `connect(context)`. The frozen factory input
+contains `id`, `name`, and `advertisement` (`name`, `nameComplete`, `serviceUuids`,
+`servicesComplete`). It has no publication or GATT authority.
+
+The public ID is `plugin:<pluginId>:<driverId>:<normalizedPhysicalId>`, stable
+across reloads and reconnects. Sensor inventory, commands, and snapshots use the
+existing REST/WebSocket paths. Each connection receives a fresh context:
+
+- `context.publish(snapshot)` and `context.reportDisconnected()` belong only to
+  that connection. Retaining a context cannot authorize a replacement session.
+- `context.gatt.discoverServices()` returns normalized 128-bit service UUIDs.
+- `read(service, characteristic)` returns base64 bytes.
+- `writeWithResponse(service, characteristic, base64)` and
+  `writeWithoutResponse(service, characteristic, base64)` select acknowledgement
+  explicitly. Unsupported acknowledged writes are not silently downgraded.
+- `subscribe(service, characteristic, callback)` returns an object with an async
+  `unsubscribe()`. The callback receives base64 bytes and may run before subscribe
+  resolves. Replacing the same tuple resets native notifications; the old logical
+  unsubscribe cannot remove the replacement.
+- `onDisconnect(callback)` installs one terminal listener for the session.
+
+These GATT methods are on `context.gatt`. UUID input accepts Bluetooth aliases
+but native calls always use 128-bit UUIDs. The host establishes the physical BLE
+session before `connect` runs. That acquisition and its platform recovery follow
+the transport's own policy and are not bounded by the plugin invocation timeout;
+the `connect` handler, and the readiness that resolves it, still are. Resolving
+`connect` declares protocol
+readiness. The plugin owns that readiness: a plugin that creates a first-packet
+readiness promise must attach its own rejection handler when it creates it,
+because startup can fail before the promise is awaited and a later link loss or
+silence watchdog would otherwise reject an unobserved promise. The Bookoo
+reference plugin shows that pattern. `disconnect({gatt})` receives separate,
+bounded cleanup authority for
+discover/read/write only. Link loss or adapter revocation skips protocol cleanup.
+After retirement, normal GATT calls and publications fail even if a JavaScript
+Promise never settles. Physical ownership remains reserved until native teardown
+is confirmed; a cleanup deadline alone cannot authorize another connection.
+
+Limits per session are 16 pending GATT operations, 8 subscriptions, 256 queued
+notification events / 64 KiB, and 16 KiB per read or write. Notification overflow
+retires the session rather than dropping protocol data silently. Production permits
+up to 4 active physical bindings per plugin generation. Definitions and Sensor payloads
+retain the 64 KiB JSON limit. Bridge failures carry `code`, including
+`stale_session`, `permission_denied`, `resource_limit`, `attribute_unavailable`,
+`link_lost`, and `timeout`; other native BLE codes are preserved.
+
+Each `create` call must return independent state for one physical device,
+including timers, subscriptions, pending reads, and command state. Asynchronous
+callbacks retain that connection's context; they must not switch to a replacement
+session's context when an old operation completes. Retiring one binding cancels
+only its own timers and subscriptions. Plugin unload retires all bindings owned
+by that generation without affecting other plugins.
+
+Test zero, one, and four active BLE bindings under the production quota, then
+rejection of a fifth without disturbing the four live bindings. A fixture that
+expects the second binding to fail must explicitly use
+`PluginBleRegistry(activeBindingLimit: 1)`. Also verify independent physical
+identities and state, disconnect/reconnect, stale callbacks and command results,
+permission revocation, sibling-binding isolation, and whole-plugin unload.
+Deterministic fake GATT tests establish host and protocol behavior; report real
+hardware validation separately.
+
+BLE Scale bindings reuse the Scale adapter and declared capability checks. The
+opt-in Felicita Arc and Bookoo examples exercise BLE Scale bindings with fake GATT.
+Felicita hardware verification covers live notifications, weight, tare, timer
+commands, confirmed disconnect, reconnect/reselection, and observed cadence.
+Bookoo hardware is optional follow-up work; its device-specific silence threshold
+remains provisional.
+
+## Serving HTTP Endpoints
+
+An `api` entry with `"type": "http"` exposes the plugin at
+`/api/v1/plugins/:id/:endpoint`. Decaid dispatches the request to the plugin's
+`__httpRequestHandler`, which returns a response or a promise for one.
+
+```json
+"api": [
+  { "id": "edit-shot", "type": "http", "data": {} }
+]
+```
+
+```javascript
+__httpRequestHandler: function (request) {
+  const shotId = request.query.shotId;
+  return {
+    status: 200,
+    headers: { "Content-Type": "text/html" },
+    body: renderPage(shotId)
+  };
+}
+```
+
+A `handleHttpRequest` method on the object `createPlugin` returns works the
+same way — the loader aliases it to `__httpRequestHandler` at load.
+
+The `request` object:
+
+| Field | Type | Contents |
+|-------|------|----------|
+| `requestId` | string | Correlation id for this dispatch |
+| `endpoint` | string | The endpoint `id` from the manifest |
+| `method` | string | `GET`, `POST`, and so on |
+| `headers` | object | Request headers |
+| `body` | any | Parsed JSON request body, `null` when the body is empty |
+| `query` | object | Query parameters, percent-decoded |
+
+Plugin-defined endpoints need no token, and Decaid does not authenticate them.
+When a request carries an `Authorization: Bearer` token that Decaid itself
+recognises (an account-proxy or `extensions:manage` token), Decaid removes that
+header before the request reaches the plugin, so `request.headers` never holds
+it. Any other `Authorization` value is passed through unchanged, so a plugin that
+checks its own credentials on its endpoints keeps working.
+
+`query` carries every parameter of the request URL and is always present — an
+empty object when the URL has none, so `request.query.name` is safe to read
+without guarding. A caller can therefore name the record a page should open on:
+
+```
+GET /api/v1/plugins/my.reaplugin/edit-shot?shotId=<id>&return=/skin/history
+```
+
+`shotId` is a lookup key. `return` is a navigation target and carries its own
+rules — see [The `return` parameter](#the-return-parameter) below. It is a
+**skin-local path**, never a host and never an absolute URL.
+
+### Reading parameters in a served page
+
+Pages a plugin serves run in the browser on Decaid's API origin, so a page can
+read the same URL client-side instead:
+
+```javascript
+const shotId = new URLSearchParams(location.search).get("shotId");
+```
+
+Prefer this for a page that fetches its data over the REST API; it keeps the
+value out of the generated HTML.
+
+Skins are served from a different browser origin than plugin pages, so a skin
+cannot write a plugin page's `sessionStorage` or `localStorage`. A query
+parameter on a top-level navigation is how a skin hands a plugin page its
+subject; accept a `return` parameter for the way back.
+
+Treat every parameter as untrusted input: never interpolate it into generated
+HTML unescaped, and fall back to the page's normal empty state when the value
+names nothing. Most parameters are then used as a lookup key against the REST
+API. **`return` is the exception, and it needs its own rule**, because it is a
+navigation target rather than a lookup key.
+
+### The `return` parameter
+
+`return` cannot be assigned to `location` as it arrives, for two reasons.
+
+A plugin page runs on the **API origin**, and the skin runs on its **own**
+origin, so a bare path like `/skin/history` resolves against the API origin and
+lands nowhere. And accepting an absolute URL instead would be an open redirect:
+a link could send the page to any host it liked.
+
+So constrain the value, rebuild the origin from what the page already knows,
+and check the result before you use it:
+
+1. **Require a skin-local path.** It must start with a single `/`. Reject `//`,
+   which is protocol-relative and means another host, and reject anything
+   carrying a scheme. Treat this as a first filter, not as the guarantee.
+2. **Rebuild the skin origin from the page's own host.** Keep the host the
+   browser actually used and replace only the port, with the live `port` from
+   `GET /api/v1/webui/server/status`. Do not build the origin from that
+   response's `ip`: on Android it is the server's bind address, `0.0.0.0`,
+   which is not an origin a browser can navigate to. The fixed `localhost:3000`
+   entry point redirects the same way, preserving the request host and changing
+   only the port.
+3. **Parse the target, then check its origin.** `new URL(path, skinOrigin)` is
+   not enough on its own. The URL parser treats `\` as `/` in an `http` URL and
+   strips tab and newline characters before it parses, so a value such as
+   `/\example.invalid` passes step 1 and still resolves to another host.
+   Require `target.origin === skinOrigin.origin` before you return it.
+
+```javascript
+async function skinReturnUrl(raw) {
+  // First filter: a single leading slash, and no scheme.
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return null;
+
+  const res = await fetch("/api/v1/webui/server/status");
+  const { serving, port } = await res.json();
+  if (!serving || !Number.isInteger(port)) return null;
+
+  // Same host the browser used; only the port differs.
+  const skinOrigin = new URL(location.href);
+  skinOrigin.port = String(port);
+
+  const target = new URL(raw, skinOrigin);
+  return target.origin === skinOrigin.origin ? target.href : null;
+}
+
+const back = await skinReturnUrl(
+  new URLSearchParams(location.search).get("return"),
+);
+// `back` is null when the skin is not being served, or when the target did not
+// resolve onto the skin origin. Show the page's own way out instead.
+```
+
+**The skin origin is not fixed, so read it every time.** Decaid assigns the
+skin server a port and reports it here; a page that remembers one from an
+earlier visit can send the user to a port nothing is listening on.
 
 ## Plugin Lifecycle
 
@@ -725,6 +1585,11 @@ When receiving `stateUpdate` events, the payload contains:
 }
 ```
 
+On classic DE1 machines, `mixTemperature` is not a reliable measurement of
+dispensed hot-water outlet temperature while `state.state` is `hotWater`.
+`targetMixTemperature` remains the requested target, not a measured outlet
+temperature.
+
 ## Troubleshooting
 
 ### Common Issues
@@ -750,7 +1615,7 @@ it in Decaid UI.
 - **Global Functions**: `fetch()`, `btoa()`, `setTimeout()`, `clearTimeout()`
 - **Objects**: `Promise`, `JSON`, `Math`, `Date`, `Array`, `Object`
 - **Constants**: `undefined`, `null`, `Infinity`, `NaN`
-- **Host API**: `host.log()`, `host.emit()`, `host.storage()`, `host.decentProxy()`, `host.transport`, `host.devices`
+- **Host API**: `host.log()`, `host.emit()`, `host.storage()`, `host.decentProxy()`, `host.localApi()`, `host.transport`, `host.devices`
 
 ### Not Available
 
@@ -770,14 +1635,32 @@ it in Decaid UI.
   global `WebSocket` or socket API in the plugin runtime.
 - TLS uses the platform trust store only; custom CA material and client
   certificates are not supported
-- Storage is isolated per plugin
+- Storage is kept per plugin, but it is not private: the key-value store routes
+  (`/api/v1/store/<namespace>/<key>`), which need no token, read and write the
+  same data when the namespace is the plugin id, and backup import and sync
+  restore it. A plugin holding `manage.extensions` must not take instructions,
+  server addresses or credentials from `host.storage`; keep them in plugin
+  settings, whose POST route is gated and whose secure values are never returned
 - No filesystem access beyond the plugin's own directory
-- HTTP/fetch cannot reach localhost or private IPs (except for the Decaid
-  API); `host.transport` has no such restriction
+- `fetch` and `host.transport` are not limited by destination, so they can
+  reach Decaid's own API like any client on the network. They carry no
+  authority: the plugin and skin management routes answer 401 to them. Only
+  `host.localApi`, with the `manage.extensions` permission, carries that
+  authority, and only for the plugin's current loaded generation
+- All loaded plugins share one JavaScript runtime and are not isolated from each
+  other. A plugin's permissions, `manage.extensions` included, should be treated
+  as available to every plugin loaded beside it, so grant `manage.extensions`
+  only on a device whose other plugins you trust as well
+- An `Authorization` header that carries a token Decaid recognises is removed
+  from a request before it reaches a plugin-defined endpoint, so a client that
+  sends its token to a plugin endpoint does not hand that token to the plugin
+- The rest of the REST API has no authentication yet. Run the API server only on
+  networks you trust; bearer tokens travel in clear text over HTTP until the
+  HTTPS listener exists
 
 ## External First-Party Plugins
 
-DYE2 ships from [decentespresso/dye2](https://github.com/decentespresso/dye2), the Decent shot upload plugin ships from [decentespresso/shot-upload](https://github.com/decentespresso/shot-upload), and the dcamp community plugin ships from [decentespresso/decaid-dcamp-plugin](https://github.com/decentespresso/decaid-dcamp-plugin). Each repository publishes a `.reaplugin` directory as a release ZIP. CI and local setup run `scripts/fetch_dye2_plugin.sh`, `scripts/fetch_shot_upload_plugin.sh`, and `scripts/fetch_dcamp_plugin.sh` to download pinned releases, verify their checksums and manifest contracts, and unpack them into `assets/plugins/`. Bump a plugin's pinned version and checksum in a normal PR when its repository publishes a new release.
+DYE2 ships from [decentespresso/dye2](https://github.com/decentespresso/dye2), the Decent shot upload plugin ships from [decentespresso/shot-upload](https://github.com/decentespresso/shot-upload), and the dcamp community plugin ships from [decentespresso/decaid-dcamp-plugin](https://github.com/decentespresso/decaid-dcamp-plugin). Each repository publishes a `.reaplugin` directory as a release ZIP. CI and local setup run `scripts/fetch_dye2_plugin.sh`, `scripts/fetch_shot_upload_plugin.sh`, and `scripts/fetch_dcamp_plugin.sh` to download releases, verify their manifest contracts, and unpack them into `assets/plugins/`. DYE2 is not pinned: `scripts/fetch_dye2_plugin.sh` resolves the latest `decentespresso/dye2` release at build time, so a DYE2 fix ships without a Decaid PR and DYE2 code is reviewed in its own repository. Release builds resolve that tag once in `release-metadata` and pass it as `DYE2_VERSION` to every platform job, including reruns of failed jobs. Outside releases, the fetch script still resolves the latest tag unless `DYE2_VERSION=vX.Y.Z` selects a specific release. The shot upload and dcamp plugins are still pinned by version and checksum; bump those in a normal PR when their repositories publish a new release.
 
 `packages/dye2-plugin/` still holds the DYE2 plugin's original TypeScript + Vite source and is useful as a reference for advanced patterns (REST API client, HTML template rendering, Vite dev server — see `packages/dye2-plugin/README.md`), but it is **not** built or bundled by Decaid anymore and is not authoritative for what ships. Treat the external repositories as the source of truth; update the in-tree DYE2 copy only if it is being kept in sync deliberately.
 
@@ -803,6 +1686,17 @@ Provenance for a tracked install is stored in a Decaid-owned
 package, it is rewritten on every install, and it disappears when the plugin is
 removed.
 
+The Plugins page cogwheel menu provides **Refresh plugins**, **Check for
+updates**, and **Install plugin**. Installation opens the source choices:
+**GitHub Release**, **GitHub Branch**, **ZIP file**, and **Folder snapshot**.
+While an update check runs, the cogwheel shows progress and **Check for
+updates** is disabled until the check finishes, including after a failure.
+Concurrent native, periodic, and REST checks share one in-flight operation.
+Leaving and reopening the page preserves its busy state and refreshes the
+current plugin list when that operation finishes.
+Each plugin's three-dot menu contains **Load** or **Unload**, **Settings**,
+**Reload**, and **Remove**.
+
 ### Packaging a release
 
 For a GitHub release install:
@@ -818,12 +1712,17 @@ Branch installs have no tag rule. The resolved commit is the update signal, so a
 branch-backed plugin updates when the branch moves even if `version` never
 changes.
 
+Both install routes need an `extensions:manage` bearer token; see
+[Authorization](#authorization).
+
 ```bash
 curl -X POST http://tablet:8080/api/v1/plugins/install/github-release \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'content-type: application/json' \
   -d '{"repo": "acme/my-plugin"}'
 
 curl -X POST http://tablet:8080/api/v1/plugins/install/github-branch \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'content-type: application/json' \
   -d '{"repo": "acme/my-plugin", "branch": "dev"}'
 ```
@@ -850,7 +1749,23 @@ skin updates, and on demand from the Plugins settings screen or
 - settings, secure settings and the auto-load preference survive an update. A
   running plugin is restarted on the new version; a disabled one stays disabled;
 - one plugin's failure never stops the others; the failure is recorded in
-  `lastError`.
+  `lastError` when its metadata is writable. Diagnostic write failures are logged
+  separately; the batch retains the original update failure and continues.
+
+Native/API errors and new `lastError` values use plain-language guidance; parser
+details stay in logs. **Retry** retains options and reopens current permission
+review for approval downloads. Changed candidates require fresh confirmation.
+Downgrades explain removal of the installed version and retain HTTP 409.
+Update endpoints return HTTP 200 with per-item `results` (`updated`,
+`alreadyCurrent`, `failed`, `pendingApproval`) even when some or all items fail,
+after processing all items and retaining successes. HTTP 500 means the overall
+check could not run. Background failures stay quiet; installed plugins remain
+usable offline.
+Native folder installation and plugin removal also use plain-language guidance,
+with filesystem and parser diagnostics kept in logs.
+Invalid folder selections explicitly require a `.reaplugin` folder; denied iOS
+folder access asks the user to select it again and allow access without exposing
+the private path.
 
 ### Bundled plugins
 
@@ -881,8 +1796,22 @@ candidate version and the added permissions, shown in the Plugins settings
 screen and in `GET /api/v1/plugins`, and installed only after explicit approval:
 
 ```bash
-curl -X POST http://tablet:8080/api/v1/plugins/my.reaplugin/update/approve
+curl -X POST http://tablet:8080/api/v1/plugins/my.reaplugin/update/approve \
+  -H "Authorization: Bearer $TOKEN"
 ```
+
+A pending update can be approved by:
+
+- the user, in the Plugins settings screen;
+- a REST client sending a bearer token with the `extensions:manage` scope (see
+  [Authorization](#authorization)); without one the route answers 401, and with
+  a token of another scope 403;
+- a plugin holding `manage.extensions`, through `host.localApi`. This includes
+  approving its own pending update. That is the authority the user delegated
+  when granting the permission, and it is why the permission carries a warning:
+  a plugin with it can raise its own permissions on the next update without
+  asking. A plugin without `manage.extensions` cannot approve anything, including
+  an update that would add the permission to itself.
 
 Approval is bound to the exact candidate that was reviewed. The pending release
 tag or commit is the fetch target, not "whatever is latest now", and the fetched
@@ -898,30 +1827,128 @@ A genuinely newer pending update is kept.
 Trusting a repository is not the same as trusting a new permission, so this
 holds regardless of where the plugin came from.
 
+One exception applies, and it is narrow. A bundled plugin updating from its
+canonical app-owned repository may install an added permission without approval
+when that permission is already declared by the copy the app ships. Both halves
+are required: the update source must match the entry in `bundledPluginRepos`, and
+every added permission must already be in the bundled manifest. A fork that reuses
+a bundled plugin id is an ordinary third-party source, a branch source never
+qualifies, and a permission the bundle does not declare always waits for approval.
+If the bundled manifest cannot be read, the gate applies as usual.
+
+Plugins that live inside this repository rather than a repository of their own,
+such as `time-to-ready.reaplugin`, do not use this path at all and need no
+exception. `PluginLoaderService._copyBundledPlugins()` replaces an installed
+bundled copy - manifest, permissions and script - whenever the copy shipped with
+the app is newer, before any update check runs. An app upgrade that adds a
+permission to an in-tree bundled plugin therefore lands without an approval step
+and without update provenance, and the permission-approval gate above applies only
+to plugins hosted in their own repository.
+
 ## Plugin Lifecycle Management (REST API)
 
-Plugins can be managed via REST API:
+Plugins can be managed via REST API. Routes marked **yes** in the Token column
+change what is installed or how it runs and need a bearer token with the
+`extensions:manage` scope; the rest stay open:
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/plugins` | List all plugins (includes `loaded`, `autoLoad`, `source`, `pendingUpdate` fields) |
-| POST | `/api/v1/plugins/:id/enable` | Load plugin + enable auto-load on startup |
-| POST | `/api/v1/plugins/:id/disable` | Unload plugin + disable auto-load |
-| PUT | `/api/v1/plugins/:id/source` | Create or overwrite `manifest.json` + `plugin.js` |
-| DELETE | `/api/v1/plugins/:id` | Remove plugin (unload + delete files) |
-| POST | `/api/v1/plugins/install` | Not supported (501); use the GitHub endpoints below |
-| POST | `/api/v1/plugins/install/github-release` | Install from a GitHub release asset |
-| POST | `/api/v1/plugins/install/github-branch` | Install from a GitHub branch |
-| POST | `/api/v1/plugins/update` | Check every GitHub-backed plugin for updates |
-| POST | `/api/v1/plugins/:id/update/approve` | Install an update that requests new permissions |
-| GET | `/api/v1/plugins/:id/settings` | Get plugin settings |
-| POST | `/api/v1/plugins/:id/settings` | Update plugin settings; reloads the plugin if it is loaded so the change applies immediately |
+| Method | Path | Token | Description |
+|--------|------|-------|-------------|
+| GET | `/api/v1/plugins` | no | List all plugins (includes `loaded`, `autoLoad`, `source`, `pendingUpdate` fields) |
+| POST | `/api/v1/plugins/:id/enable` | yes | Load plugin + enable auto-load on startup |
+| POST | `/api/v1/plugins/:id/disable` | yes | Unload plugin + disable auto-load |
+| PUT | `/api/v1/plugins/:id/source` | yes | Create or overwrite `manifest.json` + `plugin.js` |
+| DELETE | `/api/v1/plugins/:id` | yes | Remove plugin (unload + delete files) |
+| POST | `/api/v1/plugins/install` | yes | Not supported (501); use the GitHub endpoints below |
+| POST | `/api/v1/plugins/install/github-release` | yes | Install from a GitHub release asset |
+| POST | `/api/v1/plugins/install/github-branch` | yes | Install from a GitHub branch |
+| POST | `/api/v1/plugins/update` | yes* | Check every GitHub-backed plugin for updates |
+| POST | `/api/v1/plugins/:id/update/approve` | yes | Install an update that requests new permissions |
+| GET | `/api/v1/plugins/:id/settings` | no | Get plugin settings |
+| POST | `/api/v1/plugins/:id/settings` | yes | Update plugin settings; reloads the plugin if it is loaded so the change applies immediately |
+
+The skin routes that change the installed or default skin or the skin server are
+gated the same way; see `doc/Skins.md`. So are `POST /api/v1/settings` when its
+body contains `webUiPath`, changes `defaultSkinId` or turns `automaticUpdateCheck`
+on (automatic checks install plugin updates), and the same `defaultSkinId` and
+`automaticUpdateCheck` changes in a backup import or a pulling sync, which are
+skipped with a warning when the request is not authorized.
+
+### Authorization
+
+Send the token as `Authorization: Bearer <token>`. Decaid answers:
+
+| Status | Body | When |
+|--------|------|------|
+| 401 | `{"error":"Missing or malformed bearer token"}` | No `Authorization: Bearer` header; the response also has `WWW-Authenticate: Bearer` |
+| 401 | `{"error":"Invalid token"}` | The token is unknown or was revoked |
+| 403 | `{"error":"Token is not scoped for extensions:manage"}` | The token is valid but has another scope, such as an account-proxy token |
+
+**Tokenless loopback update checks.** `yes*` marks the one route that, while
+`automaticUpdateCheck` is on, also admits a tokenless caller on the same
+device: an IPv4/IPv6 loopback peer address (IPv4-mapped IPv6 included), a
+loopback `Host` on the API port, and, when present, a loopback skin/API
+`Origin`. Any `Authorization` header keeps the normal token decision; invalid
+or unscoped tokens are not laundered into the exception. A LAN or other
+non-loopback peer, spoofed `Host`/`Origin`/forwarding headers, and
+cross-origin requests are never admitted. Tokenless checks are throttled to
+one per 30 seconds per route (HTTP 429 with `Retry-After`). The exception
+never bypasses permission escalation: an update that adds a permission is
+still only recorded as `pendingUpdate` until approved. When automatic updates
+are off, tokenless checks are refused with 401 and cause no network fetch,
+install, or pending approval.
+
+Getting a token:
+
+- In the app: **Decent Account** page, **API access tokens**, **Create**, turn on
+  **Manage plugins and skins**. The token is shown once; copy it then. It is kept
+  until revoked on the same page. The section is available whether or not a
+  Decent account is linked.
+- For development, headless testing and automation: give the app a token when
+  it starts, either in the `DECAID_EXTENSIONS_TOKEN` environment variable or
+  with `--extensions-token <value>`. The flag wins when both are set. The value
+  must be at least 32 characters with no spaces or commas; any other value is
+  ignored and logged. Use a random value, such as the output of
+  `openssl rand -hex 32`, not a memorable one. It is valid for that process only
+  and is not stored. With `scripts/sb-dev.sh`, pass the flag as
+  `--app-arg "--extensions-token=$TOKEN"`; `sb-dev restart` reuses it.
+
+```bash
+TOKEN="$(openssl rand -hex 32)"
+scripts/sb-dev.sh start --app-arg "--extensions-token=$TOKEN"
+curl -X POST http://localhost:8080/api/v1/plugins/my.reaplugin/enable \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+A launch token is for development and automation, not for a device in service.
+There, create a named token in the app: it can be revoked without a restart and
+is kept in the platform credential store. A command-line argument can be read by
+other local users in the process list, and it is recorded in shell history and
+launch diagnostics, so prefer the environment variable wherever the value has to
+stay private:
+
+```bash
+export DECAID_EXTENSIONS_TOKEN="$(openssl rand -hex 32)"
+./decaid --no-account &
+curl -X POST http://localhost:8080/api/v1/plugins/my.reaplugin/enable \
+  -H "Authorization: Bearer $DECAID_EXTENSIONS_TOKEN"
+```
+
+Native settings screens call the services in-process and need no token. A plugin
+uses [`host.localApi`](#hostlocalapipath-options) instead of a token. Skins and
+web pages get no implicit authority; see "Managing plugins and skins from a skin"
+in `doc/Skins.md`.
+
+HTTP bearer tokens are not confidential on the LAN: anyone who can watch the
+traffic can read them. Use a trusted network until Decaid has an HTTPS listener.
+
+### Replacing plugin source
 
 `PUT /api/v1/plugins/:id/source` writes `manifest.json` and `plugin.js` for
 that id, creating the plugin if it is not installed yet:
 
 ```bash
 curl -X PUT http://tablet:8080/api/v1/plugins/my.reaplugin/source \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'content-type: application/json' \
   -d '{"manifest": {"id": "my.reaplugin", "name": "My plugin", "author": "me", "description": "", "version": "1.1.0", "apiVersion": 1, "permissions": ["log"], "settings": {}, "api": []}, "plugin": "function createPlugin() { return { id: \"my.reaplugin\", onLoad() {} }; }"}'
 ```
@@ -950,10 +1977,10 @@ Rules:
 - Like `/settings`, this path shadows a plugin-declared endpoint named
   `source`.
 
-The endpoint accepts arbitrary JavaScript that Decaid then runs in-process. It
-is not covered by the account-proxy bearer token, so anyone who can reach the
-API server on the LAN can install or replace plugin code. Run the API server
-only on networks you trust.
+The endpoint accepts arbitrary JavaScript that Decaid then runs in-process, so
+it requires an `extensions:manage` token like the other management routes. An
+account-proxy token is refused with 403. Because the token travels in clear text
+over HTTP, run the API server only on networks you trust.
 
 Settings updates are patches for every field: an omitted field preserves the
 existing value, `null` clears it, and for secure fields a `{ "isSet":
@@ -962,7 +1989,11 @@ contain only the marker for secure fields, never the submitted or stored
 value. Existing cleartext secure fields are moved out of SharedPreferences on
 first read.
 
-The bundled **settings plugin** (`settings.reaplugin`) provides a web UI for plugin management at `/api/v1/plugins/settings.reaplugin/ui`. It includes an enable/disable toggle and remove button for each plugin, with a self-protection guard that prevents disabling itself.
+The bundled **settings plugin** (`settings.reaplugin`) provides a web settings page at `/api/v1/plugins/settings.reaplugin/ui`. Its plugin section lists each plugin with an enable/disable toggle and a remove button, which no longer take effect. The page is a web
+page like any other and has no authority: its management buttons now report that
+the action needs the app's own settings or an API token. It does not ask for a
+token, because every plugin's pages share the API origin and one plugin's page
+can script another's.
 
 The bundled **Decent shot upload plugin** (`shot-upload.reaplugin`) is fetched
 from the pinned [decentespresso/shot-upload](https://github.com/decentespresso/shot-upload)
@@ -984,6 +2015,37 @@ plugin session; after restart one later idempotent retry is possible. In 0.2.1
 backlog reconciliation follows `AutoUpload`; the removed 0.2.0 `DrainHistory`
 setting no longer gates it. Consent denial or non-decision pauses reconciliation
 without a periodic retry.
+
+The bundled release is pinned to v0.2.4. In that version, a 403 for an
+unlinked machine serial pauses uploads for that serial instead of retrying and
+uses `host.notify` for an actionable notification. The notification's message,
+Support destination, and recovery rules belong in the
+[plugin repository](https://github.com/decentespresso/shot-upload), not native
+UI.
+
+### Compatibility
+
+Before decaid#1031 the management routes were open to any client. They now
+answer 401 without an `extensions:manage` bearer token, while the rest of the API
+stays unauthenticated. A plugin whose served pages called them (enable, disable,
+settings, install, update, approve, source, remove, or the skin routes) has two
+options:
+
+- move the call into the plugin's own JavaScript, declare `manage.extensions`
+  (which users approve with a warning), and call
+  [`host.localApi`](#hostlocalapipath-options). A plugin endpoint is open to
+  every client on the network, so an endpoint that performs management for
+  whoever calls it reopens the hole this gate closes: let the plugin decide
+  what it does, not the caller;
+- send the user to the native Plugins and Skins settings screens.
+
+A page served by a plugin must not ask for or hold a management token. All
+plugin pages are served from the API origin, so a page from one plugin can
+open, script and read a page from another.
+
+Calls from plugin JavaScript to these routes through `fetch` or `host.transport`
+no longer work; switch them to `host.localApi`. Reading routes such as
+`GET /api/v1/plugins` and `GET /api/v1/plugins/:id/settings` are unchanged.
 
 ## Next Steps
 

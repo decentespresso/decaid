@@ -19,6 +19,7 @@ class OnboardingController {
   final List<OnboardingStep> _allSteps;
   List<OnboardingStep> _activeSteps = [];
   int _currentIndex = 0;
+  bool _disposed = false;
 
   final _currentStepSubject = BehaviorSubject<OnboardingStep>();
   final _completedSubject = PublishSubject<bool>();
@@ -32,9 +33,12 @@ class OnboardingController {
     : _allSteps = steps;
 
   Future<void> initialize() async {
+    if (_disposed) return;
     _activeSteps = [];
     for (final step in _allSteps) {
-      if (await step.shouldShow()) {
+      final shouldShow = await step.shouldShow();
+      if (_disposed) return;
+      if (shouldShow) {
         _activeSteps.add(step);
       }
     }
@@ -45,6 +49,7 @@ class OnboardingController {
   }
 
   void advance() {
+    if (_disposed) return;
     if (_currentIndex >= _activeSteps.length - 1) {
       _completedSubject.add(true);
       return;
@@ -54,6 +59,7 @@ class OnboardingController {
   }
 
   void dispose() {
+    _disposed = true;
     _currentStepSubject.close();
     _completedSubject.close();
   }

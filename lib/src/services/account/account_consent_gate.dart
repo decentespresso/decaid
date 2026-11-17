@@ -5,8 +5,9 @@ import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:reaprime/src/services/account/account_consent_store.dart';
 
-typedef AccountConsentPrompt =
-    Future<AccountConsentDecision?> Function(String callerLabel);
+typedef AccountConsentPrompt = Future<AccountConsentDecision?> Function(
+  String callerLabel,
+);
 
 class ActiveSkinConsent {
   final String? id;
@@ -33,19 +34,16 @@ class AccountConsentGate {
   final Map<String, String> _callerLabels = {};
 
   AccountConsentGate({
-    required AccountConsentStore store,
-    required AccountConsentPrompt prompt,
+    required this._store,
+    required this._prompt,
     Set<String> trustedConsentKeys = const {},
-    bool trustAllConsent = false,
+    this._trustAllConsent = false,
     Logger? log,
-  }) : _store = store,
-       _prompt = prompt,
-       _trustedConsentKeys = Set.unmodifiable(
+  }) : _trustedConsentKeys = Set.unmodifiable(
          trustedConsentKeys
              .map((key) => key.trim())
              .where((key) => key.isNotEmpty),
        ),
-       _trustAllConsent = trustAllConsent,
        _log = log ?? Logger('AccountConsentGate');
 
   void registerCallerLabel(String callerId, String label) {

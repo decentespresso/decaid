@@ -4,8 +4,7 @@ class DisplayHandler {
   final DisplayController _displayController;
   final log = Logger('DisplayHandler');
 
-  DisplayHandler({required DisplayController displayController})
-    : _displayController = displayController;
+  DisplayHandler({required this._displayController});
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/display', _getState);

@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/remembered_devices_controller.dart';
 import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/remembered_device.dart';
+import 'package:reaprime/src/models/device/transport/data_transport.dart';
 
 import '../../helpers/mock_settings_service.dart';
 
@@ -46,10 +48,52 @@ void main() {
 
     expect(controller.remembered.map((d) => d.id), ['de1-1']);
     expect(
-      RememberedDevice.decodeList(
-        await settings.rememberedDevices(),
-      ).map((d) => d.id),
+      RememberedDevice.decodeList(await settings.rememberedDevices())
+          .map((d) => d.id),
       ['de1-1'],
+    );
+  });
+
+  test('session-only USB identity is not remembered', () async {
+    controller = build();
+    await controller.initialize();
+
+    machine.add(
+      const RememberedDevice(
+        id: 'usb-2e8a-a-unknown-7',
+        name: 'DE1',
+        type: DeviceType.machine,
+      ),
+    );
+    await Future.delayed(Duration.zero);
+
+    expect(controller.remembered, isEmpty);
+    expect(await settings.rememberedDevices(), '[]');
+  });
+
+  test('legacy session-only USB records are removed on restore', () async {
+    await settings.setRememberedDevices(
+      RememberedDevice.encodeList([
+        const RememberedDevice(
+          id: 'usb-2e8a-a-unknown',
+          name: 'DE1',
+          type: DeviceType.machine,
+        ),
+        const RememberedDevice(
+          id: 'wifi:hds.local',
+          name: 'HDS',
+          type: DeviceType.scale,
+        ),
+      ]),
+    );
+    controller = build();
+    await controller.initialize();
+
+    expect(controller.remembered.map((d) => d.id), ['wifi:hds.local']);
+    expect(
+      RememberedDevice.decodeList(await settings.rememberedDevices())
+          .map((d) => d.id),
+      ['wifi:hds.local'],
     );
   });
 
@@ -120,6 +164,141 @@ void main() {
     controller = build();
     await controller.initialize();
     await controller.forget('nope');
+    expect(controller.remembered, isEmpty);
+  });
+
+  test('replaceAliasOnConnect replaces a legacy serial alias', () async {
+    const alias = RememberedDevice(
+      id: 'serial-cu.X',
+      name: 'Legacy USB',
+      type: DeviceType.machine,
+      implementation: DeviceImplementation.unifiedDe1,
+      transportType: TransportType.serial,
+    );
+    await settings.setRememberedDevices(RememberedDevice.encodeList([alias]));
+    controller = build();
+    await controller.initialize();
+    final writesBefore = settings.rememberedDevicesWriteCount;
+
+    await controller.replaceAliasOnConnect(
+      aliasId: 'serial-cu.X',
+      canonicalId: 'usb-1a86-55d3-535A',
+    );
+
+    expect(controller.remembered.map((d) => d.id), ['usb-1a86-55d3-535A']);
+    expect(controller.remembered.single.name, alias.name);
+    expect(settings.rememberedDevicesWriteCount, writesBefore + 1);
+    expect(
+      await settings.rememberedDevices(),
+      RememberedDevice.encodeList([
+        const RememberedDevice(
+          id: 'usb-1a86-55d3-535A',
+          name: 'Legacy USB',
+          type: DeviceType.machine,
+          implementation: DeviceImplementation.unifiedDe1,
+          transportType: TransportType.serial,
+        ),
+      ]),
+    );
+  });
+
+  test('replaceAliasOnConnect keeps an existing canonical record', () async {
+    await settings.setRememberedDevices(
+      RememberedDevice.encodeList([
+        const RememberedDevice(
+          id: 'serial-cu.X',
+          name: 'Legacy USB',
+          type: DeviceType.machine,
+          implementation: DeviceImplementation.unifiedDe1,
+          transportType: TransportType.serial,
+        ),
+        const RememberedDevice(
+          id: 'usb-1a86-55d3-535A',
+          name: 'Canonical USB',
+          type: DeviceType.machine,
+          implementation: DeviceImplementation.unifiedDe1,
+          transportType: TransportType.serial,
+        ),
+      ]),
+    );
+    controller = build();
+    await controller.initialize();
+    final writesBefore = settings.rememberedDevicesWriteCount;
+
+    await controller.replaceAliasOnConnect(
+      aliasId: 'serial-cu.X',
+      canonicalId: 'usb-1a86-55d3-535A',
+    );
+
+    expect(controller.remembered.map((d) => d.id), ['usb-1a86-55d3-535A']);
+    expect(controller.remembered.single.name, 'Canonical USB');
+    expect(settings.rememberedDevicesWriteCount, writesBefore + 1);
+  });
+
+  test('replaceAliasOnConnect rolls back when persistence fails', () async {
+    const alias = RememberedDevice(
+      id: 'serial-cu.X',
+      name: 'Legacy USB',
+      type: DeviceType.machine,
+      implementation: DeviceImplementation.unifiedDe1,
+      transportType: TransportType.serial,
+    );
+    await settings.setRememberedDevices(RememberedDevice.encodeList([alias]));
+    controller = build();
+    await controller.initialize();
+    final rawBefore = await settings.rememberedDevices();
+    settings.failRememberedDevicesWrite = true;
+
+    await expectLater(
+      controller.replaceAliasOnConnect(
+        aliasId: 'serial-cu.X',
+        canonicalId: 'usb-1a86-55d3-535A',
+      ),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(controller.remembered.map((d) => d.id), ['serial-cu.X']);
+    expect(
+      controller.remembered.map((d) => d.id),
+      isNot(contains('usb-1a86-55d3-535A')),
+    );
+    expect(await settings.rememberedDevices(), rawBefore);
+    settings.failRememberedDevicesWrite = false;
+  });
+
+  test('replaceAliasOnConnect is a no-op for an identical id', () async {
+    const device = RememberedDevice(
+      id: 'serial-cu.X',
+      name: 'Legacy USB',
+      type: DeviceType.machine,
+      implementation: DeviceImplementation.unifiedDe1,
+      transportType: TransportType.serial,
+    );
+    await settings.setRememberedDevices(RememberedDevice.encodeList([device]));
+    controller = build();
+    await controller.initialize();
+    final writesBefore = settings.rememberedDevicesWriteCount;
+
+    await controller.replaceAliasOnConnect(
+      aliasId: 'serial-cu.X',
+      canonicalId: 'serial-cu.X',
+    );
+
+    expect(settings.rememberedDevicesWriteCount, writesBefore);
+    expect(controller.remembered.map((d) => d.id), ['serial-cu.X']);
+  });
+
+  test('replaceAliasOnConnect is a no-op for an unknown alias', () async {
+    controller = build();
+    await controller.initialize();
+    final writesBefore = settings.rememberedDevicesWriteCount;
+
+    await controller.replaceAliasOnConnect(
+      aliasId: 'serial-cu.X',
+      canonicalId: 'usb-1a86-55d3-535A',
+    );
+
+    expect(settings.rememberedDevicesWriteCount, writesBefore);
     expect(controller.remembered, isEmpty);
   });
 
