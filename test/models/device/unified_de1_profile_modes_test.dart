@@ -318,6 +318,86 @@ void main() {
     });
   });
 
+  group('power step pressure cap', () {
+    Profile powerProfile(double capValue, TransitionType transition) => Profile(
+      version: '2',
+      title: 'power cap',
+      notes: '',
+      author: 'test',
+      beverageType: BeverageType.espresso,
+      steps: [
+        const ProfileStepPressure(
+          name: 'preinfuse',
+          transition: TransitionType.fast,
+          volume: 0,
+          seconds: 5,
+          temperature: 92,
+          sensor: TemperatureSensor.coffee,
+          pressure: 3.0,
+        ),
+        ProfileStepPower(
+          name: 'power',
+          transition: transition,
+          volume: 0,
+          seconds: 10,
+          temperature: 92,
+          sensor: TemperatureSensor.coffee,
+          power: 2.0,
+          limiter: StepLimiter(value: capValue, range: 0),
+        ),
+      ],
+      targetVolumeCountStart: 0,
+      tankTemperature: 0,
+    );
+
+    Future<(UnifiedDe1, FakeBleTransport)> connectBengle() async {
+      final transport = FakeBleTransport();
+      addTearDown(transport.dispose);
+      final de1 = UnifiedDe1(transport: transport);
+      transport.queueMmrResponseInt(MMRItem.calFlowEst, 100);
+      transport.queueOnConnectResponses(v13Model: 128, profileModeCaps: 0x7);
+      await de1.onConnect();
+      transport.writes.clear();
+      return (de1, transport);
+    }
+
+    for (final transition in [TransitionType.fast, TransitionType.hold]) {
+      for (final value in [0.0, -1.0, 0.01, 0.04, double.infinity]) {
+        test('a ${transition.name} power step with limiter value $value is '
+            'refused before any write', () async {
+          final (de1, transport) = await connectBengle();
+
+          await expectLater(
+            de1.setProfile(powerProfile(value, transition)),
+            throwsA(
+              isA<ProfileModeUnsupportedException>().having(
+                (e) => e.message,
+                'message',
+                allOf(contains('step 2'), contains('pressure cap')),
+              ),
+            ),
+          );
+          expect(transport.writes, isEmpty);
+        });
+      }
+
+      test('a ${transition.name} power step with limiter value 0.05 encodes '
+          'ModeMaxP 1', () async {
+        final (de1, transport) = await connectBengle();
+
+        await de1.setProfile(powerProfile(0.05, transition));
+
+        final ext = transport.writes.firstWhere(
+          (w) =>
+              w.characteristicUUID == Endpoint.frameWrite.uuid &&
+              w.data[0] == 33,
+        );
+        expect(ext.data[4], 1);
+        expect(ext.data[3], transition == TransitionType.hold ? 5 : 1);
+      });
+    }
+  });
+
   group('ProfileModeCaps probe on connect', () {
     bool isCapsRead(FakeBleWrite w) {
       if (w.characteristicUUID != Endpoint.readFromMMR.uuid) return false;

@@ -747,6 +747,7 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
         '(protocol v2).',
       );
     }
+    _assertPowerStepCapsEncodable(profile);
     final caps = (machineInfo.extra['profileModeCaps'] as int?) ?? 0;
     final missingModes = <String>[];
     if (hasPower && (caps & 0x1) == 0) missingModes.add('Power');
@@ -761,6 +762,21 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
       'capability (ProfileModeCaps bit missing). Update the machine firmware '
       'to run these profiles.',
     );
+  }
+
+  void _assertPowerStepCapsEncodable(Profile profile) {
+    for (var i = 0; i < profile.steps.length; i++) {
+      final step = profile.steps[i];
+      if (step is! ProfileStepPower) continue;
+      final cap = step.limiter?.value ?? 0;
+      if (!cap.isFinite || _encodeFlowPressure(cap) == 0) {
+        throw ProfileModeUnsupportedException(
+          'The pressure cap of power step ${i + 1} "${step.name}" in profile '
+          '"${profile.title}" is $cap bar. It must be a finite number of at '
+          'least 0.05 bar, or the machine gets a pressure cap of 0.',
+        );
+      }
+    }
   }
 
   Future<void> _uploadProfileLocked(Profile profile) async {
