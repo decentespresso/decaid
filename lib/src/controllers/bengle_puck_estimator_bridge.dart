@@ -21,7 +21,7 @@ class BenglePuckEstimatorBridge {
     required SensorController sensorController,
   }) : _de1 = de1Controller,
        _sensors = sensorController {
-    _de1Sub = _de1.de1.listen(_onMachineChange);
+    _de1Sub = _de1.de1.listen(_enqueueMachineChange);
   }
 
   final De1Controller _de1;
@@ -32,6 +32,16 @@ class BenglePuckEstimatorBridge {
   StreamSubscription<BengleEstSample>? _sampleSub;
   BenglePuckEstimator? _registered;
   BengleInterface? _attachedBengle;
+  Future<void> _machineChanges = Future<void>.value();
+
+  void _enqueueMachineChange(De1Interface? device) {
+    _machineChanges = _machineChanges
+        .then((_) => _onMachineChange(device))
+        .catchError(
+          (Object e, StackTrace st) =>
+              _log.warning('machine change handling failed', e, st),
+        );
+  }
 
   Future<void> _onMachineChange(De1Interface? device) async {
     if (device is BengleInterface) {
@@ -67,6 +77,7 @@ class BenglePuckEstimatorBridge {
   Future<void> dispose() async {
     await _de1Sub?.cancel();
     _de1Sub = null;
+    await _machineChanges;
     await _detachCurrent();
   }
 }

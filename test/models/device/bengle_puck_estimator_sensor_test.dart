@@ -5,12 +5,29 @@ import 'package:reaprime/src/controllers/bengle_puck_estimator_bridge.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/sensor_controller.dart';
+import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/impl/bengle/bengle_puck_estimator.dart';
 import 'package:reaprime/src/models/device/impl/bengle/mock_bengle.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/bengle_est_sample.dart';
+import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
+import 'package:reaprime/src/models/device/sensor.dart';
+import 'package:rxdart/rxdart.dart';
 
 import '../../helpers/mock_device_discovery_service.dart';
+
+class _StubDe1Controller extends De1Controller {
+  _StubDe1Controller(DeviceController devices)
+    : _subject = BehaviorSubject.seeded(null),
+      super(controller: devices);
+
+  final BehaviorSubject<De1Interface?> _subject;
+
+  @override
+  Stream<De1Interface?> get de1 => _subject.stream;
+
+  void emit(De1Interface? device) => _subject.add(device);
+}
 
 /// A Rev-3 frame with every optional field populated.
 ByteData _fullFrame() {
@@ -246,5 +263,89 @@ void main() {
         isFalse,
       );
     });
+  });
+
+  group('BenglePuckEstimatorBridge machine changes in quick order', () {
+    late DeviceController deviceController;
+    late SensorController sensorController;
+    late _StubDe1Controller de1Controller;
+    late BenglePuckEstimatorBridge bridge;
+
+    setUp(() async {
+      deviceController = DeviceController([MockDeviceDiscoveryService()]);
+      await deviceController.initialize();
+      sensorController = SensorController(controller: deviceController);
+      de1Controller = _StubDe1Controller(deviceController);
+      bridge = BenglePuckEstimatorBridge(
+        de1Controller: de1Controller,
+        sensorController: sensorController,
+      );
+    });
+
+    tearDown(() async {
+      await bridge.dispose();
+      sensorController.dispose();
+    });
+
+    Future<void> settle() => pumpEventQueue();
+
+    Sensor? estimator() => sensorController.sensors.values
+        .where((s) => s.deviceId.endsWith('-puckestimator'))
+        .firstOrNull;
+
+    Future<void> expectAttachedAndDelivering(MockBengle bengle) async {
+      bengle.emitPuckEstimator(parseBengleEstSample(_fullFrame())!);
+      await settle();
+      final sensor = estimator();
+      expect(sensor, isNotNull);
+
+      final frames = <Map<String, dynamic>>[];
+      final sub = sensor!.data.listen(frames.add);
+      await settle();
+      frames.clear();
+      bengle.emitPuckEstimator(parseBengleEstSample(_fullFrame())!);
+      await settle();
+      await sub.cancel();
+
+      expect(frames, hasLength(1));
+      expect(frames.single['r1'], closeTo(4.5, 1e-9));
+    }
+
+    for (final other in <String, De1Interface? Function()>{
+      'no machine': () => null,
+      'a DE1': () => MockDe1(),
+    }.entries) {
+      test(
+        'Bengle, then ${other.key}, then Bengle ends attached and delivering',
+        () async {
+          final bengle = MockBengle(deviceId: 'BengleXYZ');
+
+          de1Controller.emit(bengle);
+          de1Controller.emit(other.value());
+          de1Controller.emit(bengle);
+          await settle();
+
+          await expectAttachedAndDelivering(bengle);
+        },
+      );
+
+      test(
+        'an attached Bengle, then ${other.key}, then Bengle stays delivering',
+        () async {
+          final bengle = MockBengle(deviceId: 'BengleXYZ');
+          de1Controller.emit(bengle);
+          await settle();
+          bengle.emitPuckEstimator(parseBengleEstSample(_fullFrame())!);
+          await settle();
+          expect(estimator(), isNotNull);
+
+          de1Controller.emit(other.value());
+          de1Controller.emit(bengle);
+          await settle();
+
+          await expectAttachedAndDelivering(bengle);
+        },
+      );
+    }
   });
 }
