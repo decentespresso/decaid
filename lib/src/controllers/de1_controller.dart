@@ -453,9 +453,9 @@ class De1Controller {
 
   Future<De1ShotSettings> _readShotSettings(De1Interface device) async {
     try {
-      return await device.shotSettings.first.timeout(
-        ConnectionTimings.initialShotSettingsTimeout,
-      );
+      return await device.shotSettings
+          .timeout(ConnectionTimings.initialShotSettingsTimeout)
+          .first;
     } on StateError {
       throw const DeviceNotConnectedException.machine();
     }

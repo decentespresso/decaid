@@ -21,6 +21,9 @@ class _RecoveryFakeTransport extends BLETransport {
   int writeCount = 0;
   int connectCount = 0;
   int disconnectCount = 0;
+  final Map<String, Uint8List> readResponses = {};
+  final Map<String, void Function(Uint8List)> subscribers = {};
+  void Function()? duringDisconnect;
 
   @override
   String get id => 'recovery-fake';
@@ -47,6 +50,7 @@ class _RecoveryFakeTransport extends BLETransport {
   @override
   Future<void> disconnect() async {
     disconnectCount++;
+    duringDisconnect?.call();
     _connState.add(ConnectionState.disconnected);
   }
 
@@ -55,14 +59,16 @@ class _RecoveryFakeTransport extends BLETransport {
 
   @override
   Future<Uint8List> read(String s, String c, {Duration? timeout}) async =>
-      Uint8List(20);
+      Uint8List.fromList(readResponses[c] ?? Uint8List(20));
 
   @override
   Future<void> subscribe(
     String s,
     String c,
     void Function(Uint8List) cb,
-  ) async {}
+  ) async {
+    subscribers[c] = cb;
+  }
 
   @override
   Future<void> setTransportPriority(bool prioritized) async {}
@@ -87,6 +93,82 @@ class _RecoveryFakeTransport extends BLETransport {
 
 void main() {
   group('UnifiedDe1Transport timeout recovery', () {
+    test(
+      'recovery clears cached replay without closing active listeners',
+      () async {
+        final fake = _RecoveryFakeTransport(reconnectSucceeds: true);
+        fake.readResponses[Endpoint.stateInfo.uuid] = Uint8List.fromList([
+          1,
+          0,
+        ]);
+        fake.readResponses[Endpoint.shotSettings.uuid] = Uint8List.fromList([
+          1,
+        ]);
+        final transport = UnifiedDe1Transport(transport: fake);
+        addTearDown(transport.dispose);
+        await transport.connect();
+
+        final oldWater = <ByteData>[];
+        final oldFirmware = <ByteData>[];
+        final oldSettings = <ByteData>[];
+        final subscriptions = [
+          transport.waterLevels.listen(oldWater.add),
+          transport.fwMapRequest.listen(oldFirmware.add),
+          transport.shotSettings.listen(oldSettings.add),
+        ];
+        addTearDown(() async {
+          for (final subscription in subscriptions) {
+            await subscription.cancel();
+          }
+        });
+        final staleWater = fake.subscribers[Endpoint.waterLevels.uuid]!;
+        final staleFirmware = fake.subscribers[Endpoint.fwMapRequest.uuid]!;
+        staleWater(Uint8List.fromList([1]));
+        staleFirmware(Uint8List.fromList([1]));
+        await pumpEventQueue();
+        expect(oldWater.single.getUint8(0), 1);
+        expect(oldFirmware.single.getUint8(0), 1);
+        expect(oldSettings.single.getUint8(0), 1);
+
+        fake.readResponses[Endpoint.stateInfo.uuid] = Uint8List.fromList([
+          2,
+          0,
+        ]);
+        fake.readResponses[Endpoint.shotSettings.uuid] = Uint8List.fromList([
+          2,
+        ]);
+        fake.duringDisconnect = () {
+          staleWater(Uint8List.fromList([99]));
+          staleFirmware(Uint8List.fromList([99]));
+        };
+        await transport.write(Endpoint.requestedState, Uint8List.fromList([2]));
+        fake.duringDisconnect = null;
+
+        final currentWater = <ByteData>[];
+        final currentFirmware = <ByteData>[];
+        subscriptions.addAll([
+          transport.waterLevels.listen(currentWater.add),
+          transport.fwMapRequest.listen(currentFirmware.add),
+        ]);
+        await pumpEventQueue();
+        expect(currentWater, isEmpty);
+        expect(currentFirmware, isEmpty);
+        expect(oldWater, hasLength(1));
+        expect(oldFirmware, hasLength(1));
+        expect(oldSettings.map((frame) => frame.getUint8(0)), [1, 2]);
+        expect((await transport.state.first).getUint8(0), 2);
+        expect((await transport.shotSettings.first).getUint8(0), 2);
+
+        fake.subscribers[Endpoint.waterLevels.uuid]!(Uint8List.fromList([2]));
+        fake.subscribers[Endpoint.fwMapRequest.uuid]!(Uint8List.fromList([2]));
+        await pumpEventQueue();
+        expect(oldWater.map((frame) => frame.getUint8(0)), [1, 2]);
+        expect(oldFirmware.map((frame) => frame.getUint8(0)), [1, 2]);
+        expect(currentWater.single.getUint8(0), 2);
+        expect(currentFirmware.single.getUint8(0), 2);
+      },
+    );
+
     test('successful reconnect after timeout does not surface disconnected '
         'to upstream', () async {
       final fake = _RecoveryFakeTransport(reconnectSucceeds: true);
