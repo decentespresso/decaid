@@ -4,8 +4,24 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:network_info_plus/network_info_plus.dart';
+import 'package:reaprime/src/services/webserver/extension_management_auth.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
+
+class _SocketPeer implements HttpConnectionInfo {
+  _SocketPeer(String address) : remoteAddress = InternetAddress(address);
+
+  @override
+  final InternetAddress remoteAddress;
+
+  @override
+  int get remotePort => 51000;
+
+  @override
+  int get localPort => 8080;
+}
+
+final _loopbackPeer = _SocketPeer('127.0.0.1');
 
 void main() {
   const entryPort = 3011;
@@ -755,5 +771,317 @@ void main() {
     await service.serveFolderAtPath(skinA.path, port: entryPort);
 
     expect(saves, 1);
+  });
+
+  group('extension management browser origins', () {
+    WebUIService createAddressService() {
+      final service = WebUIService(
+        listLocalAddresses: () async => const ['192.168.12.64', 'fd00::64'],
+      );
+      services.add(service);
+      return service;
+    }
+
+    test(
+      'the trusted origin follows the live skin port, switch and stop',
+      () async {
+        WebUIService.resolveWifiIP = () async => '192.168.12.64';
+        final service = createAddressService();
+        final origins = extensionManagementBrowserOrigins(
+          service,
+          apiListenerPort: () => 8080,
+        );
+
+        expect(await origins.classify(null), BrowserOriginVerdict.originless);
+        expect(
+          await origins.classify('http://localhost:$entryPort'),
+          BrowserOriginVerdict.untrusted,
+          reason: 'no skin page is served yet',
+        );
+
+        await service.serveFolderAtPath(skinA.path, port: entryPort);
+        final portA = service.port;
+
+        for (final origin in [
+          'http://localhost:$portA',
+          'http://127.0.0.1:$portA',
+          'http://[::1]:$portA',
+          'http://192.168.12.64:$portA',
+          'http://[fd00::64]:$portA',
+          'http://192.168.12.64:8080',
+          'http://127.0.0.1:8080',
+          'http://[::1]:8080',
+        ]) {
+          expect(
+            await origins.classify(origin, connectionInfo: _loopbackPeer),
+            BrowserOriginVerdict.trusted,
+            reason: origin,
+          );
+        }
+
+        for (final origin in [
+          'http://localhost:$entryPort',
+          'https://192.168.12.64:$portA',
+          'http://192.168.12.99:$portA',
+          'http://decaid.local:$portA',
+          'null',
+        ]) {
+          expect(
+            await origins.classify(origin),
+            BrowserOriginVerdict.untrusted,
+            reason: origin,
+          );
+        }
+
+        await service.serveFolderAtPath(skinB.path, port: entryPort);
+        final portB = service.port;
+        expect(portB, isNot(portA));
+        expect(
+          await origins.classify(
+            'http://localhost:$portA',
+            connectionInfo: _loopbackPeer,
+          ),
+          BrowserOriginVerdict.untrusted,
+          reason: 'the previous skin port is now a redirect alias',
+        );
+        expect(
+          await origins.classify(
+            'http://localhost:$portB',
+            connectionInfo: _loopbackPeer,
+          ),
+          BrowserOriginVerdict.trusted,
+        );
+
+        await service.stopServing();
+        expect(
+          await origins.classify(
+            'http://localhost:$portB',
+            connectionInfo: _loopbackPeer,
+          ),
+          BrowserOriginVerdict.untrusted,
+          reason: 'no skin page is served after stop',
+        );
+        expect(
+          await origins.classify('http://192.168.12.64:8080'),
+          BrowserOriginVerdict.trusted,
+          reason: 'the same-origin API listener keeps its origin',
+        );
+      },
+    );
+
+    test('the API listener port is read from the bound server', () async {
+      WebUIService.resolveWifiIP = () async => 'localhost';
+      final service = createAddressService();
+      var apiPort = 8080;
+      final origins = extensionManagementBrowserOrigins(
+        service,
+        apiListenerPort: () => apiPort,
+      );
+
+      await service.serveFolderAtPath(skinA.path, port: entryPort);
+      expect(
+        await origins.classify(
+          'http://127.0.0.1:8080',
+          connectionInfo: _loopbackPeer,
+        ),
+        BrowserOriginVerdict.trusted,
+      );
+
+      apiPort = 18080;
+      expect(
+        await origins.classify(
+          'http://127.0.0.1:8080',
+          connectionInfo: _loopbackPeer,
+        ),
+        BrowserOriginVerdict.untrusted,
+      );
+      expect(
+        await origins.classify(
+          'http://127.0.0.1:18080',
+          connectionInfo: _loopbackPeer,
+        ),
+        BrowserOriginVerdict.trusted,
+      );
+    });
+  });
+
+  group('extension management device addresses', () {
+    late List<String> interfaces;
+    var enumerationFails = false;
+
+    WebUIService createLiveService() {
+      final service = WebUIService(
+        listLocalAddresses: () async {
+          if (enumerationFails) {
+            throw const SocketException('interface enumeration failed');
+          }
+          return List<String>.of(interfaces);
+        },
+      );
+      services.add(service);
+      return service;
+    }
+
+    setUp(() {
+      interfaces = ['192.168.12.64', 'fd00::64'];
+      enumerationFails = false;
+    });
+
+    test(
+      'a numeric API page origin is trusted before any skin is served',
+      () async {
+        final service = createLiveService();
+        final origins = extensionManagementBrowserOrigins(
+          service,
+          apiListenerPort: () => 8080,
+        );
+
+        expect(
+          await origins.classify('http://192.168.12.64:8080'),
+          BrowserOriginVerdict.trusted,
+        );
+        expect(
+          await origins.classify('http://[fd00:0:0:0:0:0:0:64]:8080'),
+          BrowserOriginVerdict.trusted,
+          reason: 'IPv6 hosts are compared in canonical form',
+        );
+        expect(
+          await origins.classify('http://192.168.12.65:8080'),
+          BrowserOriginVerdict.untrusted,
+        );
+        expect(
+          await origins.classify('http://[fd00::64]:9999'),
+          BrowserOriginVerdict.untrusted,
+          reason: 'the port is not a live page or API port',
+        );
+      },
+    );
+
+    test('an interface change is trusted without a skin restart', () async {
+      final service = createLiveService();
+      final origins = extensionManagementBrowserOrigins(
+        service,
+        apiListenerPort: () => 8080,
+      );
+      await service.serveFolderAtPath(skinA.path, port: entryPort);
+      final livePort = service.port;
+
+      expect(
+        await origins.classify('http://192.168.12.64:$livePort'),
+        BrowserOriginVerdict.trusted,
+      );
+
+      interfaces = ['192.168.12.65'];
+      expect(
+        await origins.classify('http://192.168.12.64:$livePort'),
+        BrowserOriginVerdict.untrusted,
+        reason: 'the retired address must not stay trusted',
+      );
+      expect(
+        await origins.classify('http://192.168.12.65:$livePort'),
+        BrowserOriginVerdict.trusted,
+      );
+    });
+
+    test(
+      'an interface enumeration failure fails closed for numeric origins',
+      () async {
+        final service = createLiveService();
+        final origins = extensionManagementBrowserOrigins(
+          service,
+          apiListenerPort: () => 8080,
+        );
+        await service.serveFolderAtPath(skinA.path, port: entryPort);
+        final livePort = service.port;
+
+        enumerationFails = true;
+        expect(
+          await origins.classify('http://192.168.12.64:$livePort'),
+          BrowserOriginVerdict.untrusted,
+          reason: 'no address may survive an enumeration failure',
+        );
+        expect(
+          await origins.classify(
+            'http://localhost:$livePort',
+            connectionInfo: _loopbackPeer,
+          ),
+          BrowserOriginVerdict.trusted,
+          reason: 'a loopback socket peer needs no enumerated address',
+        );
+        expect(await origins.classify(null), BrowserOriginVerdict.originless);
+      },
+    );
+
+    test(
+      'a loopback page origin needs a socket peer this device owns',
+      () async {
+        final service = createLiveService();
+        final origins = extensionManagementBrowserOrigins(
+          service,
+          apiListenerPort: () => 8080,
+        );
+        await service.serveFolderAtPath(skinA.path, port: entryPort);
+        final origin = 'http://localhost:${service.port}';
+
+        expect(
+          await origins.classify(origin),
+          BrowserOriginVerdict.untrusted,
+          reason: 'a curl-style request carries no socket peer provenance',
+        );
+        expect(
+          await origins.classify(
+            origin,
+            connectionInfo: _SocketPeer('127.0.0.1'),
+          ),
+          BrowserOriginVerdict.trusted,
+        );
+        expect(
+          await origins.classify(
+            origin,
+            connectionInfo: _SocketPeer('192.168.12.64'),
+          ),
+          BrowserOriginVerdict.trusted,
+          reason: 'the page is local and the peer is this device',
+        );
+        expect(
+          await origins.classify(
+            origin,
+            connectionInfo: _SocketPeer('192.168.12.99'),
+          ),
+          BrowserOriginVerdict.untrusted,
+          reason: 'another machine presenting a loopback origin',
+        );
+
+        interfaces = ['192.168.12.99'];
+        expect(
+          await origins.classify(
+            origin,
+            connectionInfo: _SocketPeer('192.168.12.64'),
+          ),
+          BrowserOriginVerdict.untrusted,
+          reason: 'the address list is read fresh on every request',
+        );
+      },
+    );
+
+    test('every classification re-reads the live interfaces', () async {
+      var reads = 0;
+      final service = WebUIService(
+        listLocalAddresses: () async {
+          reads++;
+          return List<String>.of(interfaces);
+        },
+      );
+      services.add(service);
+      final origins = extensionManagementBrowserOrigins(
+        service,
+        apiListenerPort: () => 8080,
+      );
+
+      await origins.classify('http://192.168.12.64:8080');
+      await origins.classify('http://192.168.12.64:8080');
+
+      expect(reads, 2);
+    });
   });
 }

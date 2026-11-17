@@ -68,12 +68,31 @@ documented limits.
 ## Extension management authorization
 
 Routes that install, update, configure, enable, disable or remove plugins and
-skins, choose the default skin, or start and stop the skin server require
-`Authorization: Bearer <token>` with the scope `extensions:manage`. The rest of
-the API stays unauthenticated (general API authentication is tracked in #1135).
-The OpenAPI spec marks these operations with the `extensionsManage` security
-scheme, and the WebUI & Skins and Plugins route tables below mark them in a
-Token column.
+skins, choose the default skin, or start and stop the skin server are open to
+any client that can reach the API, by default. Decaid ships with **Settings →
+Security → "Require authorization for extension management" OFF**, which is
+compatibility mode: those operations behave as they did before decaid#1031,
+including requests from other devices on the LAN (Home Assistant, MCP
+clients), skins such as Streamline, and plugins calling the API with `fetch` or
+`host.transport`. A stale, revoked or wrong-scope `Authorization` header makes
+no difference there either.
+
+Turning the setting ON puts the decaid#1031 scoped-token policy in front of the
+same operations: each then needs `Authorization: Bearer <token>` with the scope
+`extensions:manage`, or an approved `manage.extensions` plugin calling
+`host.localApi` in process. There is no loopback, update-check or
+`automaticUpdateCheck` exception in either mode.
+
+The rest of the API is unchanged (general API authentication is tracked in
+#1135); this setting covers extension management only. Both modes run the same
+handlers with the same validation, manifest checks, pending-update rules,
+rollback and secure-value handling, so the setting changes authorization only.
+
+The OpenAPI spec lists both security alternatives on each of these operations
+(`{}` and `extensionsManage`), so a generated client treats the token as
+optional, and each operation describes the requirement as conditional on
+protection being ON. The WebUI & Skins and Plugins route tables below mark them
+in a Token column.
 
 | Method | Route |
 |---|---|
@@ -96,27 +115,33 @@ Token column.
 | POST | `/api/v1/webui/server/start` |
 | POST | `/api/v1/webui/server/stop` |
 
-Two more routes are gated by what the body contains:
+Two more routes are gated by what the body contains, and only while protection
+is ON:
 
-- `POST /api/v1/settings` needs the same token when the body contains
-  `webUiPath`, sets `defaultSkinId` to a skin other than the current default,
-  or sets `automaticUpdateCheck` to `true` while it is off (automatic checks
-  install plugin and skin updates, like `POST /api/v1/plugins/update` and
+- `POST /api/v1/settings` needs the token when the body contains `webUiPath`,
+  sets `defaultSkinId` to a skin other than the current default, or sets
+  `automaticUpdateCheck` to `true` while it is off (automatic checks install
+  plugin and skin updates, like `POST /api/v1/plugins/update` and
   `POST /api/v1/webui/skins/update`). Such a body is refused with 401 or 403
-  before any key is applied. Values already in effect, turning
-  `automaticUpdateCheck` off, and every other key need no token.
+  before any key is applied. In compatibility mode no token is needed for any
+  of them, and in both modes values already in effect, turning
+  `automaticUpdateCheck` off, and every other key need none.
 - `POST /api/v1/data/import` and a pulling `POST /api/v1/data/sync` (`pull`, or
   the pull phase of `two_way`) import everything else without a token, but skip
   a `defaultSkinId` that differs from the current one and an
   `automaticUpdateCheck: true` while automatic updates are off, reporting each
   as a warning in the `settings` section result. Restoring a backup or syncing
-  therefore no longer changes the default skin or turns on automatic updates
-  unless the request is authorized.
+  therefore cannot change the default skin or turn on automatic updates while
+  protection is ON unless the request is authorized; with protection OFF both
+  apply without a token.
 
 Read routes (`GET`), plugin-defined endpoints (`/api/v1/plugins/:id/:endpoint`,
-`/ws/v1/plugins/:id/:endpoint`) and `OPTIONS` are not gated.
+`/ws/v1/plugins/:id/:endpoint`) and `OPTIONS` are not gated in either mode; that
+is the credential gate only, and [browser origins](#browser-origins) still
+refuses an untrusted preflight for a guarded path.
 
-Responses on a gated route:
+While protection is ON, a protected route (including a gated settings body)
+answers:
 
 | Status | When | Body |
 |---|---|---|
@@ -126,48 +151,186 @@ Responses on a gated route:
 
 The scope is independent of the account-proxy scopes: an `extensions:manage`
 token cannot use `/api/v1/account/proxy/`, and an `account:proxy` token
-(including the skin token injected into served skin pages) gets 403 here.
+(including the skin token injected into served skin pages) gets 403 here while
+protection is ON. The account proxy keeps its own scopes in both modes.
 
-### Tokenless loopback update checks
+### Browser origins
 
-When `automaticUpdateCheck` is enabled in the app's settings, the two
-existing-source update endpoints — `POST /api/v1/plugins/update` and
-`POST /api/v1/webui/skins/update` — also admit a same-device loopback caller
-without a token. The exception is narrow and server-side:
+A browser page is also checked against its `Origin`, in both modes and
+independently of any credential. The check runs ahead of the general CORS
+middleware, the account-proxy CORS rule and the authentication middleware, and
+refuses with `403` and
+`{"error":"Extension management is not allowed from this browser origin"}`
+before any handler work, naming no internal configuration and applying nothing.
+A valid `extensions:manage` bearer, an approved `manage.extensions` plugin grant
+and compatibility mode all make no difference to it.
 
-- The actual socket peer address (from the HTTP connection, never `Host`,
-  `Origin`, `Referer`, `X-Forwarded-For` or `X-Real-IP`) must be IPv4/IPv6
-  loopback (`127.0.0.0/8`, `::1`, or an IPv4-mapped IPv6 loopback). A LAN or
-  other non-loopback peer is always refused.
-- The `Host` header must name a loopback host on the API's listening port.
-- An `Origin` header, when present, must be a loopback origin of the active
-  skin (its assigned port) or the API; `Origin: null` and cross-origin values
-  are refused. A non-browser local client with no `Origin` is admitted under
-  the same loopback rule.
-- Any `Authorization` header keeps the normal token decision; an invalid or
-  unscoped token is not laundered into the exception. Valid
-  `extensions:manage` bearers and active in-process plugin grants retain
-  authority regardless of the setting.
-- Tokenless checks are throttled to one per 30 seconds per route (HTTP 429
-  with `Retry-After`).
-- An admitted tokenless response carries `Access-Control-Allow-Origin` with the
-  exact request `Origin` plus `Vary: Origin`, and a throttled `429` carries the
-  same headers, so the embedded skin can read the result. A wildcard origin and
-  `Access-Control-Allow-Credentials` are never sent. CORS is a readability
-  header only: it is added after the authorization decision and never widens
-  it, so a refused caller still receives no `Access-Control-Allow-Origin`.
+Which requests it refuses:
 
-When `automaticUpdateCheck` is off, or the setting cannot be read, tokenless
-checks are refused with 401 and cause no network fetch, install, or pending
-approval. Manual checks from a tokenless local skin therefore remain
-unavailable until the native-confirmation follow-up; native settings and
-authorized manager callers can still run them.
+- The 18 routes in the table above, on every method and path pair.
+- `POST /api/v1/data/import`, refused whole before the archive is read: whether
+  an archive carries a gated settings key is only known after parsing it, so
+  the conservative answer applies to every import.
+- `POST /api/v1/settings`, refused when the body contains a gated key
+  (`webUiPath`, a changed `defaultSkinId`, `automaticUpdateCheck` turned on),
+  and none of that body's keys are applied. A safe body that reaches the
+  handler is unaffected; its preflight is refused before the body is known — see
+  [Deliberate limits of the setting](#deliberate-limits-of-the-setting).
+- A pulling `POST /api/v1/data/sync`, refused when the pull includes the
+  `settings` section (the default), before any network request or write. The
+  section list is part of the request body, so a pull or `two_way` sync that
+  excludes `settings`, a `push`, and any other section are not refused by this
+  check: it is an extension-management boundary, not a general data-import one.
 
-**Getting a token.** In the app, open the Decent Account page, go to "API
-access tokens", choose Create, name the token and turn on "Manage plugins and
-skins". The token is shown once; copy it then. No linked Decent account is
-needed. That is the way to provision a device in service: the token is named,
-can be revoked without a restart and is kept in the platform credential store.
+What counts as the device's own origin:
+
+| Trusted | Rejected |
+|---|---|
+| Scheme `http`, host `localhost`, `127.0.0.1`, `::1`, or a numeric address currently assigned to a local network interface, and a port equal to the live skin page port or the actual API listener port | `Origin: null`, an empty value, `https` or any other scheme, a hostname such as `decaid.local`, another device's address, `user@host`, a path, query or fragment, a comma or a space in the value |
+
+A loopback origin is trusted only while the request's TCP socket peer is
+loopback or is exactly one of the addresses this device currently holds. A
+browser page on another machine that opens `http://localhost:<port>` presents a
+non-loopback peer, so it is refused in both modes even with a valid
+`extensions:manage` bearer; a peer that is missing, unreadable or not an
+`HttpConnectionInfo` is refused as well. That keeps an embedded WebView or
+another process on the device itself able to use `localhost`, and stops a page
+elsewhere from borrowing the name.
+
+The ports and the addresses come from the running services and never from the
+request itself: the skin port follows a skin switch, a restart and a dynamically
+allocated port, the API port is the one the listener actually bound, and the
+address set is enumerated when a comparison needs it, so a moved or retired
+address is picked up without a restart or a skin serve. A port that is not live
+is not trusted, so `http://localhost:3000` is refused while the skin server is
+on another port. The port 3000 entry point only redirects to the active origin
+and an inactive skin's alias port only serves a redirect, so a skin page always
+runs, and posts, from its live origin. `Host`, `Referer`, `X-Forwarded-For`,
+`X-Forwarded-Host`, `X-Real-IP`, `Forwarded` and DNS resolution are never
+consulted, so a name that resolves to the device (DNS rebinding) is not enough.
+
+Requests without an `Origin` header are not affected at all: `curl`, Home
+Assistant, MCP clients, native app code, `host.localApi` (in process) and every
+other non-browser client keep the behaviour described in the rest of this
+section, in both modes.
+
+Preflights follow the same boundary. An `OPTIONS` from an untrusted origin for
+one of the guarded methods on a management path answers `403` with no
+`Access-Control-Allow-Origin`, `Access-Control-Allow-Credentials`,
+`Access-Control-Allow-Methods`, `Access-Control-Allow-Headers`,
+`Access-Control-Expose-Headers` or `Access-Control-Max-Age` header, instead of
+the general preflight answer, and a preflight whose
+`Access-Control-Request-Method` is missing or unusable is refused on a
+management path because the method is then unknown. That includes the
+body-gated paths: `OPTIONS /api/v1/settings`, `OPTIONS /api/v1/data/import` and
+`OPTIONS /api/v1/data/sync` are refused for an untrusted origin without
+consulting a body they do not carry, so a browser page on an untrusted origin
+cannot send a safe settings write or a `push` sync as an ordinary JSON request,
+although the same requests are admitted when they arrive without a preflight. A
+preflight for a read-only method on a shared path
+(`GET /api/v1/plugins/:id/settings`, `GET /api/v1/webui/skins/default`,
+`GET /api/v1/settings`) and a preflight for a plugin-defined endpoint keep the
+general preflight answer. The handler-level
+refusals of the three body-gated routes carry no `access-control-*` headers
+either: withholding an allow-origin header after a mutation is never the
+protection.
+
+Origin is not authentication. A client that is not a browser can omit `Origin`
+or send any value, so direct LAN access stays exactly as exposed as the rest of
+this section describes, and originless LAN access (Home Assistant, MCP) remains
+intentional in compatibility mode. The check bounds browser pages and nothing
+else; enabling protected mode and restricting the network remain the controls
+for a shared or commercial deployment.
+
+### What each caller sees
+
+| Caller | Compatibility mode (OFF, default) | Protected mode (ON) |
+|---|---|---|
+| Tokenless localhost client | Legacy behaviour, no credential | Needs `extensions:manage` on every protected operation |
+| Tokenless LAN client, including Home Assistant and MCP | Legacy behaviour, no credential | Needs `extensions:manage` |
+| Skin or DYE2 page using `fetch`, no bearer | Legacy behaviour | 401 on protected operations |
+| Plugin with ordinary `api`, using `fetch` or `host.transport` | Legacy behaviour | 401/403 on protected operations |
+| Named token with `extensions:manage` | Allowed | Allowed |
+| Approved `manage.extensions` plugin via `host.localApi` | Allowed | Allowed |
+| Trusted native Flutter controls | Allowed | Allowed |
+| Decent account proxy | Existing account scopes | Same account scopes |
+| Other REST/WS APIs | Existing behaviour, no new gate | Existing behaviour, not protected by this setting |
+
+The rows assume a request that carries no untrusted browser `Origin`; the
+[browser-origin check](#browser-origins) refuses those before any of these
+decisions, in both modes.
+
+### Changing the setting
+
+The setting is a native Flutter control, persisted on the device through the
+normal settings storage. It is not writable over REST: a `POST
+/api/v1/settings` body that names the key is treated like any other unknown key
+(ignored, 200), backup import and pull/two-way sync skip it, the exported and
+pushed archives do not contain it, and neither the plugin settings API, the
+key-value store, `host.localApi` nor the account proxy can write it. `GET
+/api/v1/settings` does not expose it.
+
+- **Missing value means OFF.** A new installation and an upgrade from a build
+  that never stored the key both run in compatibility mode. The presence of an
+  old `extensions:manage` token is not treated as a reason to protect the
+  device.
+- **A storage read failure means ON.** If the persisted value cannot be read,
+  the management policy behaves as protected and logs a warning, rather than
+  silently downgrading security because storage failed.
+- **The current value is resolved per relevant request, once** (and refreshed
+  when the app resumes from the background). Only a request whose outcome can
+  depend on the mode reads it: the 18 routes, a gated settings body, an import,
+  and a `settings`-bearing pull or `two_way` sync. Everything else — machine
+  state, polling, the account proxy, read-only and plugin-defined routes and
+  ordinary settings bodies — never reads it. A change applies to the next
+  relevant request without an app restart, and the native screen publishes the
+  new value only after it is persisted.
+
+### Deliberate limits of the setting
+
+- **Authorization is not confidentiality.** The API listens over plain HTTP on
+  port 8080, so a bearer token can be observed on a hostile LAN. HTTPS is
+  proposed in #925; #1135 remains the separate, optional full REST/WS
+  authentication. Use a trusted network until then.
+- **The origin check does not tighten CORS in general.** Apart from the
+  refusals above, responses keep the pre-existing permissive echo of the request
+  `Origin` in both modes, `OPTIONS` keeps its pre-existing preflight answer on
+  unrelated and read-only paths, and the account proxy keeps its own restrictive
+  rule on top. So a browser page on any origin that can reach the device can
+  still read other API responses. The origin check is a browser boundary for
+  extension management, not authentication, and the setting still changes who is
+  authorized rather than what a browser may read.
+- **A preflight for a body-gated path is refused before its body exists.** A
+  preflight carries no body, so an untrusted `Origin` is refused for `OPTIONS
+  /api/v1/settings`, `OPTIONS /api/v1/data/import` and `OPTIONS
+  /api/v1/data/sync` whatever the eventual body would contain. Import and a
+  `settings`-bearing pull are refused on their content anyway, so the only
+  stricter outcomes are a safe `POST /api/v1/settings` body and a `push` sync: a
+  browser page on an untrusted origin cannot send either as an ordinary JSON
+  request, because the browser stops at the refused preflight. A body the
+  browser sends without one (a simple content type carrying the same JSON) and
+  any request from a non-browser client still reach the handler, are applied as
+  usual and keep the CORS echo. This is the conservative answer for a path whose
+  relevance depends on a body a preflight does not have.
+- **A plugin holding `manage.extensions` is full trust**, in both modes: it can
+  install or rewrite plugins, approve permission escalations and change
+  extension settings. Token rotation and revocation apply to named tokens
+  only, and a plugin's authority is bound to that plugin's current generation.
+- **Named tokens are independent of the Decent account.** They work whether or
+  not an account is linked or logged in, and in both modes.
+- **There is no per-operation confirmation prompt** (that direction is tracked
+  in #1164 and is not part of this setting).
+- **The bundled settings plugin page is unchanged.** Its management buttons work
+  in compatibility mode and, while protection is ON, report that the action
+  needs an `extensions:manage` token because the page holds none. It never asks
+  for a token.
+
+**Getting a token.** A token is only needed while protection is ON. In the app,
+open the Decent Account page, go to "API access tokens", choose Create, name
+the token and turn on "Manage plugins and skins". The token is shown once; copy
+it then. No linked Decent account is needed. That is the way to provision a
+device in service: the token is named, can be revoked without a restart and is
+kept in the platform credential store.
 
 For development, headless testing and automation, a token can instead be given
 at launch, in the `DECAID_EXTENSIONS_TOKEN` environment variable or with
@@ -211,14 +374,23 @@ update that adds the permission waits for approval. A plugin holding the
 permission can approve pending permission updates, including its own; a plugin
 without it cannot grant it to itself. See [`Plugins.md`](Plugins.md).
 
-**Compatibility.** Skins and web pages get no implicit authority. Clients that
-called these routes without a token now get 401: the bundled
-`settings.reaplugin` web page, Streamline's plugin enable, install, update,
-approve and settings calls and its skin switching over REST, and DYE2's
-dashboard when it saves Visualizer plugin settings. Such a client must send a
+**Compatibility and the upgrade.** The clients that decaid#1031 broke work
+again by default: the bundled `settings.reaplugin` web page, Streamline's
+plugin enable, install, update, approve and settings calls and its skin
+switching over REST, DYE2's dashboard when it saves Visualizer plugin settings,
+and Home Assistant or MCP style integrations on the LAN. Skins and web pages
+still get no implicit authority: with protection ON, such a client must send a
 user-created token, hand the operation to a plugin that holds
 `manage.extensions`, or leave it to the native settings screens.
-`window.decentApp.switchSkin(skinId)` inside the embedded WebView is unaffected.
+`window.decentApp.switchSkin(skinId)` inside the embedded WebView is unaffected
+in both modes.
+
+Decaid 0.9.2 shipped the decaid#1031 policy always on. 0.9.3 removes that
+always-on protection for both new and existing installations and makes it an
+opt-in setting, so upgrading is a deliberate security downgrade until the
+toggle is turned on. Fleet and café operators should turn the toggle on and
+restrict network access to the device; the provisioning guide is issue #1192
+and is not published yet.
 
 ---
 
@@ -651,7 +823,7 @@ from normal scan results; it is never a persisted `grinderId`.
 | Method | Path | Description | Handler |
 |--------|------|-------------|---------|
 | GET | `/api/v1/settings` | All app settings (gateway, theme, charging, devices, etc.) | `settings_handler.dart` |
-| POST | `/api/v1/settings` | Update settings (partial, key-by-key); `webUiPath`, a changed `defaultSkinId` and turning `automaticUpdateCheck` on need an `extensions:manage` token ([details](#extension-management-authorization)) | |
+| POST | `/api/v1/settings` | Update settings (partial, key-by-key); while extension management protection is ON, `webUiPath`, a changed `defaultSkinId` and turning `automaticUpdateCheck` on need an `extensions:manage` token ([details](#extension-management-authorization)) | |
 
 Settings fields include: `gatewayMode`, `themeMode`, `logLevel`, `weightFlowMultiplier`, `volumeFlowMultiplier`, `hotWaterFlowMultiplier`, `scalePowerMode`, `blockOnNoScale`, `blockTareDuringShot`, `stopHotWaterAtWeight`, `preferredMachineId`, `preferredScaleId`, `preferredGrinderDeviceId`, `defaultSkinId`, `automaticUpdateCheck`, `chargingMode`, `nightModeEnabled`, `nightModeSleepTime`, `nightModeMorningTime`, `lowBatteryBrightnessLimit`, `keepAwake`, `simulatedDevices`.
 
@@ -674,19 +846,35 @@ Android session-only USB machine and scale IDs are usable for the current attach
 | POST | `/api/v1/webui/skins/install/github-branch` | Install from GitHub branch and persist its source for update checks | | required |
 | POST | `/api/v1/webui/skins/install/url` | Install from ZIP URL | | required |
 | DELETE | `/api/v1/webui/skins/:id` | Remove installed skin | | required |
-| POST | `/api/v1/webui/skins/update` | Check all skins for updates from remote sources; returns per-item `results` | | required* |
+| POST | `/api/v1/webui/skins/update` | Check the configured and recorded skin sources for updates; returns per-item `results` | | required |
 | GET | `/api/v1/webui/server/status` | Server status (`{serving, path, port, ip}`) | | |
 | POST | `/api/v1/webui/server/start` | Start serving default skin through the port 3000 entry point | | required |
 | POST | `/api/v1/webui/server/stop` | Stop serving | | required |
 | GET | `/api/v1/webui/skin-assets/:id/:filepath` | Fetch a file from another installed skin (cross-skin asset sharing) | | |
 
-Rows marked `required` need a bearer token scoped `extensions:manage`; see [Extension management authorization](#extension-management-authorization). Rows marked `required*` additionally admit a tokenless same-device loopback caller while `automaticUpdateCheck` is on; see [Tokenless loopback update checks](#tokenless-loopback-update-checks).
+Rows marked `required` need a bearer token scoped `extensions:manage` while extension management protection is ON, and need none while it is OFF (the default); see [Extension management authorization](#extension-management-authorization).
 
 `POST /api/v1/webui/skins/update` returns `200` with `{message, results}` when the
 check runs to completion, even if some skins fail. Each `results` entry has
 `item`, `status` (`updated`, `alreadyCurrent`, or `failed`), and an `error`
 string only when `status` is `failed`. A `500` now means the check itself could
-not run, not that some items failed.
+not run, not that some items failed. A manual call answers regardless of the
+`automaticUpdateCheck` setting, which governs only the app's own scheduled
+checks.
+
+`GET /api/v1/webui/skins` and `GET /api/v1/webui/skins/:id` report installed
+state only. `version` is read from the installed skin's `skin-manifest.json`
+(falling back to `manifest.json`) and is `null` when the manifest omits it, so a
+client shows an unknown version instead of inferring one from a release tag,
+`sourceUrl`, `commitHash`, an `ETag` / `Last-Modified` header or
+`reaMetadata.lastChecked`. Both GET routes are strictly read-only: they never
+contact GitHub or another source and never install anything, and they keep
+reporting the installed version immediately after an update and across an app
+restart. `POST /api/v1/webui/skins/update` is the only skin API operation that
+checks the configured sources and recorded user sources for updates and
+installs eligible changes. The individual install routes
+(`/install/github-release`, `/install/github-branch`, `/install/url`) install
+one explicitly requested source rather than running the batch update check.
 
 ### Plugins
 
@@ -702,12 +890,12 @@ not run, not that some items failed.
 | POST | `/api/v1/plugins/install` | Not supported — returns 501 naming the GitHub endpoints | | required |
 | POST | `/api/v1/plugins/install/github-release` | Install from a GitHub release asset; tag must equal the manifest version | | required |
 | POST | `/api/v1/plugins/install/github-branch` | Install from a GitHub branch; the resolved commit drives updates | | required |
-| POST | `/api/v1/plugins/update` | Check every GitHub-backed plugin for updates; returns per-item `results` | | required* |
+| POST | `/api/v1/plugins/update` | Check every GitHub-backed plugin for updates; returns per-item `results` | | required |
 | POST | `/api/v1/plugins/:id/update/approve` | Install an update that asks for new permissions | | required |
 | ANY | `/api/v1/plugins/:id/:endpoint` | Plugin HTTP endpoint; requires `api` and returns 403 without it | | |
 | WS | `/ws/v1/plugins/:id/:endpoint` | Plugin WebSocket endpoint | | |
 
-Rows marked `required` need a bearer token scoped `extensions:manage`; see [Extension management authorization](#extension-management-authorization). Rows marked `required*` additionally admit a tokenless same-device loopback caller while `automaticUpdateCheck` is on; see [Tokenless loopback update checks](#tokenless-loopback-update-checks).
+Rows marked `required` need a bearer token scoped `extensions:manage` while extension management protection is ON, and need none while it is OFF (the default); see [Extension management authorization](#extension-management-authorization).
 
 `POST /api/v1/plugins/update` returns `200` with `{message, results}` when the
 check runs to completion, even if some plugins fail. Each `results` entry has
@@ -924,9 +1112,9 @@ archive is also bounded by the 2 GiB import request limit.
 | POST | `/api/v1/account/proxy/<path>` | Auth-enriching write proxy (relays body) | `account_proxy_handler.dart` |
 | PUT | `/api/v1/account/proxy/<path>` | Auth-enriching write proxy (relays body) | `account_proxy_handler.dart` |
 
-Linking/unlinking a Decent account is **native-only** — there are no network login/logout routes. Apart from the account proxy and extension management, the webserver is unauthenticated, and it sends `Access-Control-Allow-Origin: *`, so exposing credential operations would let any LAN client or browser origin store attacker credentials or unlink the account. The status response omits the linked email (PII).
+Linking/unlinking a Decent account is **native-only** — there are no network login/logout routes. Apart from the account proxy and extension management, the webserver is unauthenticated, and it echoes `Access-Control-Allow-Origin` for whatever origin a request presents (extension management additionally refuses untrusted browser origins, see [Browser origins](#browser-origins)), so exposing credential operations would let any LAN client or browser origin store attacker credentials or unlink the account. The status response omits the linked email (PII).
 
-The **proxy** lets clients *use* the account without ever seeing the credentials: it attaches the linked account's Basic auth server-side, forwards to `decentespresso.com`, and relays the upstream status + body verbatim. It requires `Authorization: Bearer <token>`. The account proxy and [extension management](#extension-management-authorization) are the two authenticated surfaces, and their scopes are independent: an `extensions:manage` token cannot use the proxy, and an account-proxy token cannot manage extensions. `GET` requires `account:proxy` (including the skin token injected into served skin pages); `POST`/`PUT` require the stronger `account:proxy:write` scope, so the read-only skin token cannot write. Forwarding is restricted to the `support/api/` prefix. The OpenAPI spec documents the generated-client-safe `/support/api/{endpoint}` form; use this raw catch-all route when a Decent backend path contains additional slashes. Each served skin generation gets a fresh token bound to that skin's immutable consent key; switching or stopping the skin server revokes the previous token. The skin's origin normally remains stable across restarts, with a temporary fallback if its assigned port is occupied; see [Skin Origins and Browser Storage](Skins.md#skin-origins-and-browser-storage). The stable port 3000 entry point redirects without caching to the active origin and is the address to bookmark. The first request from each skin, plugin, or named API client pauses for native approval on the Decaid device. Explicit allow and deny decisions are remembered; a 30-second timeout denies only that request. Responses: 401 (missing/invalid token or no linked account), 403 (token unscoped, path not allowed, or account access not granted). Write-scoped tokens are minted from the account page's API-token UI by enabling "Allow write access". Headless operators can grant session-only access with `--trust-consent=<caller-key>` or `--trust-all-consent`.
+The **proxy** lets clients *use* the account without ever seeing the credentials: it attaches the linked account's Basic auth server-side, forwards to `decentespresso.com`, and relays the upstream status + body verbatim. It requires `Authorization: Bearer <token>`. The account proxy's scopes are independent of [extension management](#extension-management-authorization), which is the other surface with a scope of its own (and needs it only while extension management protection is ON): an `extensions:manage` token cannot use the proxy, and an account-proxy token cannot manage extensions. `GET` requires `account:proxy` (including the skin token injected into served skin pages); `POST`/`PUT` require the stronger `account:proxy:write` scope, so the read-only skin token cannot write. Forwarding is restricted to the `support/api/` prefix. The OpenAPI spec documents the generated-client-safe `/support/api/{endpoint}` form; use this raw catch-all route when a Decent backend path contains additional slashes. Each served skin generation gets a fresh token bound to that skin's immutable consent key; switching or stopping the skin server revokes the previous token. The skin's origin normally remains stable across restarts, with a temporary fallback if its assigned port is occupied; see [Skin Origins and Browser Storage](Skins.md#skin-origins-and-browser-storage). The stable port 3000 entry point redirects without caching to the active origin and is the address to bookmark. The first request from each skin, plugin, or named API client pauses for native approval on the Decaid device. Explicit allow and deny decisions are remembered; a 30-second timeout denies only that request. Responses: 401 (missing/invalid token or no linked account), 403 (token unscoped, path not allowed, or account access not granted). Write-scoped tokens are minted from the account page's API-token UI by enabling "Allow write access". Headless operators can grant session-only access with `--trust-consent=<caller-key>` or `--trust-all-consent`.
 
 **Inactive skin ports redirect to the entry point.** The active skin is served on its own stable origin; a persisted port whose skin is inactive answers only with a `307` `Cache-Control: no-store` redirect back to the port 3000 entry point, preserving host, path and query. That listener serves no skin files and no token, and its origin is never added to the account-proxy allowlist, so an older per-skin bookmark lands on whichever skin is active instead of becoming a dead address. Temporary fallback origins are unstable and are never aliased; see [Skin Origins and Browser Storage](Skins.md#skin-origins-and-browser-storage).
 
@@ -1159,7 +1347,7 @@ See [`assets/api/websocket_v1.yml`](../assets/api/websocket_v1.yml) for the full
 
 ### Settings Plugin (`settings.reaplugin`)
 
-Built-in settings dashboard accessible at `/api/v1/plugins/settings.reaplugin/ui`. Provides a web-based interface for app settings, data and more. Its skin and plugin management controls are still shown but are refused (see **Management actions** below).
+Built-in settings dashboard accessible at `/api/v1/plugins/settings.reaplugin/ui`. Provides a web-based interface for app settings, data and more. Its skin and plugin management controls work while extension management protection is OFF and report that they need a token while it is ON (see **Management actions** below).
 
 **Query parameters:**
 - `backName` — customizes the back button label. E.g., `/api/v1/plugins/settings.reaplugin/ui?backName=Extracto` shows "Back to Extracto" instead of "Back to WebUI".
@@ -1168,7 +1356,7 @@ Built-in settings dashboard accessible at `/api/v1/plugins/settings.reaplugin/ui
 
 **Self-protection:** The plugin management section prevents disabling or removing `settings.reaplugin` itself (UI guard).
 
-**Management actions:** The page's skin and plugin management buttons call routes that need an `extensions:manage` token (see [Extension management authorization](#extension-management-authorization)). The page holds no token and does not ask for one, so those actions are refused with a message; use the settings in the Decaid app or call the API with a token. The skin and plugin **update check** buttons are the one exception: while `automaticUpdateCheck` is on, they run from this page's loopback origin without a token (see [Tokenless loopback update checks](#tokenless-loopback-update-checks)).
+**Management actions:** The page's skin and plugin management buttons call routes that need an `extensions:manage` token only while extension management protection is ON (see [Extension management authorization](#extension-management-authorization)). The page holds no token and does not ask for one, so in compatibility mode the buttons apply, and while protection is ON each refused request shows the page's help text asking for the app's own settings or an API token. That includes the skin and plugin **update check** buttons.
 
 ### DYE2 Plugin (`dye2.reaplugin`)
 

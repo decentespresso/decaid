@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
+import 'package:reaprime/src/util/remote_update_report.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
 import 'package:shelf_plus/shelf_plus.dart';
@@ -12,6 +13,7 @@ class FakeWebUIStorage extends Fake implements WebUIStorage {
   bool installFromGitHubReleaseCalled = false;
   bool installFromGitHubCalled = false;
   bool installFromUrlCalled = false;
+  List<RemoteUpdateItemResult> updateResults = const [];
 
   @override
   Future<void> installFromGitHubRelease(
@@ -43,6 +45,12 @@ class FakeWebUIStorage extends Fake implements WebUIStorage {
   @override
   Future<void> updateAllSkins() async {
     if (remoteError != null) throw remoteError!;
+  }
+
+  @override
+  Future<RemoteUpdateReport> checkForSkinUpdates() async {
+    if (remoteError != null) throw remoteError!;
+    return RemoteUpdateReport(updateResults);
   }
 }
 
@@ -142,6 +150,77 @@ void main() {
         expect(response.statusCode, 200);
         expect(fakeStorage.installFromUrlCalled, isTrue);
       });
+
+      test(
+        'POST /api/v1/webui/skins/update returns per-item outcomes',
+        () async {
+          fakeStorage.updateResults = [
+            const RemoteUpdateItemResult(
+              item: 'acme/updated',
+              status: RemoteUpdateStatus.updated,
+            ),
+            const RemoteUpdateItemResult(
+              item: 'acme/current',
+              status: RemoteUpdateStatus.alreadyCurrent,
+            ),
+            const RemoteUpdateItemResult(
+              item: 'acme/broken',
+              status: RemoteUpdateStatus.failed,
+              error: SocketException('offline'),
+            ),
+          ];
+
+          final response = await handler(
+            Request(
+              'POST',
+              Uri.parse('http://localhost/api/v1/webui/skins/update'),
+            ),
+          );
+          expect(response.statusCode, 200);
+          final body =
+              jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+          expect(body['message'], 'Skin update check completed');
+          final results = (body['results'] as List)
+              .cast<Map<String, dynamic>>();
+          expect(results.map((result) => result['item']), [
+            'acme/updated',
+            'acme/current',
+            'acme/broken',
+          ]);
+          expect(results.map((result) => result['status']), [
+            'updated',
+            'alreadyCurrent',
+            'failed',
+          ]);
+          expect(results.first.containsKey('error'), isFalse);
+          expect(results[1].containsKey('error'), isFalse);
+          expect(
+            results.last['error'],
+            'Check your internet connection and try again.',
+          );
+        },
+      );
+
+      test(
+        'POST /api/v1/webui/skins/update reports a failed check as 500',
+        () async {
+          fakeStorage.remoteError = const SocketException('offline');
+
+          final response = await handler(
+            Request(
+              'POST',
+              Uri.parse('http://localhost/api/v1/webui/skins/update'),
+            ),
+          );
+
+          expect(response.statusCode, 500);
+          expect(
+            jsonDecode(await response.readAsString())['error'],
+            "Couldn't check for skin updates. Check your internet connection "
+            'and try again.',
+          );
+        },
+      );
     });
   });
 }
