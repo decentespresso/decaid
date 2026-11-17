@@ -182,6 +182,9 @@ enum ExitType { pressure, flow, power }
 
 enum ExitCondition { over, under }
 
+dynamic _leverField(Map<String, dynamic> json, String field, String alias) =>
+    json.containsKey(field) ? json[field] : json[alias];
+
 class StepLimiter extends Equatable {
   final double value;
   final double range;
@@ -571,8 +574,10 @@ class ProfileStepLever extends ProfileStep {
           ? StepLimiter.fromJson(json['limiter'])
           : null,
       pressure: parseDouble(json['pressure']),
-      leverSpring: parseDouble(json['leverSpring']),
-      leverGive: parseDouble(json['leverGive']),
+      leverSpring: parseDouble(
+        _leverField(json, 'leverSpring', 'lever_spring'),
+      ),
+      leverGive: parseDouble(_leverField(json, 'leverGive', 'lever_give')),
     );
   }
 

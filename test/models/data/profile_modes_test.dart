@@ -112,6 +112,32 @@ void main() {
     });
   });
 
+  group('a lever step accepts both field spellings', () {
+    Map<String, dynamic> snakeLeverJson() => leverJson()
+      ..remove('leverSpring')
+      ..remove('leverGive')
+      ..['lever_spring'] = 0.9
+      ..['lever_give'] = 1.5;
+
+    test('lever_spring and lever_give import with the camelCase values', () {
+      final snake = ProfileStep.fromJson(snakeLeverJson());
+      final camel = ProfileStep.fromJson(leverJson());
+
+      final step = snake as ProfileStepLever;
+      expect(step.leverSpring, 0.9);
+      expect(step.leverGive, 1.5);
+      expect(snake, equals(camel));
+    });
+
+    test('toJson writes the camelCase spelling', () {
+      final json = ProfileStep.fromJson(snakeLeverJson()).toJson();
+      expect(json['leverSpring'], 0.9);
+      expect(json['leverGive'], 1.5);
+      expect(json.containsKey('lever_spring'), isFalse);
+      expect(json.containsKey('lever_give'), isFalse);
+    });
+  });
+
   group('HOLD transition', () {
     // A pressure step holding the previous achieved pressure, with a flow cap
     // (the canonical example) — target `pressure` stored as 0.
