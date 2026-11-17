@@ -184,8 +184,11 @@ void main() {
         final response = await send(method, path, peer: loopback4);
         expect(response.statusCode, 200);
         final request = reached.single;
-        expect(mayManageExtensions(request), isTrue);
-        expect(requireExtensionManagement(request, action: 'test'), isNull);
+        expect(await mayManageExtensions(request), isTrue);
+        expect(
+          await requireExtensionManagement(request, action: 'test'),
+          isNull,
+        );
       });
     }
 
@@ -197,8 +200,8 @@ void main() {
         peer: loopback4,
       );
       final request = reached.single;
-      expect(mayManageExtensions(request), isTrue);
-      expect(requireExtensionManagement(request, action: 'test'), isNull);
+      expect(await mayManageExtensions(request), isTrue);
+      expect(await requireExtensionManagement(request, action: 'test'), isNull);
     });
   });
 

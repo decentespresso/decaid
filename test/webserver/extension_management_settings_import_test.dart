@@ -4,13 +4,16 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive_io.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleState;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:reaprime/main.dart' as app;
 import 'package:reaprime/src/services/account/proxy_token_service.dart';
 import 'package:reaprime/src/services/webserver/data_export/settings_export_section.dart';
 import 'package:reaprime/src/services/webserver/data_export_handler.dart';
 import 'package:reaprime/src/services/webserver/data_sync_handler.dart';
+import 'package:reaprime/src/services/webserver/extension_management_auth.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
 import 'package:reaprime/src/settings/gateway_mode.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
@@ -23,6 +26,12 @@ import '../helpers/mock_settings_service.dart';
 const _currentSkinId = 'streamline.js';
 const _otherSkinId = 'other.skin';
 const _securityKey = 'requireExtensionManagementAuthorization';
+const _trustedPagePort = 25707;
+const _trustedDeviceAddress = '192.168.12.64';
+const _trustedOrigin = 'http://localhost:$_trustedPagePort';
+const _untrustedOrigin = 'https://evil.example';
+const _originRefused =
+    'Extension management is not allowed from this browser origin';
 const _skinWarning =
     'defaultSkinId was not imported: changing the default skin requires '
     'extensions:manage authorization.';
@@ -34,6 +43,9 @@ const _automaticUpdateWarning =
 class _PausableSettingsService extends MockSettingsService {
   Completer<void>? _gatewayWriteStarted;
   Completer<void>? _gatewayWriteMayFinish;
+  Completer<void>? _policyWriteStarted;
+  Completer<void>? _policyWriteMayFinish;
+  final List<String> policyLog = [];
 
   Future<void> pauseNextGatewayWrite() {
     _gatewayWriteMayFinish = Completer<void>();
@@ -41,6 +53,28 @@ class _PausableSettingsService extends MockSettingsService {
   }
 
   void resumeGatewayWrite() => _gatewayWriteMayFinish?.complete();
+
+  Future<void> pauseNextPolicyWrite() {
+    _policyWriteMayFinish = Completer<void>();
+    return (_policyWriteStarted = Completer<void>()).future;
+  }
+
+  void resumePolicyWrite() => _policyWriteMayFinish?.complete();
+
+  @override
+  Future<bool> requireExtensionManagementAuthorization() {
+    policyLog.add('read');
+    return super.requireExtensionManagementAuthorization();
+  }
+
+  @override
+  Future<void> setRequireExtensionManagementAuthorization(bool value) async {
+    _policyWriteStarted?.complete();
+    _policyWriteStarted = null;
+    await _policyWriteMayFinish?.future;
+    await super.setRequireExtensionManagementAuthorization(value);
+    policyLog.add('write');
+  }
 
   @override
   Future<void> updateGatewayMode(GatewayMode mode) async {
@@ -72,11 +106,28 @@ class _RecordingWebUIService extends Fake implements WebUIService {
   String serverPath() => '';
 }
 
+final class _AuthorizationEntryGate {
+  final _entered = Completer<void>();
+  final _mayProceed = Completer<void>();
+  int entries = 0;
+
+  Future<void> wait() async {
+    entries += 1;
+    if (!_entered.isCompleted) _entered.complete();
+    await _mayProceed.future;
+  }
+
+  Future<void> get reached => _entered.future;
+
+  void release() => _mayProceed.complete();
+}
+
 final class _Reply {
-  _Reply(this.status, this.body);
+  _Reply(this.status, this.body, [this.headers = const {}]);
 
   final int status;
   final String body;
+  final Map<String, String> headers;
 
   dynamic get json => jsonDecode(body);
 
@@ -112,8 +163,13 @@ void main() {
   late ProxyTokenService tokens;
   late List<int> pullArchive;
   late List<Uint8List> pushedBodies;
+  late List<http.BaseRequest> pullRequests;
   late HttpServer server;
   late HttpClient client;
+
+  late Set<int> browserPagePorts;
+  late Set<String> browserDeviceAddresses;
+  _AuthorizationEntryGate? authorizationEntryGate;
 
   late String managerToken;
   late String accountToken;
@@ -142,6 +198,7 @@ void main() {
     String? authorization,
     List<int>? bytes,
     Object? json,
+    String? origin,
   }) async {
     final request = await client.openUrl(
       method,
@@ -150,6 +207,7 @@ void main() {
     if (authorization != null) {
       request.headers.set(HttpHeaders.authorizationHeader, authorization);
     }
+    if (origin != null) request.headers.set('origin', origin);
     if (bytes != null) {
       request.headers.contentType = ContentType.binary;
       request.add(bytes);
@@ -158,9 +216,14 @@ void main() {
       request.write(jsonEncode(json));
     }
     final response = await request.close();
+    final received = <String, String>{};
+    response.headers.forEach(
+      (name, values) => received[name.toLowerCase()] = values.join(', '),
+    );
     return _Reply(
       response.statusCode,
       await utf8.decoder.bind(response).join(),
+      received,
     );
   }
 
@@ -195,6 +258,10 @@ void main() {
     webUi = _RecordingWebUIService();
     pullArchive = _settingsArchive({});
     pushedBodies = [];
+    pullRequests = [];
+    browserPagePorts = {_trustedPagePort};
+    browserDeviceAddresses = {_trustedDeviceAddress};
+    authorizationEntryGate = null;
 
     managerToken = ProxyTokenService.generateToken();
     accountToken = ProxyTokenService.generateToken();
@@ -232,6 +299,7 @@ void main() {
       exportHandler: exportHandler,
       httpClient: MockClient((request) async {
         if (request.method == 'GET') {
+          pullRequests.add(request);
           return http.Response.bytes(pullArchive, 200);
         }
         pushedBodies.add(request.bodyBytes);
@@ -243,8 +311,15 @@ void main() {
       buildWebServerHandler(
         app.call,
         proxyTokenService: tokens,
-        requireExtensionManagementAuthorization: () =>
-            settings.currentRequireExtensionManagementAuthorization(),
+        requireExtensionManagementAuthorization: () async {
+          await authorizationEntryGate?.wait();
+          return settings.currentRequireExtensionManagementAuthorization();
+        },
+        browserOrigins: ExtensionManagementBrowserOrigins(
+          apiListenerPort: () => server.port,
+          pagePorts: () => browserPagePorts,
+          deviceAddresses: () async => browserDeviceAddresses,
+        ),
       ),
       InternetAddress.loopbackIPv4,
       0,
@@ -924,6 +999,584 @@ void main() {
         }
       });
     }
+  });
+
+  group('browser origins in both modes', () {
+    for (final protect in [false, true]) {
+      group(protect ? 'protected mode' : 'compatibility mode', () {
+        setUp(() => usePolicy(protect));
+
+        test('sensitive settings from an untrusted origin are 403 and apply '
+            'nothing', () async {
+          await settings.setAutomaticUpdateCheck(false);
+          final before = settingsState();
+          for (final body in <Map<String, Object?>>[
+            {
+              'gatewayMode': 'full',
+              'weightFlowMultiplier': 2.5,
+              'webUiPath': '/tmp/untrusted',
+            },
+            {'gatewayMode': 'full', 'defaultSkinId': _otherSkinId},
+            {'gatewayMode': 'full', 'automaticUpdateCheck': true},
+          ]) {
+            final reply = await send(
+              'POST',
+              '/api/v1/settings',
+              authorization: 'Bearer $managerToken',
+              json: body,
+              origin: _untrustedOrigin,
+            );
+            expect(reply.status, 403, reason: '$body -> $reply');
+            expect(reply.json, {'error': _originRefused});
+            expect(settingsState(), before, reason: '$body');
+          }
+          expect(settings.automaticUpdateCheck, isFalse);
+          expect(storage.calls, isEmpty);
+          expect(webUi.calls, isEmpty);
+        });
+
+        test('safe settings from an untrusted origin still apply', () async {
+          final ordinary = await send(
+            'POST',
+            '/api/v1/settings',
+            json: {'gatewayMode': 'full', 'weightFlowMultiplier': 2.5},
+            origin: _untrustedOrigin,
+          );
+          expect(ordinary.status, 200, reason: '$ordinary');
+          expect(settings.gatewayMode, GatewayMode.full);
+          expect(settings.weightFlowMultiplier, 2.5);
+
+          await settings.setAutomaticUpdateCheck(true);
+          final turningOff = await send(
+            'POST',
+            '/api/v1/settings',
+            json: {'automaticUpdateCheck': false},
+            origin: _untrustedOrigin,
+          );
+          expect(turningOff.status, 200, reason: '$turningOff');
+          expect(settings.automaticUpdateCheck, isFalse);
+
+          final unchangedSkin = await send(
+            'POST',
+            '/api/v1/settings',
+            json: {'defaultSkinId': _currentSkinId},
+            origin: _untrustedOrigin,
+          );
+          expect(unchangedSkin.status, 200, reason: '$unchangedSkin');
+          expect(settings.defaultSkinId, _currentSkinId);
+        });
+
+        test('an unchanged skin from an untrusted origin is not written back '
+            'when the state moves during the request', () async {
+          final gatewayWriteStarted = settingsService.pauseNextGatewayWrite();
+          final pending = send(
+            'POST',
+            '/api/v1/settings',
+            authorization: protect ? 'Bearer $managerToken' : null,
+            json: {'gatewayMode': 'full', 'defaultSkinId': _currentSkinId},
+            origin: _untrustedOrigin,
+          );
+          await gatewayWriteStarted;
+
+          await settings.setDefaultSkinId(_otherSkinId);
+          settingsService.resumeGatewayWrite();
+
+          final reply = await pending;
+          expect(reply.status, 200, reason: '$reply');
+          expect(settings.gatewayMode, GatewayMode.full);
+          expect(settings.defaultSkinId, _otherSkinId);
+          expect(storage.calls, isEmpty);
+        });
+
+        test(
+          'an already-on automatic update check from an untrusted origin '
+          'is not written back when the state moves during the request',
+          () async {
+            await settings.setAutomaticUpdateCheck(true);
+            final gatewayWriteStarted = settingsService.pauseNextGatewayWrite();
+            final pending = send(
+              'POST',
+              '/api/v1/settings',
+              authorization: protect ? 'Bearer $managerToken' : null,
+              json: {'gatewayMode': 'full', 'automaticUpdateCheck': true},
+              origin: _untrustedOrigin,
+            );
+            await gatewayWriteStarted;
+
+            await settings.setAutomaticUpdateCheck(false);
+            settingsService.resumeGatewayWrite();
+
+            final reply = await pending;
+            expect(reply.status, 200, reason: '$reply');
+            expect(settings.gatewayMode, GatewayMode.full);
+            expect(settings.automaticUpdateCheck, isFalse);
+          },
+        );
+
+        test(
+          'a trusted skin origin keeps the legacy settings contract',
+          () async {
+            final reply = await send(
+              'POST',
+              '/api/v1/settings',
+              authorization: protect ? 'Bearer $managerToken' : null,
+              json: {'webUiPath': '/tmp/trusted'},
+              origin: _trustedOrigin,
+            );
+            expect(reply.status, 200, reason: '$reply');
+            expect(webUi.calls, ['serveFolderAtPath /tmp/trusted']);
+          },
+        );
+
+        test('an import from an untrusted origin is refused whole before any '
+            'work', () async {
+          final before = settingsState();
+          final reply = await send(
+            'POST',
+            '/api/v1/data/import',
+            authorization: 'Bearer $managerToken',
+            bytes: _settingsArchive({
+              'gatewayMode': 'full',
+              'weightFlowMultiplier': 2.5,
+              'defaultSkinId': _otherSkinId,
+              'automaticUpdateCheck': true,
+            }),
+            origin: _untrustedOrigin,
+          );
+          expect(reply.status, 403, reason: '$reply');
+          expect(reply.json, {'error': _originRefused});
+          expect(settingsState(), before);
+          expect(storage.calls, isEmpty);
+        });
+
+        test(
+          'a trusted origin import still applies with a manager token',
+          () async {
+            final reply = await send(
+              'POST',
+              '/api/v1/data/import',
+              authorization: 'Bearer $managerToken',
+              bytes: _settingsArchive({'gatewayMode': 'full'}),
+              origin: _trustedOrigin,
+            );
+            expect(reply.status, 200, reason: '$reply');
+            expect(settings.gatewayMode, GatewayMode.full);
+          },
+        );
+
+        setUp(() {
+          pullArchive = _settingsArchive({
+            'gatewayMode': 'full',
+            'defaultSkinId': _otherSkinId,
+          });
+        });
+
+        for (final mode in ['pull', 'two_way']) {
+          test('$mode involving settings from an untrusted origin is refused '
+              'before any network or write', () async {
+            final before = settingsState();
+            for (final body in <Map<String, Object?>>[
+              {'target': 'http://192.168.1.50:8080', 'mode': mode},
+              {
+                'target': 'http://192.168.1.50:8080',
+                'mode': mode,
+                'sections': ['settings'],
+              },
+            ]) {
+              final reply = await send(
+                'POST',
+                '/api/v1/data/sync',
+                authorization: 'Bearer $managerToken',
+                json: body,
+                origin: _untrustedOrigin,
+              );
+              expect(reply.status, 403, reason: '$body -> $reply');
+              expect(reply.json, {'error': _originRefused});
+            }
+            expect(pullRequests, isEmpty);
+            expect(pushedBodies, isEmpty);
+            expect(settingsState(), before);
+          });
+        }
+
+        test('a push from an untrusted origin still works', () async {
+          final reply = await send(
+            'POST',
+            '/api/v1/data/sync',
+            json: {'target': 'http://192.168.1.50:8080', 'mode': 'push'},
+            origin: _untrustedOrigin,
+          );
+          expect(reply.status, 200, reason: '$reply');
+          expect(pushedBodies, hasLength(1));
+          expect(pullRequests, isEmpty);
+        });
+
+        test('handler-level origin refusals carry no affirmative CORS '
+            'headers', () async {
+          await settings.setAutomaticUpdateCheck(false);
+          pullArchive = _settingsArchive({'gatewayMode': 'full'});
+          final refusals = <_Reply>[
+            await send(
+              'POST',
+              '/api/v1/settings',
+              authorization: 'Bearer $managerToken',
+              json: {'webUiPath': '/tmp/untrusted'},
+              origin: _untrustedOrigin,
+            ),
+            await send(
+              'POST',
+              '/api/v1/data/import',
+              authorization: 'Bearer $managerToken',
+              bytes: _settingsArchive({'gatewayMode': 'full'}),
+              origin: _untrustedOrigin,
+            ),
+            await send(
+              'POST',
+              '/api/v1/data/sync',
+              authorization: 'Bearer $managerToken',
+              json: {'target': 'http://192.168.1.50:8080', 'mode': 'pull'},
+              origin: _untrustedOrigin,
+            ),
+          ];
+          for (final reply in refusals) {
+            expect(reply.status, 403, reason: '$reply');
+            expect(reply.json, {'error': _originRefused}, reason: '$reply');
+            expect(
+              reply.headers.keys.where(
+                (name) => name.startsWith('access-control-'),
+              ),
+              isEmpty,
+              reason: '$reply',
+            );
+          }
+          expect(pullRequests, isEmpty);
+          expect(settings.gatewayMode, GatewayMode.disabled);
+          expect(webUi.calls, isEmpty);
+
+          final safe = await send(
+            'POST',
+            '/api/v1/settings',
+            json: {'gatewayMode': 'full'},
+            origin: _untrustedOrigin,
+          );
+          expect(safe.status, 200, reason: '$safe');
+          expect(settings.gatewayMode, GatewayMode.full);
+          expect(
+            safe.headers['access-control-allow-origin'],
+            _untrustedOrigin,
+            reason: 'safe writes keep their pre-existing CORS: $safe',
+          );
+
+          final trusted = await send(
+            'POST',
+            '/api/v1/settings',
+            authorization: protect ? 'Bearer $managerToken' : null,
+            json: {'webUiPath': '/tmp/trusted-cors'},
+            origin: _trustedOrigin,
+          );
+          expect(trusted.status, 200, reason: '$trusted');
+          expect(
+            trusted.headers['access-control-allow-origin'],
+            _trustedOrigin,
+            reason: '$trusted',
+          );
+        });
+
+        test('a trusted origin pull keeps the legacy contract', () async {
+          final reply = await send(
+            'POST',
+            '/api/v1/data/sync',
+            authorization: protect ? 'Bearer $managerToken' : null,
+            json: {'target': 'http://192.168.1.50:8080', 'mode': 'pull'},
+            origin: _trustedOrigin,
+          );
+          expect(reply.status, 200, reason: '$reply');
+          expect(pullRequests, hasLength(1));
+          expect(settings.defaultSkinId, _otherSkinId);
+        });
+      });
+    }
+  });
+
+  group(
+    'the security setting is read only where the decision depends on it',
+    () {
+      setUp(() async {
+        await usePolicy(false);
+        settingsService.requireExtensionManagementAuthorizationReads = 0;
+      });
+
+      test('ordinary, read-only and safe requests never read it', () async {
+        expect((await send('GET', '/api/v1/settings')).status, 200);
+        expect(
+          (await send('GET', '/api/v1/machine/state/espresso')).status,
+          404,
+          reason: 'an unrelated route is not classified as relevant',
+        );
+        expect(
+          (await send(
+            'POST',
+            '/api/v1/settings',
+            json: {'gatewayMode': 'full', 'weightFlowMultiplier': 2.5},
+          )).status,
+          200,
+        );
+        expect(
+          (await send(
+            'POST',
+            '/api/v1/settings',
+            json: {'automaticUpdateCheck': false},
+          )).status,
+          200,
+        );
+        expect(settings.automaticUpdateCheck, isFalse);
+        expect(
+          (await send(
+            'POST',
+            '/api/v1/data/sync',
+            json: {'target': 'http://192.168.1.50:8080', 'mode': 'push'},
+          )).status,
+          200,
+        );
+        expect(pushedBodies, hasLength(1));
+        expect(settingsService.requireExtensionManagementAuthorizationReads, 0);
+      });
+
+      test('an origin refusal short-circuits before the read', () async {
+        expect(
+          (await send(
+            'POST',
+            '/api/v1/settings',
+            json: {'webUiPath': '/tmp/untrusted'},
+            origin: _untrustedOrigin,
+          )).status,
+          403,
+        );
+        expect(
+          (await send(
+            'POST',
+            '/api/v1/data/import',
+            bytes: _settingsArchive({'gatewayMode': 'full'}),
+            origin: _untrustedOrigin,
+          )).status,
+          403,
+        );
+        expect(
+          (await send(
+            'POST',
+            '/api/v1/data/sync',
+            json: {'target': 'http://192.168.1.50:8080', 'mode': 'pull'},
+            origin: _untrustedOrigin,
+          )).status,
+          403,
+        );
+        expect(pullRequests, isEmpty);
+        expect(pushedBodies, isEmpty);
+        expect(settingsService.requireExtensionManagementAuthorizationReads, 0);
+      });
+
+      test('a sensitive settings write reads it exactly once', () async {
+        final reply = await send(
+          'POST',
+          '/api/v1/settings',
+          json: {'webUiPath': '/tmp/policy'},
+        );
+        expect(reply.status, 200, reason: '$reply');
+        expect(webUi.calls, ['serveFolderAtPath /tmp/policy']);
+        expect(settingsService.requireExtensionManagementAuthorizationReads, 1);
+      });
+
+      test('an import reads it exactly once', () async {
+        final reply = await send(
+          'POST',
+          '/api/v1/data/import',
+          bytes: _settingsArchive({'gatewayMode': 'full'}),
+        );
+        expect(reply.status, 200, reason: '$reply');
+        expect(settings.gatewayMode, GatewayMode.full);
+        expect(settingsService.requireExtensionManagementAuthorizationReads, 1);
+      });
+
+      test('a pull reads it exactly once', () async {
+        pullArchive = _settingsArchive({'gatewayMode': 'full'});
+        final reply = await send(
+          'POST',
+          '/api/v1/data/sync',
+          json: {'target': 'http://192.168.1.50:8080', 'mode': 'pull'},
+        );
+        expect(reply.status, 200, reason: '$reply');
+        expect(settings.gatewayMode, GatewayMode.full);
+        expect(settingsService.requireExtensionManagementAuthorizationReads, 1);
+      });
+    },
+  );
+
+  group('origin refusals cannot be spelled around', () {
+    setUp(() async {
+      await usePolicy(false);
+      settingsService.requireExtensionManagementAuthorizationReads = 0;
+    });
+
+    test('path spellings never reach a sensitive write from an untrusted '
+        'origin', () async {
+      for (final path in [
+        '/api/v1/settings/',
+        '/api/v1/%73ettings',
+        '/api/v1/./settings',
+        '/api/v1/data/import/',
+        '/api/v1/%64ata/import',
+        '/api/v1/data/sync/',
+      ]) {
+        final reply = await send(
+          'POST',
+          path,
+          json: {'webUiPath': '/tmp/spelled'},
+          origin: _untrustedOrigin,
+        );
+        expect(reply.status, anyOf(403, 404), reason: '$path -> $reply');
+        if (reply.status == 403) {
+          expect(
+            reply.headers.keys.where(
+              (name) => name.startsWith('access-control-'),
+            ),
+            isEmpty,
+            reason: '$path -> $reply',
+          );
+        }
+        expect(webUi.calls, isEmpty, reason: path);
+        expect(settingsService.requireExtensionManagementAuthorizationReads, 0);
+      }
+    });
+  });
+
+  group('a native toggle write decides the request that follows it', () {
+    test('a completed write to protected decides the next request', () async {
+      await usePolicy(false);
+      settingsService
+        ..requireExtensionManagementAuthorizationReads = 0
+        ..requireExtensionManagementAuthorizationWrites = 0
+        ..policyLog.clear();
+
+      final writeStarted = settingsService.pauseNextPolicyWrite();
+      final pendingWrite = settings.setRequireExtensionManagementAuthorization(
+        true,
+      );
+      await writeStarted;
+
+      final before = settingsState();
+      final gate = authorizationEntryGate = _AuthorizationEntryGate();
+      final pending = send(
+        'POST',
+        '/api/v1/settings',
+        json: {
+          'gatewayMode': 'full',
+          'weightFlowMultiplier': 2.5,
+          'defaultSkinId': _otherSkinId,
+          'webUiPath': '/tmp/native-on',
+        },
+      );
+      await gate.reached;
+      expect(settingsService.requireExtensionManagementAuthorizationWrites, 0);
+      expect(settings.requireExtensionManagementAuthorization, isFalse);
+
+      final observer = app.AppLifecycleObserver(settingsController: settings);
+      observer.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      gate.release();
+      await pumpEventQueue();
+
+      expect(
+        settingsService.requireExtensionManagementAuthorizationReads,
+        0,
+        reason: 'the request and the resume refresh read behind the write',
+      );
+
+      settingsService.resumePolicyWrite();
+      await pendingWrite;
+
+      final reply = await pending;
+      observer.dispose();
+
+      expect(reply.status, 401, reason: '$reply');
+      expect(reply.json, {'error': 'Missing or malformed bearer token'});
+      expect(settingsState(), before);
+      expect(settingsService.requireExtensionManagementAuthorizationWrites, 1);
+      expect(
+        settingsService.requireExtensionManagementAuthorizationReads,
+        2,
+        reason: 'one resume refresh plus one shared request snapshot',
+      );
+      expect(gate.entries, 1);
+      expect(settingsService.policyLog, ['write', 'read', 'read']);
+    });
+
+    test(
+      'a completed write to compatibility decides the next request',
+      () async {
+        await usePolicy(true);
+        settingsService
+          ..requireExtensionManagementAuthorizationReads = 0
+          ..requireExtensionManagementAuthorizationWrites = 0
+          ..policyLog.clear();
+
+        final writeStarted = settingsService.pauseNextPolicyWrite();
+        final pendingWrite = settings
+            .setRequireExtensionManagementAuthorization(false);
+        await writeStarted;
+
+        final gate = authorizationEntryGate = _AuthorizationEntryGate();
+        final pending = send(
+          'POST',
+          '/api/v1/settings',
+          json: {
+            'gatewayMode': 'full',
+            'weightFlowMultiplier': 2.5,
+            'defaultSkinId': _otherSkinId,
+            'webUiPath': '/tmp/native-off',
+          },
+        );
+        await gate.reached;
+        expect(
+          settingsService.requireExtensionManagementAuthorizationWrites,
+          0,
+        );
+        expect(settings.requireExtensionManagementAuthorization, isTrue);
+
+        final observer = app.AppLifecycleObserver(settingsController: settings);
+        observer.didChangeAppLifecycleState(AppLifecycleState.resumed);
+        gate.release();
+        await pumpEventQueue();
+
+        expect(
+          settingsService.requireExtensionManagementAuthorizationReads,
+          0,
+          reason: 'the request and the resume refresh read behind the write',
+        );
+
+        settingsService.resumePolicyWrite();
+        await pendingWrite;
+
+        final reply = await pending;
+        observer.dispose();
+
+        expect(reply.status, 200, reason: '$reply');
+        expect(webUi.calls, ['serveFolderAtPath /tmp/native-off']);
+        expect(storage.calls, ['setDefaultSkin $_otherSkinId']);
+        expect(settings.gatewayMode, GatewayMode.full);
+        expect(settings.weightFlowMultiplier, 2.5);
+        expect(
+          settingsService.requireExtensionManagementAuthorizationWrites,
+          1,
+        );
+        expect(
+          settingsService.requireExtensionManagementAuthorizationReads,
+          2,
+          reason: 'one resume refresh plus one shared request snapshot',
+        );
+        expect(gate.entries, 1);
+        expect(settingsService.policyLog, ['write', 'read', 'read']);
+        expect(await storedPolicy(), isFalse);
+      },
+    );
   });
 
   group('the security setting is native-only in both modes', () {

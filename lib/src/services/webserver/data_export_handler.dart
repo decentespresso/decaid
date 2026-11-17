@@ -400,6 +400,12 @@ class DataExportHandler {
   }
 
   Future<Response> _handleImport(Request request) async {
+    final originRefusal = requireTrustedBrowserOrigin(
+      request,
+      action: 'POST /api/v1/data/import',
+    );
+    if (originRefusal != null) return originRefusal;
+
     final onConflict = request.url.queryParameters['onConflict'] ?? 'skip';
     final ConflictStrategy strategy;
     switch (onConflict) {
@@ -442,7 +448,7 @@ class DataExportHandler {
       final outcome = await importFromZipFile(
         zipFile,
         strategy,
-        extensionsAuthorized: mayManageExtensions(request),
+        extensionsAuthorized: await mayManageExtensions(request),
       );
       return outcome.hasFailures
           ? jsonMultiStatus(outcome.toJson())

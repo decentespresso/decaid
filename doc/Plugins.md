@@ -383,6 +383,13 @@ credential is needed.
 `path` is a path under `/api/v1/`, optionally with a query string. A scheme, a
 host, a port or a fragment is refused.
 
+`host.localApi` builds its request in process and sends no `Origin` header, so
+the browser-origin check in `doc/Api.md#browser-origins` never applies to it: an
+approved plugin is judged by its grant, in both modes. A plugin that calls the
+API with `fetch` from its own page sends that page's origin, which is the API
+origin because plugin pages are served on the API port; those calls pass the
+origin check and are judged by the credential policy instead.
+
 `host.localApi` reaches these routes and no others:
 
 | Routes | What they are |
@@ -1897,6 +1904,22 @@ Decaid answers:
 With protection OFF, those routes ignore the header entirely, so a client that
 still sends an expired or revoked token keeps working like any other legacy
 client. A malformed or wrong-scope credential is not an error while OFF either.
+
+A browser page is also refused with 403 when its `Origin` is not the device's
+own, before any handler work, in both modes and whatever credential it carries:
+`{"error":"Extension management is not allowed from this browser origin"}`.
+The routes it covers, the ports and addresses it trusts, the preflights it
+refuses and the requests without an `Origin` that are unaffected are described
+in
+[Browser origins](Api.md#browser-origins).
+A plugin page served on the API port and a skin page served on the live skin
+port are trusted; `null`, `https`, a hostname, another device's address and a
+retired skin port are not. A `localhost` origin is trusted only from a request
+whose socket peer is the device itself (loopback or one of its current
+addresses), so a page on another machine cannot borrow the name. The refusal is
+not the authorization decision: while protection is OFF an admitted request
+still needs no credential, and while it is ON a trusted origin still needs the
+token.
 
 There is no tokenless loopback or update-check exception in either mode. The
 `automaticUpdateCheck` setting governs only the app's scheduled checks; manual

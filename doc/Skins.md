@@ -159,6 +159,25 @@ ON, `POST /api/v1/webui/skins/update` and `POST /api/v1/plugins/update` need the
 same credential as the other management routes, and the
 `automaticUpdateCheck` setting only governs the app's own scheduled checks.
 
+A skin page's management calls are also checked against its browser `Origin`,
+in both modes and before any handler work. The trusted skin origin is the live
+one: scheme `http`, host `localhost`, `127.0.0.1`, `::1` or the device's current
+numeric address, and the port the active skin server is actually serving on.
+That port is read live, so it follows a skin switch, a restart and a
+re-allocated port; a retired port is not trusted, and neither is the port 3000
+entry point, which only redirects to the live origin (the page always ends up
+running and posting from there). A `localhost` origin is additionally trusted
+only from a request whose socket peer is the device itself — loopback or one
+of its current addresses — so a page on another computer cannot borrow the name
+even with a valid token. `Origin: null`, `https`, a hostname, another
+device's address and a malformed value are refused with `403` and
+`{"error":"Extension management is not allowed from this browser origin"}`,
+whether or not the page sends a token, and the refusal applies to the same
+routes and body-gated keys as everywhere else; see
+[Browser origins](Api.md#browser-origins). Requests that carry no `Origin`
+header, such as the skin's own asset and `GET` requests and non-browser
+clients, are unaffected.
+
 Skins get no implicit management authority. The account-proxy token Decaid
 injects into served skin pages has only the `account:proxy` scope, and the
 management routes refuse it with 403 while protection is ON. With protection
@@ -364,6 +383,14 @@ stable origin is not visible**, and anything written during that run is not
 visible after it. Nothing is deleted; it is simply keyed to a different origin.
 A temporary origin is exceptional: it changes per run, it is never persisted,
 and it never becomes a redirect alias, so it is not a bookmark target.
+
+**Only the live origin is trusted for extension management.** The management
+browser-origin check reads the port the active skin server is currently serving
+on, so a switch, restart, fallback or re-allocation moves the trusted origin
+with it, and stopping the skin server leaves no skin origin trusted at all. The
+port 3000 entry point, an inactive skin's redirect alias and any previously
+assigned port are not trusted: they never serve the skin page, so a page cannot
+post from them. See [Browser origins](Api.md#browser-origins).
 
 A skin that must not lose state across such a run should persist it through the
 Decaid API rather than browser storage. The KV endpoints are unaffected by
@@ -3793,7 +3820,9 @@ These routes are open by default. While extension management protection is ON
 they need `Authorization: Bearer <token>` with the `extensions:manage` scope:
 without it they answer 401, and with a token of another scope, such as the
 skin's injected account-proxy token, 403. There is no tokenless loopback
-exception for the update check in either mode.
+exception for the update check in either mode. A browser origin that is not the
+device's own is refused with 403 before the handler in both modes, whatever
+credential it carries; see [Browser origins](Api.md#browser-origins).
 
 | Method | Path |
 |--------|------|

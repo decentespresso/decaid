@@ -109,12 +109,20 @@ class RecordingWebUIStorage extends Fake implements WebUIStorage {
 class RecordingWebUIService extends Fake implements WebUIService {
   final List<String> mutations = [];
   bool serving = true;
+  Set<String> browserOriginAddresses = const {};
 
   @override
   bool get isServing => serving;
 
   @override
   int get port => 3000;
+
+  @override
+  Set<int> get browserOriginPorts => serving ? {port} : const {};
+
+  @override
+  Future<Set<String>> currentBrowserOriginAddresses() async =>
+      browserOriginAddresses;
 
   @override
   String serverPath() => '/recorded-skin';
@@ -340,7 +348,7 @@ class ExtensionManagementHarness {
       grant:
           request.context[extensionManagementGrantContextKey]
               as ExtensionManagementGrant?,
-      mayManage: mayManageExtensions(request),
+      mayManage: await mayManageExtensions(request),
     );
 
     final app = Router().plus;
@@ -379,7 +387,7 @@ class ExtensionManagementHarness {
       final slow = slowRoutes[name]!;
       slow.entered.complete(await see(request));
       await slow.release.future;
-      slow.finished.complete(mayManageExtensions(request));
+      slow.finished.complete(await mayManageExtensions(request));
       return Response.ok('slow done');
     });
     app.all('/api/v1/account/proxy/<rest|.*>', (Request request) async {
@@ -394,12 +402,17 @@ class ExtensionManagementHarness {
     WebUIHandler(storage: skins, service: skinServer).addRoutes(app);
 
     final requirement = requireExtensionManagementAuthorization;
+    int? apiListenerPort;
     final handler = buildWebServerHandler(
       app.call,
       proxyTokenService: tokens,
       requireExtensionManagementAuthorization: requirement == null
           ? null
           : () async => requirement,
+      browserOrigins: extensionManagementBrowserOrigins(
+        skinServer,
+        apiListenerPort: () => apiListenerPort,
+      ),
     );
     loader.pluginManager.attachLocalApi((request) {
       bridged.add('${request.method} ${request.requestedUri.path}');
@@ -415,6 +428,7 @@ class ExtensionManagementHarness {
       InternetAddress.anyIPv4,
       0,
     );
+    apiListenerPort = server.port;
 
     return ExtensionManagementHarness._(
       tempDir: tempDir,

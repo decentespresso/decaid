@@ -22,6 +22,29 @@ info:
     `extensionsManage` scheme, so a client reads the credential as optional.
     This setting covers extension management only; the rest of the API is
     unchanged.
+
+    Extension management also refuses a request whose browser `Origin` is not
+    the device's own origin. That check applies in both modes, before any
+    handler work and regardless of any credential, and answers 403 with
+    `{"error":"Extension management is not allowed from this browser origin"}`.
+    It covers every plugin and skin management mutation, every import, a
+    settings body that changes the served skin, the extension update setting
+    or webUiPath, and a pull or two-way sync that includes the settings
+    section. A trusted origin is scheme `http` on localhost, 127.0.0.1, ::1 or
+    a numeric address currently assigned to a local network interface, on the
+    live skin page port or the actual API listener port; anything else,
+    including `Origin: null`, `https`, a hostname and a retired port, is
+    refused. A literal loopback host is trusted only from a request whose TCP
+    socket peer is loopback or one of the device's current addresses; a peer
+    that is missing, unreadable or belongs to another machine is refused, so a
+    page on a second computer cannot borrow `localhost`. Untrusted preflights
+    are refused for these paths, including `POST /api/v1/settings`,
+    `/api/v1/data/import` and `/api/v1/data/sync`, before any body is read, so a
+    browser page on an untrusted origin cannot send a safe settings write or a
+    push sync as a JSON request even though the actual request would be
+    admitted. Requests without an `Origin` header are unaffected. Origin is not
+    authentication: a non-browser client can omit or forge it, so this
+    boundary covers browser pages only.
 x-admission-control:
   windowSeconds: 1
   globalConcurrent: 128
@@ -1699,9 +1722,14 @@ paths:
         protection is OFF (the default), no token is needed, and in every
         mode a body whose values are already in effect, one that turns
         `automaticUpdateCheck` off, and one that changes only other keys needs
-        none either. The native `Settings > Security`
-        toggle itself is not writable through this route: an unknown key is
-        ignored, and the same is true of an import or a sync.
+        none either. Independent of the credential, a browser `Origin` that is
+        not the device's own origin is refused with 403 when the body makes one
+        of those changes, and a preflight for this operation from such an origin
+        is refused before the body exists, so a browser page on an untrusted
+        origin cannot send a safe body as a JSON request either; an actual
+        request from a non-browser client is applied as before. The native
+        `Settings > Security` toggle itself is not writable through this route:
+        an unknown key is ignored, and the same is true of an import or a sync.
       tags: [Decent Settings]
       requestBody:
         required: true
@@ -1725,7 +1753,9 @@ paths:
           description: >-
             When protection is ON, the body changes the served skin, the
             extension update setting or webUiPath, and the token is not
-            scoped for extensions:manage; no key was applied
+            scoped for extensions:manage; no key was applied. A body that
+            makes those changes from an untrusted browser `Origin` is refused
+            with this status in both modes, before any key is applied
           content:
             application/json:
               schema:
@@ -3412,6 +3442,8 @@ paths:
           description: >-
             When protection is ON, the token is not scoped for
             `extensions:manage`; the request is refused before any change.
+            A browser `Origin` that is not the device's own origin is refused
+            with this status in both modes, before any change.
           content:
             application/json:
               schema:
@@ -3462,6 +3494,8 @@ paths:
           description: >-
             When protection is ON, the token is not scoped for
             `extensions:manage`; the request is refused before any change.
+            A browser `Origin` that is not the device's own origin is refused
+            with this status in both modes, before any change.
           content:
             application/json:
               schema:
@@ -3512,6 +3546,8 @@ paths:
           description: >-
             When protection is ON, the token is not scoped for
             `extensions:manage`; the request is refused before any change.
+            A browser `Origin` that is not the device's own origin is refused
+            with this status in both modes, before any change.
           content:
             application/json:
               schema:
@@ -3603,6 +3639,8 @@ paths:
           description: >-
             When protection is ON, the token is not scoped for
             `extensions:manage`; the request is refused before any change.
+            A browser `Origin` that is not the device's own origin is refused
+            with this status in both modes, before any change.
           content:
             application/json:
               schema:
@@ -3679,6 +3717,8 @@ paths:
           description: >-
             When protection is ON, the token is not scoped for
             `extensions:manage`; the request is refused before any change.
+            A browser `Origin` that is not the device's own origin is refused
+            with this status in both modes, before any change.
           content:
             application/json:
               schema:
@@ -3764,6 +3804,8 @@ paths:
           description: >-
             When protection is ON, the token is not scoped for
             `extensions:manage`; the request is refused before any change.
+            A browser `Origin` that is not the device's own origin is refused
+            with this status in both modes, before any change.
           content:
             application/json:
               schema:
@@ -3843,6 +3885,8 @@ paths:
           description: >-
             When protection is ON, the token is not scoped for
             `extensions:manage`; the request is refused before any change.
+            A browser `Origin` that is not the device's own origin is refused
+            with this status in both modes, before any change.
           content:
             application/json:
               schema:
@@ -3920,6 +3964,8 @@ paths:
           description: >-
             When protection is ON, the token is not scoped for
             `extensions:manage`; the request is refused before any change.
+            A browser `Origin` that is not the device's own origin is refused
+            with this status in both modes, before any change.
           content:
             application/json:
               schema:
@@ -3997,6 +4043,8 @@ paths:
           description: >-
             When protection is ON, the token is not scoped for
             `extensions:manage`; the request is refused before any change.
+            A browser `Origin` that is not the device's own origin is refused
+            with this status in both modes, before any change.
           content:
             application/json:
               schema:
@@ -4056,6 +4104,8 @@ paths:
           description: >-
             When protection is ON, the token is not scoped for
             `extensions:manage`; the request is refused before any change.
+            A browser `Origin` that is not the device's own origin is refused
+            with this status in both modes, before any change.
           content:
             application/json:
               schema:
@@ -4583,6 +4633,8 @@ paths:
             When protection is ON and the token is not scoped for
             `extensions:manage`, the request is refused; a bundled skin
             cannot be removed in either mode.
+            A browser `Origin` that is not the device's own origin is refused
+            with this status in both modes, before any change.
           content:
             application/json:
               schema:
@@ -4662,6 +4714,8 @@ paths:
           description: >-
             When protection is ON, the token is not scoped for
             `extensions:manage`; the request is refused before any change.
+            A browser `Origin` that is not the device's own origin is refused
+            with this status in both modes, before any change.
           content:
             application/json:
               schema:
@@ -4734,6 +4788,8 @@ paths:
           description: >-
             When protection is ON, the token is not scoped for
             `extensions:manage`; the request is refused before any change.
+            A browser `Origin` that is not the device's own origin is refused
+            with this status in both modes, before any change.
           content:
             application/json:
               schema:
@@ -4803,6 +4859,8 @@ paths:
           description: >-
             When protection is ON, the token is not scoped for
             `extensions:manage`; the request is refused before any change.
+            A browser `Origin` that is not the device's own origin is refused
+            with this status in both modes, before any change.
           content:
             application/json:
               schema:
@@ -4866,6 +4924,8 @@ paths:
           description: >-
             When protection is ON, the token is not scoped for
             `extensions:manage`; the request is refused before any change.
+            A browser `Origin` that is not the device's own origin is refused
+            with this status in both modes, before any change.
           content:
             application/json:
               schema:
@@ -4930,6 +4990,8 @@ paths:
           description: >-
             When protection is ON, the token is not scoped for
             `extensions:manage`; the request is refused before any change.
+            A browser `Origin` that is not the device's own origin is refused
+            with this status in both modes, before any change.
           content:
             application/json:
               schema:
@@ -5010,6 +5072,8 @@ paths:
           description: >-
             When protection is ON, the token is not scoped for
             `extensions:manage`; the request is refused before any change.
+            A browser `Origin` that is not the device's own origin is refused
+            with this status in both modes, before any change.
           content:
             application/json:
               schema:
@@ -5051,6 +5115,8 @@ paths:
           description: >-
             When protection is ON, the token is not scoped for
             `extensions:manage`; the request is refused before any change.
+            A browser `Origin` that is not the device's own origin is refused
+            with this status in both modes, before any change.
           content:
             application/json:
               schema:
@@ -5704,6 +5770,14 @@ paths:
                   reason:
                     type: string
                     description: Present as `too_many_entries` only when the ZIP entry-count safety limit is exceeded; absent for other 400 errors.
+        "403":
+          description: >-
+            The browser `Origin` is not the device's own origin; the import is
+            refused whole, in both modes, before the archive is read. The
+            protection-is-ON credential requirement is unaffected: while
+            protection is ON, an unauthorized import skips a gated setting key
+            with a warning instead of refusing the archive, and an authorized
+            import applies it.
         "408":
           description: Import request body stopped arriving for 30 seconds
         "500":
@@ -5831,6 +5905,16 @@ paths:
                     type: string
                   message:
                     type: string
+        "403":
+          description: >-
+            A pull or two-way sync that includes the `settings` section is
+            refused, in both modes and before any network request or write,
+            when the browser `Origin` is not the device's own origin. A push
+            and a pull that excludes `settings` do not depend on this check,
+            but a preflight for this operation from an untrusted origin is
+            refused before the body is read, so a browser page on such an
+            origin cannot send a push as a JSON request either; an actual
+            request from a non-browser client is unaffected.
         "408":
           description: Sync request body was not received within 30 seconds
         "413":
@@ -6543,9 +6627,12 @@ components:
         32 characters; other local users can read command-line arguments).
         Send it as `Authorization: Bearer <token>`. An approved plugin that
         holds `manage.extensions` reaches these operations in process with
-        no token. Over plain HTTP the token is not confidential on the local
-        network: HTTPS is proposed in #925 and separate full API
-        authentication in #1135.
+        no token. Independent of the token, a browser `Origin` that is not the
+        device's own origin is refused with 403 in both modes; the API
+        description lists the trusted origins and the requests without an
+        `Origin` header that this check leaves alone. Over plain HTTP the
+        token is not confidential on the local network: HTTPS is proposed in
+        #925 and separate full API authentication in #1135.
   schemas:
     ScaleCommandError:
       type: object

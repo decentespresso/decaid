@@ -8,7 +8,9 @@ management"** switch is turned **ON**. It also reproduces #1187 (DYE2's
 tokenless `POST /api/v1/plugins/visualizer.reaplugin/settings`), covers the
 Streamline-style enable/disable/settings/approve calls, manual update checks
 with scheduling off, the localhost and LAN-bound transports, the separate
-account-proxy scopes, and the native-only tamper surfaces.
+account-proxy scopes, and the native-only tamper surfaces. It also covers the
+browser-origin boundary: a page whose `Origin` is not the device's own is
+refused with `403` in both modes, before any handler work.
 
 The switch is a native Flutter action. There is no REST, import, sync,
 command-line or plugin way to change it (section 5 proves that), so this
@@ -237,6 +239,96 @@ code -X POST "$BASE/api/v1/plugins/ext-auth-plain/disable" -H "$AUTH"    # 200
 code -X POST "$BASE/api/v1/plugins/ext-auth-plain/enable" -H "$AUTH"     # 200
 ```
 
+### Browser origins are refused before any work (both modes)
+
+A browser page's `Origin` is checked separately from the credential, in both
+modes. The trusted browser origins are the live skin page port and the actual
+API listener port, on `localhost`, `127.0.0.1`, `::1` or a current local numeric
+address; everything else, including `null` and `https`, is refused with `403`
+and `{"error":"Extension management is not allowed from this browser
+origin"}`. A `localhost` origin is additionally trusted only when the request's
+socket peer is the device itself — loopback, or one of its current addresses —
+so these steps run against `$BASE` on this machine and would be refused from
+another computer even with a valid token. These steps are the reproducible form
+of that contract
+(`test/webserver/extension_management_pipeline_test.dart`,
+`extension_management_settings_import_test.dart`); a `curl` `Origin` is a
+statement by the client, so this shows the server-side refusal, not a browser
+sandbox.
+
+```bash
+SKIN_PORT=$(curl -sf "$BASE/api/v1/webui/server/status" | jq -r 'select(.serving) | .port')
+SKIN_ORIGIN="Origin: http://localhost:$SKIN_PORT"
+EVIL_ORIGIN='Origin: https://evil.example'
+refused() { curl -s -o /dev/null -w '%{http_code}\n' "$@"; }
+
+refused -X POST "$BASE/api/v1/plugins/ext-auth-plain/disable" -H "$EVIL_ORIGIN"
+# 403, even with a valid token:
+refused -X POST "$BASE/api/v1/plugins/ext-auth-plain/disable" -H "$EVIL_ORIGIN" -H "$AUTH"
+# 403
+refused -X POST "$BASE/api/v1/plugins/ext-auth-plain/disable" -H 'Origin: null'
+# 403
+refused -X POST "$BASE/api/v1/plugins/ext-auth-plain/disable" -H "$AUTH"
+# 200: no Origin header, so no browser-boundary decision
+curl -s -X POST "$BASE/api/v1/plugins/update" -H "$EVIL_ORIGIN" | jq -r .error
+# Extension management is not allowed from this browser origin
+refused -X POST "$BASE/api/v1/plugins/ext-auth-plain/disable" -H "$SKIN_ORIGIN" -H "$AUTH"
+# 200: the live skin page origin
+refused -X POST "$BASE/api/v1/plugins/ext-auth-plain/enable" -H "$SKIN_ORIGIN" -H "$AUTH"
+# 200
+```
+
+A preflight is refused just as early, with no affirmative CORS headers, so the
+browser never sends the mutation:
+
+```bash
+curl -s -D - -o /dev/null -X OPTIONS "$BASE/api/v1/plugins/ext-auth-plain/disable" \
+  -H "$EVIL_ORIGIN" -H 'Access-Control-Request-Method: POST' \
+  | grep -ci '^access-control-'                    # 0
+curl -s -o /dev/null -w '%{http_code}\n' -X OPTIONS "$BASE/api/v1/plugins/ext-auth-plain/disable" \
+  -H "$EVIL_ORIGIN" -H 'Access-Control-Request-Method: POST'   # 403
+curl -s -o /dev/null -w '%{http_code}\n' -X OPTIONS "$BASE/api/v1/plugins/ext-auth-plain/settings" \
+  -H "$EVIL_ORIGIN" -H 'Access-Control-Request-Method: GET'    # 200, read-only method keeps the general preflight
+```
+
+The three body-gated paths are refused at preflight too, because a preflight
+carries no body to read:
+
+```bash
+for path in /api/v1/settings /api/v1/data/import /api/v1/data/sync; do
+  refused -X OPTIONS "$BASE$path" -H "$EVIL_ORIGIN" \
+    -H 'Access-Control-Request-Method: POST'                     # 403 each
+done
+```
+
+The body-gated routes follow the body, not the path: a safe settings body, a
+`push` and a pull that excludes `settings` are not refused by the handler, while
+import (always, before the archive is read), a settings body with a gated key,
+and a pull or `two_way` sync that includes `settings` are. The preflight above
+still stops a browser page on an untrusted origin from sending those safe cases
+as JSON requests, so the `200` answers here are actual requests sent without a
+preflight (as `curl` sends them). A browser can still reach a safe settings
+write when it sends a body type that needs no preflight, and that write is
+applied: the boundary decides on content, not on how a request was framed. The
+same requests from a shell:
+
+```bash
+refused -X POST "$BASE/api/v1/settings" -H "$EVIL_ORIGIN" \
+  -H 'content-type: application/json' -d '{"logLevel": "$OTHER_LEVEL"}'   # 200
+refused -X POST "$BASE/api/v1/settings" -H "$EVIL_ORIGIN" \
+  -H 'content-type: application/json' -d '{"webUiPath": "/tmp/ext-mgmt"}' # 403
+refused -X POST "$BASE/api/v1/data/import" -H "$EVIL_ORIGIN" \
+  --data-binary @/tmp/ext-mgmt/export.zip                                  # 403
+refused -X POST "$BASE/api/v1/data/sync" -H "$EVIL_ORIGIN" \
+  -H 'content-type: application/json' -d '{"target": "http://127.0.0.1:8080", "mode": "pull"}'  # 403
+refused -X POST "$BASE/api/v1/data/sync" -H "$EVIL_ORIGIN" \
+  -H 'content-type: application/json' -d '{"target": "http://127.0.0.1:8080", "mode": "push"}'  # 200
+```
+
+**Honesty note:** an `Origin` header sent by `curl` proves what the server does
+with a browser origin; it does not prove a real browser page was blocked. The
+real-browser check is a separate step and is not part of this scenario.
+
 ## 2. Turn the switch ON in the app
 
 In the Decaid window: **Settings → Security → "Require authorization for
@@ -275,14 +367,23 @@ curl -s -D - -o /dev/null -X POST "$BASE/api/v1/plugins/ext-auth-plain/enable" |
 # www-authenticate: Bearer
 ```
 
-A forged forwarding header changes nothing, because the decision never uses one:
+A forged forwarding header changes nothing, because the decision never uses
+one. `Origin` is the only browser request input, it is judged by section 1's
+live origin set, and a `localhost` origin additionally needs a socket peer that
+belongs to this device — the peer is transport state, not a header, so it cannot
+be forged from a page on another machine:
 
 ```bash
 code -X POST "$BASE/api/v1/plugins/ext-auth-plain/enable" \
   -H 'Host: localhost' -H 'X-Forwarded-For: 127.0.0.1' -H 'X-Real-IP: 127.0.0.1' \
-  -H 'X-Forwarded-Host: localhost' -H 'Origin: http://localhost:3000'      # 401
+  -H 'X-Forwarded-Host: localhost' -H "$SKIN_ORIGIN"                      # 401
 code -X POST "http://$LAN_IP:8080/api/v1/plugins/ext-auth-plain/enable"     # 401
+code -X POST "$BASE/api/v1/plugins/ext-auth-plain/enable" -H "$AUTH" \
+  -H 'Host: localhost' -H 'X-Forwarded-For: 127.0.0.1' -H "$EVIL_ORIGIN"   # 403, token or not
 ```
+
+In both modes, an `Origin` that is not the device's own is refused 403 with no
+`access-control-*` header on the response, before the credential is looked at.
 
 The two update routes are ordinary protected routes now: no loopback exception,
 no `automaticUpdateCheck` dependency, no 30-second throttle. Section 1 showed
@@ -307,9 +408,10 @@ settings -H "$AUTH" -d '{"automaticUpdateCheck": false}'                  # 200
 curl -sf "$BASE/api/v1/settings" | jq -r .logLevel                        # $LOG_LEVEL, unchanged
 ```
 
-Import and pull-sync skip the two protected settings with a warning while ON;
-while OFF (section 1) they apply them without a token. With at least two skins
-installed, a different default skin is gated the same way:
+Import and pull-sync skip the two protected settings with a warning while ON and
+not authorized; while OFF (section 1) they apply them without a token, and while
+ON with a valid `extensions:manage` token they apply them too. With at least two
+skins installed, a different default skin is gated the same way:
 
 ```bash
 if [ -n "$OTHER_SKIN" ]; then

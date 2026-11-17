@@ -232,9 +232,11 @@ plugin. Issue #1191 restores the open default and makes the gate opt-in.
 policy: `extensionManagementRoutes` (18 method + `shelf_router` patterns) and
 `extensionManagementAuthMiddleware`, installed in `buildWebServerHandler` right
 after `proxyAuthMiddleware`. One persisted, native-only setting decides the
-mode, read fresh for every request through the
+mode, read fresh for every request that is classified as relevant through the
 `requireExtensionManagementAuthorization` callback wired to
-`SettingsController.currentRequireExtensionManagementAuthorization()`:
+`SettingsController.currentRequireExtensionManagementAuthorization()`, which
+returns a new storage-backed future per call, and is resolved lazily at most
+once per request by the middleware's snapshot:
 
 - **OFF (compatibility, the shipped default)**: every route in the table and
 every body-dependent gate is authorized without consulting a credential, with
@@ -255,11 +257,21 @@ section, or for development and automation from `--extensions-token` or the
 - Matching builds a real `shelf_router` `Router` from the table, so encoding,
   case and trailing slashes are judged as the handlers' router judges them and
   method-specific entries leave plugin endpoints with reserved names alone.
-- The mode is one snapshot per request, stored in the shelf request context
-  (the existing `_authorizationContextKey` slot) and read by both the route gate
-  and the body-dependent handlers, so the two can never disagree and a settings
-  write that flips the toggle cannot land between them. Handlers never read
-  storage.
+- The mode is one lazy, memoized `_ExtensionManagementModeSnapshot` per request,
+  created by the middleware and stored in the shelf request context (the
+  existing `_authorizationContextKey` slot). The stored read is resolved at most
+  once and reused by the route gate and the body-dependent handlers, so the two
+  can never disagree and a settings write that flips the toggle cannot land
+  between them. Handlers never read storage, and an active in-process grant is
+  decided before the read is ever started. The reader is only touched when the
+  outcome can depend on the mode: the 18 management routes, a
+  `POST /api/v1/settings` body with a gated key, an import, and a pull/two-way
+  sync that includes `settings`. Machine, state, polling, account, read-only,
+  plugin-defined routes, ordinary settings bodies, `automaticUpdateCheck: false`
+  and a push or non-settings sync never resolve it, so they do not queue behind
+  storage. Import reads it once after its bounded stream because the gated keys
+  are only known after ZIP parsing; an origin refusal short-circuits before any
+  read.
 - The middleware is installed even without a `ProxyTokenService`; in protected
   mode only in-process grants pass then, so the routes fail closed.
 - Body-dependent gates (`POST /api/v1/settings` with `webUiPath`, a changed
@@ -297,9 +309,47 @@ section, or for development and automation from `--extensions-token` or the
   and the middleware's `automaticUpdateCheckEnabled`/`localOrigins`/`clock`
   parameters were deleted. Background scheduling still reads
   `automaticUpdateCheck` inside the update services.
-- The pre-existing general CORS policy in `buildWebServerHandler` (the
-  `shelf_cors_headers` origin echo) is preserved unchanged; `#1191` does not
-  change it in either mode. The risk write-up is in `doc/Api.md`.
+- The browser boundary is `extensionManagementBrowserOriginMiddleware`, the
+  outermost middleware in `buildWebServerHandler`, so it runs before
+  `accountProxyCorsMiddleware`, the general `corsHeaders` echo, authentication
+  and body reading. It classifies `Origin` through
+  `ExtensionManagementBrowserOrigins`: originless (no header) passes, trusted
+  means scheme `http`, a literal local host (`localhost`, `127.0.0.1`, `::1` or
+  a numeric local-interface address) and a port that is either the live skin
+  page port (`WebUIService.browserOriginPorts`, which follows the active
+  server, restart and dynamic allocation) or the actual API listener port; every
+  other value is untrusted. A literal loopback host additionally needs socket
+  peer provenance: `classify` takes the `shelf.io.connection_info` context
+  value, and a loopback origin is trusted only when `remoteAddress` is loopback
+  or equals an address from the fresh interface listing. A missing, wrong-typed
+  or throwing peer, or a non-loopback peer that is not one of this device's
+  current addresses, is refused, so another machine's browser cannot borrow
+  `localhost`. The address listing is
+  `WebUIService.currentBrowserOriginAddresses()`, which enumerates the live
+  interfaces whenever a comparison needs them (no cache, no skin-serve gate, no
+  stale WiFi fallback), so it is available before any skin is served and a
+  retired address drops out without one; an enumeration failure is caught into
+  a fail-closed refusal. Nothing is taken from the request itself, so `Host`,
+  `Referer`, forwarding headers and DNS names cannot widen it, and a retired
+  port (including the port 3000 redirect) is not trusted. Untrusted actual
+  requests to the 18 routes are refused `403` before the handler. The three
+  body-gated routes are decided by `requireTrustedBrowserOrigin` in the handler:
+  import always (before the archive is read), a settings body that contains a
+  gated key, and a pull/two-way sync that includes `settings` (before any
+  network or write). Untrusted preflights for a guarded method on a guarded path
+  are refused `403` with no `access-control-*` headers before the general CORS
+  middleware can answer; that includes `POST /api/v1/settings`,
+  `/api/v1/data/import` and `/api/v1/data/sync`, whose relevance depends on a
+  body a preflight does not carry, so a browser cannot send a safe settings
+  write or a `push` sync as a JSON request from an untrusted origin even though
+  the actual request is admitted. Preflights for read-only methods on shared
+  paths and for plugin-defined routes keep the general answer. Handler-level
+  refusals are
+  marked in the response context and stripped of `access-control-*` by the outer
+  middleware (`_withoutAffirmativeCors`). Origin is not authentication: an
+  originless or forged-origin LAN client is unaffected, which is why
+  originless LAN compatibility and the protected-mode recommendation for shared
+  deployments both stay explicit in `doc/Api.md`.
 
 When adding a plugin or skin mutation route, add it to
 `extensionManagementRoutes` and declare `security: [{}, extensionsManage]` with
