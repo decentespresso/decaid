@@ -262,6 +262,25 @@ Future<void> prepareShotUploadStartup(
   }
 }
 
+Future<void> loadSettingsBeforeWebServer({
+  required SettingsController settingsController,
+  required SimulatedDeviceService simulatedDevicesService,
+  required Future<void> Function() startWebServer,
+}) async {
+  settingsController.addListener(() {
+    const simEnv = String.fromEnvironment("simulate");
+    final dartDefineDevices = simEnv.isNotEmpty
+        ? _parseSimulateFlag(simEnv)
+        : <SimulatedDevicesTypes>{};
+    simulatedDevicesService.enabledDevices = {
+      ...dartDefineDevices,
+      ...settingsController.simulatedDevices,
+    };
+  });
+  await settingsController.loadSettings();
+  await startWebServer();
+}
+
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   if (Platform.isWindows) await initializeWindowsPreferences();
@@ -725,68 +744,84 @@ void main(List<String> args) async {
       : null;
 
   try {
-    await startWebServer(
-      deviceController,
-      de1Controller,
-      scaleController,
-      settingsController,
-      sensorController,
-      workflowController,
-      persistenceController,
-      pluginService,
-      webUIService,
-      webUIStorage,
-      profileController,
-      '$logDir/log.txt',
-      webViewLogService,
-      batteryController,
-      presenceController,
-      displayController,
-      pluginSourceService: pluginSourceService,
-      beanStorage: beanStorage,
-      grinderStorage: grinderStorage,
-      connectionManager: connectionManager,
-      backupSources: BackupDataSources(
-        pageShots: (limit, {afterTimestamp, afterCreatedAt, afterId}) =>
-            pageShotsForExport(
-              appDatabase,
-              limit,
-              afterTimestamp: afterTimestamp,
-              afterCreatedAt: afterCreatedAt,
-              afterId: afterId,
+    await loadSettingsBeforeWebServer(
+      settingsController: settingsController,
+      simulatedDevicesService: simulatedDevicesService,
+      startWebServer: () async {
+        try {
+          await startWebServer(
+            deviceController,
+            de1Controller,
+            scaleController,
+            settingsController,
+            sensorController,
+            workflowController,
+            persistenceController,
+            pluginService,
+            webUIService,
+            webUIStorage,
+            profileController,
+            '$logDir/log.txt',
+            webViewLogService,
+            batteryController,
+            presenceController,
+            displayController,
+            pluginSourceService: pluginSourceService,
+            beanStorage: beanStorage,
+            grinderStorage: grinderStorage,
+            connectionManager: connectionManager,
+            backupSources: BackupDataSources(
+              pageShots: (limit, {afterTimestamp, afterCreatedAt, afterId}) =>
+                  pageShotsForExport(
+                    appDatabase,
+                    limit,
+                    afterTimestamp: afterTimestamp,
+                    afterCreatedAt: afterCreatedAt,
+                    afterId: afterId,
+                  ),
+              pageSteams:
+                  (limit, {afterTimestamp, afterCreatedAt, afterId}) async {
+                    final rows = await appDatabase.steamDao.getSteamsForExport(
+                      limit: limit,
+                      cursorTimestamp: afterTimestamp,
+                      cursorId: afterId,
+                    );
+                    return rows.map(SteamMapper.fromRow).toList();
+                  },
+              pageBeans:
+                  (limit, {afterTimestamp, afterCreatedAt, afterId}) async {
+                    final rows = await appDatabase.beanDao.getBeansForExport(
+                      limit: limit,
+                      cursorCreatedAt: afterCreatedAt,
+                      cursorId: afterId,
+                    );
+                    return rows.map(BeanMapper.fromRow).toList();
+                  },
+              pageGrinders:
+                  (limit, {afterTimestamp, afterCreatedAt, afterId}) async {
+                    final rows = await appDatabase.grinderDao
+                        .getGrindersForExport(
+                          limit: limit,
+                          cursorCreatedAt: afterCreatedAt,
+                          cursorId: afterId,
+                        );
+                    return rows.map(GrinderMapper.fromRow).toList();
+                  },
             ),
-        pageSteams: (limit, {afterTimestamp, afterCreatedAt, afterId}) async {
-          final rows = await appDatabase.steamDao.getSteamsForExport(
-            limit: limit,
-            cursorTimestamp: afterTimestamp,
-            cursorId: afterId,
+            wifiScaleDiscoveryService: wifiScaleDiscoveryService,
+            rememberedDevicesController: rememberedDevicesController,
+            decentAccountService: decentAccountService,
+            decentProxyService: decentProxyService,
+            proxyTokenService: proxyTokenService,
+            updateCheckService: updateCheckService,
+            credentials: githubCredentials,
           );
-          return rows.map(SteamMapper.fromRow).toList();
-        },
-        pageBeans: (limit, {afterTimestamp, afterCreatedAt, afterId}) async {
-          final rows = await appDatabase.beanDao.getBeansForExport(
-            limit: limit,
-            cursorCreatedAt: afterCreatedAt,
-            cursorId: afterId,
-          );
-          return rows.map(BeanMapper.fromRow).toList();
-        },
-        pageGrinders: (limit, {afterTimestamp, afterCreatedAt, afterId}) async {
-          final rows = await appDatabase.grinderDao.getGrindersForExport(
-            limit: limit,
-            cursorCreatedAt: afterCreatedAt,
-            cursorId: afterId,
-          );
-          return rows.map(GrinderMapper.fromRow).toList();
-        },
-      ),
-      wifiScaleDiscoveryService: wifiScaleDiscoveryService,
-      rememberedDevicesController: rememberedDevicesController,
-      decentAccountService: decentAccountService,
-      decentProxyService: decentProxyService,
-      proxyTokenService: proxyTokenService,
-      updateCheckService: updateCheckService,
-      credentials: githubCredentials,
+        } on WebServerPortInUse {
+          rethrow;
+        } catch (e, st) {
+          log.severe('failed to start web server', e, st);
+        }
+      },
     );
   } on WebServerPortInUse catch (e) {
     log.severe(
@@ -794,21 +829,8 @@ void main(List<String> args) async {
     );
     runApp(WebServerPortConflictApp(port: e.port));
     return;
-  } catch (e, st) {
-    log.severe('failed to start web server', e, st);
   }
   BootTiming.mark('webserver_up');
-  settingsController.addListener(() {
-    const simEnv = String.fromEnvironment("simulate");
-    final dartDefineDevices = simEnv.isNotEmpty
-        ? _parseSimulateFlag(simEnv)
-        : <SimulatedDevicesTypes>{};
-    simulatedDevicesService.enabledDevices = {
-      ...dartDefineDevices,
-      ...settingsController.simulatedDevices,
-    };
-  });
-  await settingsController.loadSettings();
   await prepareShotUploadStartup(
     settingsController,
     forceOnboarding: cliArgs.forceOnboarding,

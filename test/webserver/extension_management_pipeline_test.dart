@@ -29,7 +29,15 @@ const _idleId = 'idle.reaplugin';
 const _releasedId = 'installed.reaplugin';
 const _defaultSkinId = 'streamline.js';
 const _otherSkinId = 'other.skin';
-const _origin = 'http://skin.example';
+const _trustedPagePort = 25707;
+const _nextPagePort = 34101;
+const _trustedDeviceAddress = '192.168.12.64';
+const _untrustedLanAddress = '192.168.12.99';
+const _trustedOrigin = 'http://127.0.0.1:$_trustedPagePort';
+const _origin = _trustedOrigin;
+const _untrustedOrigin = 'https://evil.example';
+const _originRefused =
+    'Extension management is not allowed from this browser origin';
 const _bundledPluginIds = [
   'time-to-ready.reaplugin',
   'visualizer.reaplugin',
@@ -368,6 +376,9 @@ void main() {
   late String unknownToken;
   late String staleToken;
   late bool protectedMode;
+  late int securityReads;
+  late Set<int> browserPagePorts;
+  late Set<String> browserDeviceAddresses;
   late _MemoryCredentialStore pluginCredentials;
   final connections = <({String remote, int remotePort, int localPort})>[];
 
@@ -467,7 +478,15 @@ void main() {
   Handler pipeline({AdmissionGate? gate}) => buildWebServerHandler(
     routes,
     proxyTokenService: tokens,
-    requireExtensionManagementAuthorization: () async => protectedMode,
+    requireExtensionManagementAuthorization: () async {
+      securityReads += 1;
+      return protectedMode;
+    },
+    browserOrigins: ExtensionManagementBrowserOrigins(
+      apiListenerPort: () => listenerPort,
+      pagePorts: () => browserPagePorts,
+      deviceAddresses: () async => browserDeviceAddresses,
+    ),
     admissionGate:
         gate ??
         AdmissionGate(
@@ -758,6 +777,9 @@ void main() {
     AccountProxyHandler(proxy: proxy, enableWrites: true).addRoutes(app);
     routes = app.call;
     protectedMode = true;
+    securityReads = 0;
+    browserPagePorts = {_trustedPagePort};
+    browserDeviceAddresses = {_trustedDeviceAddress};
     activeHandler = pipeline();
     client = HttpClient();
   }
@@ -1524,6 +1546,60 @@ void main() {
     );
   }
 
+  group('security setting reads', () {
+    test('unrelated traffic never reads the security setting', () async {
+      useMode(true);
+      securityReads = 0;
+      for (final (method, path) in [
+        ('GET', '/api/v1/plugins'),
+        ('GET', '/api/v1/webui/skins'),
+        ('GET', '/api/v1/webui/server/status'),
+        ('GET', '/api/v1/plugins/$_echoId/echo'),
+        ('GET', '/api/v1/account/proxy/support/api/sn'),
+      ]) {
+        final reply = await send(
+          method,
+          path,
+          authorization: path.startsWith('/api/v1/account/proxy/')
+              ? 'Bearer $accountToken'
+              : null,
+        );
+        expect(
+          reply.status,
+          isNot(anyOf(401, 403)),
+          reason: '$method $path -> $reply',
+        );
+      }
+      expect(securityReads, 0);
+    });
+
+    test('an origin refusal short-circuits before the security read', () async {
+      useMode(true);
+      securityReads = 0;
+      final reply = await send(
+        'POST',
+        '/api/v1/plugins/$_idleId/enable',
+        headers: {'origin': _untrustedOrigin},
+      );
+      expect(reply.status, 403, reason: '$reply');
+      expect(securityReads, 0);
+      expect(service.isPluginLoaded(_idleId), isFalse);
+    });
+
+    test('a management mutation reads the security setting once', () async {
+      useMode(true);
+      securityReads = 0;
+      final reply = await send(
+        'POST',
+        '/api/v1/plugins/$_idleId/enable',
+        authorization: 'Bearer $managerToken',
+      );
+      expect(reply.status, 200, reason: '$reply');
+      expect(securityReads, 1);
+      await service.disablePlugin(_idleId);
+    });
+  });
+
   group('open routes', () {
     test('read-only routes answer without a bearer', () async {
       for (final path in [
@@ -1598,6 +1674,521 @@ void main() {
       test('an unknown bearer is passed through unchanged', () async {
         final headers = await echoedHeaders('Bearer $unknownToken');
         expect(headers['authorization'], 'Bearer $unknownToken');
+      });
+    });
+  }
+
+  for (final required in [true, false]) {
+    group('browser origins (${required ? 'protected' : 'compatibility'})', () {
+      setUp(() => useMode(required));
+
+      String? bearer() => required ? 'Bearer $managerToken' : null;
+
+      List<String> untrustedOrigins() => [
+        _untrustedOrigin,
+        'http://$_untrustedLanAddress:$_trustedPagePort',
+        'http://decaid.local:$_trustedPagePort',
+        'http://localhost:3000',
+        'http://localhost:8080',
+        'https://$_trustedDeviceAddress:$_trustedPagePort',
+        'http://localhost',
+        'null',
+        'http://localhost:$_trustedPagePort, https://evil.example',
+      ];
+
+      List<String> trustedOrigins() => [
+        'http://localhost:$_trustedPagePort',
+        'http://127.0.0.1:$_trustedPagePort',
+        'http://[::1]:$_trustedPagePort',
+        'http://$_trustedDeviceAddress:$_trustedPagePort',
+        'http://$_trustedDeviceAddress:$listenerPort',
+        'http://127.0.0.1:$listenerPort',
+      ];
+
+      test('an untrusted origin is refused on every management route with no '
+          'work, even with a valid bearer', () async {
+        final before = await snapshot();
+        for (final route in extensionManagementRoutes) {
+          for (final origin in untrustedOrigins()) {
+            final reply = await send(
+              route.method,
+              _concretePath(route),
+              authorization: bearer(),
+              body: _bodyFor(route),
+              headers: {'origin': origin},
+            );
+            expect(reply.status, 403, reason: '$route $origin');
+            expect(reply.error, _originRefused, reason: '$route $origin');
+            expect(
+              reply.headers.value('access-control-allow-origin'),
+              isNull,
+              reason: '$route $origin',
+            );
+          }
+        }
+        expect(await snapshot(), before);
+        expect(gitHubRequests, isEmpty);
+        expect(storage.calls, isEmpty);
+        expect(webUi.calls, isEmpty);
+      });
+
+      test('a trusted skin page or same-origin API origin is admitted when '
+          'the credential policy allows', () async {
+        for (final origin in trustedOrigins()) {
+          final reply = await send(
+            'POST',
+            '/api/v1/plugins/$_idleId/enable',
+            authorization: bearer(),
+            headers: {'origin': origin},
+          );
+          expect(reply.status, 200, reason: '$origin: $reply');
+          expect(reply.error, isNull, reason: origin);
+          expect(
+            reply.headers.value('access-control-allow-origin'),
+            origin,
+            reason: origin,
+          );
+          expect(service.isPluginLoaded(_idleId), isTrue, reason: origin);
+          await service.disablePlugin(_idleId);
+        }
+      });
+
+      test('a trusted origin does not replace the credential policy', () async {
+        final reply = await send(
+          'POST',
+          '/api/v1/plugins/$_idleId/enable',
+          headers: {'origin': 'http://localhost:$_trustedPagePort'},
+        );
+        expect(reply.status, required ? 401 : 200, reason: '$reply');
+        expect(service.isPluginLoaded(_idleId), required ? isFalse : isTrue);
+        await service.disablePlugin(_idleId);
+      });
+
+      test('the trusted page origin follows the live skin port, restart and '
+          'stop', () async {
+        final live = 'http://localhost:$_trustedPagePort';
+        final next = 'http://localhost:$_nextPagePort';
+
+        Future<int> attempt(String origin) async => (await send(
+          'POST',
+          '/api/v1/plugins/$_idleId/enable',
+          authorization: bearer(),
+          headers: {'origin': origin},
+        )).status;
+
+        expect(await attempt(live), 200);
+        await service.disablePlugin(_idleId);
+
+        browserPagePorts = {_nextPagePort};
+        expect(await attempt(live), 403);
+        expect(await attempt(next), 200);
+        await service.disablePlugin(_idleId);
+
+        browserPagePorts = const {};
+        expect(await attempt(next), 403);
+        expect(service.isPluginLoaded(_idleId), isFalse);
+
+        browserPagePorts = {_nextPagePort};
+        expect(
+          await attempt('http://$_trustedDeviceAddress:$_nextPagePort'),
+          200,
+        );
+        await service.disablePlugin(_idleId);
+
+        browserDeviceAddresses = {'192.168.12.65'};
+        expect(
+          await attempt('http://$_trustedDeviceAddress:$_nextPagePort'),
+          403,
+        );
+        expect(await attempt('http://192.168.12.65:$_nextPagePort'), 200);
+        await service.disablePlugin(_idleId);
+      });
+
+      test('a loopback origin needs a socket peer that belongs to this '
+          'device', () async {
+        final lanServer = await bind(InternetAddress.anyIPv4);
+        addTearDown(() => lanServer.close(force: true));
+        final interfaces = await NetworkInterface.list(
+          type: InternetAddressType.IPv4,
+          includeLoopback: false,
+        );
+        final addresses = [
+          for (final interface in interfaces)
+            for (final address in interface.addresses) address,
+        ].where((address) => !address.isLoopback).toList();
+        if (addresses.isEmpty) {
+          markTestSkipped(
+            'No non-loopback IPv4 address; the LAN peer case was not '
+            'exercised',
+          );
+          return;
+        }
+        final peer = addresses.first;
+        const origin = 'http://localhost:$_trustedPagePort';
+
+        connections.clear();
+        final before = await snapshot();
+        browserDeviceAddresses = {_untrustedLanAddress};
+        final remote = await send(
+          'POST',
+          '/api/v1/plugins/$_idleId/enable',
+          authorization: bearer(),
+          headers: const {'origin': origin},
+          to: lanServer,
+          host: peer.address,
+        );
+        expect(remote.status, 403, reason: '${peer.address}: $remote');
+        expect(remote.error, _originRefused);
+        expect(remote.headers.value('access-control-allow-origin'), isNull);
+        expect(connections.last.remote, peer.address);
+        expect(InternetAddress(connections.last.remote).isLoopback, isFalse);
+        expect(await snapshot(), before);
+        expect(service.isPluginLoaded(_idleId), isFalse);
+
+        browserDeviceAddresses = {peer.address};
+        final sameDevice = await send(
+          'POST',
+          '/api/v1/plugins/$_idleId/enable',
+          authorization: bearer(),
+          headers: const {'origin': origin},
+          to: lanServer,
+          host: peer.address,
+        );
+        expect(
+          sameDevice.status,
+          200,
+          reason: 'a self peer keeps the local page origin: $sameDevice',
+        );
+        expect(service.isPluginLoaded(_idleId), isTrue);
+        await service.disablePlugin(_idleId);
+
+        browserDeviceAddresses = {_trustedDeviceAddress};
+        final numeric = await send(
+          'POST',
+          '/api/v1/plugins/$_idleId/enable',
+          authorization: bearer(),
+          headers: {
+            'origin': 'http://$_trustedDeviceAddress:$_trustedPagePort',
+          },
+          to: lanServer,
+          host: peer.address,
+        );
+        expect(
+          numeric.status,
+          200,
+          reason:
+              'a remote LAN browser keeps a numeric device origin: '
+              '$numeric',
+        );
+        expect(service.isPluginLoaded(_idleId), isTrue);
+        await service.disablePlugin(_idleId);
+      });
+
+      test('host, referer and forwarding headers do not make an origin '
+          'trusted', () async {
+        final before = await snapshot();
+        final forged = {
+          'origin': _untrustedOrigin,
+          'referer': 'http://localhost:$_trustedPagePort/settings',
+          'x-forwarded-host': 'localhost:$_trustedPagePort',
+          'x-forwarded-for': '127.0.0.1',
+          'x-real-ip': '127.0.0.1',
+          'forwarded': 'for=127.0.0.1;host=localhost;proto=http',
+        };
+        final reply = await send(
+          'POST',
+          '/api/v1/plugins/$_idleId/enable',
+          authorization: bearer(),
+          headers: forged,
+        );
+        expect(reply.status, 403, reason: '$reply');
+        expect(reply.error, _originRefused);
+
+        final raw = await rawSocketRequest(
+          InternetAddress.loopbackIPv4,
+          server.port,
+          'POST',
+          '/api/v1/plugins/$_idleId/enable',
+          authorization: bearer(),
+          hostHeader: 'localhost:$_trustedPagePort',
+          headers: const {'Origin': _untrustedOrigin},
+        );
+        expect(raw.status, 403, reason: raw.body);
+        expect(raw.body, contains(_originRefused));
+        expect(await snapshot(), before);
+        expect(service.isPluginLoaded(_idleId), isFalse);
+
+        final originless = await rawSocketRequest(
+          InternetAddress.loopbackIPv4,
+          server.port,
+          'POST',
+          '/api/v1/plugins/$_idleId/enable',
+          authorization: bearer(),
+          hostHeader: 'localhost:$_trustedPagePort',
+          headers: const {
+            'X-Forwarded-For': '127.0.0.1',
+            'X-Real-IP': '127.0.0.1',
+          },
+        );
+        expect(originless.status, 200, reason: originless.body);
+        expect(service.isPluginLoaded(_idleId), isTrue);
+        await service.disablePlugin(_idleId);
+      });
+
+      test('an untrusted preflight for a management mutation gets no '
+          'affirmative CORS or preflight headers', () async {
+        final before = await snapshot();
+        for (final route in extensionManagementRoutes) {
+          for (final origin in untrustedOrigins()) {
+            final reply = await send(
+              'OPTIONS',
+              _concretePath(route),
+              headers: {
+                'origin': origin,
+                'access-control-request-method': route.method,
+                'access-control-request-headers': 'authorization, content-type',
+              },
+            );
+            expect(reply.status, 403, reason: '$route $origin');
+            expect(reply.error, _originRefused, reason: '$route $origin');
+            for (final name in [
+              'access-control-allow-origin',
+              'access-control-allow-credentials',
+              'access-control-allow-methods',
+              'access-control-allow-headers',
+              'access-control-expose-headers',
+            ]) {
+              expect(
+                reply.headers.value(name),
+                isNull,
+                reason: '$route $origin $name',
+              );
+            }
+          }
+        }
+        expect(await snapshot(), before);
+      });
+
+      test('an untrusted preflight for a body-sensitive operation gets no '
+          'affirmative CORS or preflight headers', () async {
+        final before = await snapshot();
+        for (final path in [
+          '/api/v1/settings',
+          '/api/v1/data/import',
+          '/api/v1/data/sync',
+        ]) {
+          for (final origin in untrustedOrigins()) {
+            final reply = await send(
+              'OPTIONS',
+              path,
+              headers: {
+                'origin': origin,
+                'access-control-request-method': 'POST',
+                'access-control-request-headers': 'authorization, content-type',
+              },
+            );
+            expect(reply.status, 403, reason: '$path $origin');
+            expect(reply.error, _originRefused, reason: '$path $origin');
+            for (final name in [
+              'access-control-allow-origin',
+              'access-control-allow-credentials',
+              'access-control-allow-methods',
+              'access-control-allow-headers',
+              'access-control-expose-headers',
+              'access-control-max-age',
+            ]) {
+              expect(
+                reply.headers.value(name),
+                isNull,
+                reason: '$path $origin $name',
+              );
+            }
+          }
+        }
+        expect(await snapshot(), before);
+      });
+
+      test('an untrusted preflight for a read-only method on a shared '
+          'management path keeps the general CORS contract', () async {
+        final before = await snapshot();
+        for (final path in [
+          '/api/v1/plugins',
+          '/api/v1/plugins/$_echoId/settings',
+          '/api/v1/webui/skins',
+          '/api/v1/webui/skins/default',
+          '/api/v1/webui/skins/$_defaultSkinId',
+          '/api/v1/settings',
+        ]) {
+          for (final origin in [
+            _untrustedOrigin,
+            'null',
+            'http://unknown.example:9999',
+          ]) {
+            final reply = await send(
+              'OPTIONS',
+              path,
+              headers: {
+                'origin': origin,
+                'access-control-request-method': 'GET',
+              },
+            );
+            expect(reply.status, 200, reason: '$path $origin');
+            expect(reply.body, isEmpty, reason: '$path $origin');
+            expect(
+              reply.headers.value('access-control-allow-origin'),
+              origin,
+              reason: '$path $origin',
+            );
+            expect(
+              reply.headers.value('access-control-allow-methods'),
+              isNotNull,
+              reason: '$path $origin',
+            );
+            expect(
+              reply.headers.value('access-control-max-age'),
+              isNotNull,
+              reason: '$path $origin',
+            );
+          }
+        }
+        expect(await snapshot(), before);
+      });
+
+      test('an untrusted preflight for a mutation on a shared path is still '
+          'refused', () async {
+        final before = await snapshot();
+        for (final (method, path) in [
+          ('POST', '/api/v1/plugins/$_echoId/settings'),
+          ('PUT', '/api/v1/webui/skins/default'),
+          ('DELETE', '/api/v1/webui/skins/$_defaultSkinId'),
+          ('DELETE', '/api/v1/plugins/$_idleId'),
+          ('POST', '/api/v1/settings'),
+        ]) {
+          for (final origin in [...untrustedOrigins(), 'null']) {
+            final reply = await send(
+              'OPTIONS',
+              path,
+              headers: {
+                'origin': origin,
+                'access-control-request-method': method,
+              },
+            );
+            expect(reply.status, 403, reason: '$method $path $origin');
+            expect(reply.error, _originRefused, reason: '$method $path');
+            for (final name in [
+              'access-control-allow-origin',
+              'access-control-allow-credentials',
+              'access-control-allow-methods',
+              'access-control-allow-headers',
+              'access-control-expose-headers',
+              'access-control-max-age',
+            ]) {
+              expect(
+                reply.headers.value(name),
+                isNull,
+                reason: '$method $path $origin $name',
+              );
+            }
+          }
+        }
+        expect(await snapshot(), before);
+      });
+
+      test('an untrusted preflight for a plugin-defined route keeps the '
+          'general CORS contract', () async {
+        for (final (method, path) in [
+          ('POST', '/api/v1/plugins/$_echoId/echo'),
+          ('GET', '/api/v1/plugins/$_echoId/status'),
+        ]) {
+          final reply = await send(
+            'OPTIONS',
+            path,
+            headers: {
+              'origin': _untrustedOrigin,
+              'access-control-request-method': method,
+            },
+          );
+          expect(reply.status, 200, reason: '$method $path');
+          expect(
+            reply.headers.value('access-control-allow-origin'),
+            _untrustedOrigin,
+            reason: '$method $path',
+          );
+        }
+      });
+
+      test('an untrusted preflight without a usable requested method stays '
+          'refused on management paths', () async {
+        final before = await snapshot();
+        for (final value in const <String?>[null, '', 'GET, POST', 'P@ST']) {
+          for (final path in [
+            '/api/v1/plugins/$_echoId/settings',
+            '/api/v1/webui/skins/default',
+            '/api/v1/settings',
+          ]) {
+            final reply = await send(
+              'OPTIONS',
+              path,
+              headers: {
+                'origin': _untrustedOrigin,
+                'access-control-request-method': ?value,
+              },
+            );
+            expect(reply.status, 403, reason: '$value $path');
+            expect(reply.error, _originRefused, reason: '$value $path');
+            expect(
+              reply.headers.value('access-control-allow-origin'),
+              isNull,
+              reason: '$value $path',
+            );
+          }
+        }
+        expect(await snapshot(), before);
+      });
+
+      test('a trusted preflight for a body-sensitive operation keeps its '
+          'pre-existing CORS headers', () async {
+        for (final path in [
+          '/api/v1/settings',
+          '/api/v1/data/import',
+          '/api/v1/data/sync',
+        ]) {
+          final reply = await send(
+            'OPTIONS',
+            path,
+            headers: {
+              'origin': 'http://localhost:$_trustedPagePort',
+              'access-control-request-method': 'POST',
+            },
+          );
+          expect(reply.status, 200, reason: path);
+          expect(
+            reply.headers.value('access-control-allow-origin'),
+            'http://localhost:$_trustedPagePort',
+            reason: path,
+          );
+        }
+      });
+
+      test('an untrusted origin keeps read-only, plugin-defined and '
+          'unrelated routes unchanged', () async {
+        for (final (method, path) in [
+          ('GET', '/api/v1/plugins'),
+          ('GET', '/api/v1/plugins/$_echoId/echo'),
+          ('GET', '/api/v1/webui/server/status'),
+          ('POST', '/api/v1/plugins/$_echoId/echo'),
+        ]) {
+          final reply = await send(
+            method,
+            path,
+            headers: {'origin': _untrustedOrigin},
+          );
+          expect(
+            reply.status,
+            isNot(anyOf(401, 403)),
+            reason: '$method $path -> $reply',
+          );
+        }
       });
     });
   }
@@ -2062,6 +2653,12 @@ void main() {
 
     test('forged forwarding and Host headers do not authorize over any '
         'socket', () async {
+      if (hasLan()) {
+        browserDeviceAddresses = {
+          ...browserDeviceAddresses,
+          lanAddress.address,
+        };
+      }
       final endpoints = [
         (
           name: 'IPv4',
@@ -2093,7 +2690,7 @@ void main() {
           sourceAddress: endpoint.source,
           hostHeader: 'localhost',
           headers: const {
-            'Origin': 'http://localhost',
+            'Origin': 'http://localhost:$_trustedPagePort',
             'X-Forwarded-For': '127.0.0.1',
             'X-Real-IP': '127.0.0.1',
             'Forwarded': 'for=127.0.0.1;host=localhost',

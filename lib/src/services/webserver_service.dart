@@ -374,6 +374,7 @@ Future<void> startWebServer(
     );
   }
 
+  int? apiListenerPort;
   final handler = _init(
     deviceHandler,
     de1Handler,
@@ -400,6 +401,10 @@ Future<void> startWebServer(
     proxyTokenService,
     () => accountProxyCorsAllowedOrigins(webUIService),
     () => settingsController.currentRequireExtensionManagementAuthorization(),
+    extensionManagementBrowserOrigins(
+      webUIService,
+      apiListenerPort: () => apiListenerPort,
+    ),
     dataExportHandler,
     dataSyncHandler,
     beansHandler,
@@ -412,6 +417,7 @@ Future<void> startWebServer(
   );
   pluginService.pluginManager.attachLocalApi(handler);
   final server = await serveOrReportPortInUse(handler, '0.0.0.0', 8080);
+  apiListenerPort = server.port;
   log.info('API Web server running on ${server.address.host}:${server.port}');
 
   await startApiDocsServer();
@@ -443,6 +449,7 @@ Handler _init(
   ProxyTokenService? proxyTokenService,
   Set<String> Function() accountProxyAllowedOrigins,
   Future<bool> Function() requireExtensionManagementAuthorization,
+  ExtensionManagementBrowserOrigins browserOrigins,
   DataExportHandler dataExportHandler,
   DataSyncHandler dataSyncHandler,
   BeansHandler? beansHandler,
@@ -508,10 +515,20 @@ Handler _init(
     accountProxyAllowedOrigins: accountProxyAllowedOrigins,
     requireExtensionManagementAuthorization:
         requireExtensionManagementAuthorization,
+    browserOrigins: browserOrigins,
   );
 }
 
 Set<String> _noAccountProxyOrigins() => const {};
+
+ExtensionManagementBrowserOrigins extensionManagementBrowserOrigins(
+  WebUIService webUIService, {
+  required int? Function() apiListenerPort,
+}) => ExtensionManagementBrowserOrigins(
+  apiListenerPort: apiListenerPort,
+  pagePorts: () => webUIService.browserOriginPorts,
+  deviceAddresses: () => webUIService.currentBrowserOriginAddresses(),
+);
 
 class ApiDocsConfiguration {
   const ApiDocsConfiguration();
@@ -565,9 +582,17 @@ Handler buildWebServerHandler(
   ProxyTokenService? proxyTokenService,
   Set<String> Function() accountProxyAllowedOrigins = _noAccountProxyOrigins,
   Future<bool> Function()? requireExtensionManagementAuthorization,
+  ExtensionManagementBrowserOrigins? browserOrigins,
   AdmissionGate? admissionGate,
 }) {
-  return const Pipeline()
+  var pipeline = const Pipeline();
+  final origins = browserOrigins;
+  if (origins != null) {
+    pipeline = pipeline.addMiddleware(
+      extensionManagementBrowserOriginMiddleware(origins),
+    );
+  }
+  return pipeline
       .addMiddleware(accountProxyCorsMiddleware(accountProxyAllowedOrigins))
       .addMiddleware(logRequestsWithClientIp())
       .addMiddleware(

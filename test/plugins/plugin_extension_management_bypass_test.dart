@@ -214,7 +214,7 @@ void main() {
           '127.0.0.1',
           headers: {
             'host': 'localhost',
-            'origin': 'http://localhost',
+            'origin': 'http://localhost:3000',
             'referer': 'http://localhost/',
             'x-forwarded-for': '127.0.0.1',
             'x-real-ip': '127.0.0.1',
@@ -1041,6 +1041,7 @@ void main() {
         String target,
         String dormant, {
         Map<String, String> headers = const {},
+        int status = 401,
       }) async {
         for (final request in requests(target, dormant)) {
           final outcome = await harness.externalRequestFrom(
@@ -1055,16 +1056,24 @@ void main() {
           );
           expect(
             outcome.status,
-            401,
+            status,
             reason:
                 '${request.method} ${request.path} via $host: '
                 '${outcome.body}',
           );
-          expect(
-            outcome.headers['www-authenticate'],
-            'Bearer',
-            reason: '${request.method} ${request.path} via $host',
-          );
+          if (status == 401) {
+            expect(
+              outcome.headers['www-authenticate'],
+              'Bearer',
+              reason: '${request.method} ${request.path} via $host',
+            );
+          } else {
+            expect(jsonDecode(outcome.body), {
+              'error':
+                  'Extension management is not allowed from this browser '
+                  'origin',
+            }, reason: '${request.method} ${request.path} via $host');
+          }
         }
       }
 
@@ -1107,6 +1116,7 @@ void main() {
             target,
             dormant,
             headers: forgedLoopbackHeaders,
+            status: 403,
           );
           expect(await harness.extensionState(), before);
         }),
@@ -1335,5 +1345,191 @@ void main() {
         expect(management.headers['access-control-allow-origin'], origin);
       });
     });
+  });
+
+  group('browser origin boundary', () {
+    const untrustedOrigin = 'https://evil.example';
+    const refusedError =
+        'Extension management is not allowed from this browser origin';
+
+    Future<void> withProtected(
+      Future<void> Function(ExtensionManagementHarness harness) body,
+    ) => http.runWithClient(() async {
+      final harness = await ExtensionManagementHarness.start(
+        requireExtensionManagementAuthorization: true,
+      );
+      try {
+        await body(harness);
+      } finally {
+        await harness.dispose();
+      }
+    }, () => FakeGitHub().client);
+
+    test(
+      'an explicit untrusted origin is refused even with a valid bearer',
+      () => withProtected((harness) async {
+        final before = await harness.extensionState();
+        for (final path in [
+          '/api/v1/plugins/update',
+          '/api/v1/webui/skins/update',
+        ]) {
+          final outcome = await harness.externalRequest(
+            'POST',
+            path,
+            bearer: managerToken,
+            headers: const {'origin': untrustedOrigin},
+          );
+          expect(outcome.status, 403, reason: '$path: ${outcome.body}');
+          expect(jsonDecode(outcome.body), {
+            'error': refusedError,
+          }, reason: path);
+          expect(
+            outcome.headers['access-control-allow-origin'],
+            isNull,
+            reason: path,
+          );
+        }
+        expect(await harness.extensionState(), before);
+        expect(harness.skins.mutations, isEmpty);
+        expect(harness.skinServer.mutations, isEmpty);
+      }),
+    );
+
+    test(
+      'an untrusted origin keeps the account proxy rule unchanged',
+      () => withProtected((harness) async {
+        final proxied = await harness.externalRequest(
+          'POST',
+          '/api/v1/account/proxy/models',
+          bearer: accountToken,
+          headers: const {'origin': untrustedOrigin},
+          body: const {'ping': 1},
+        );
+        expect(proxied.status, 200, reason: proxied.body);
+        expect(harness.accountProxyHits, hasLength(1));
+        expect(proxied.headers['access-control-allow-origin'], isNull);
+      }),
+    );
+
+    test('a loopback origin from a non-loopback socket peer needs that peer to '
+        'be a live device address', () async {
+      final interfaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+        includeLoopback: false,
+      );
+      final addresses = [
+        for (final interface in interfaces)
+          for (final address in interface.addresses) address.address,
+      ];
+      if (addresses.isEmpty) {
+        markTestSkipped(
+          'No non-loopback IPv4 address; the LAN peer case was not '
+          'exercised',
+        );
+        return;
+      }
+      final peer = addresses.first;
+      const origin = 'http://localhost:3000';
+      const path = '/api/v1/webui/skins/update';
+
+      for (final protected in [false, true]) {
+        await http.runWithClient(() async {
+          final harness = await ExtensionManagementHarness.start(
+            requireExtensionManagementAuthorization: protected,
+          );
+          try {
+            final before = await harness.extensionState();
+            final refused = await harness.externalRequestFrom(
+              peer,
+              'POST',
+              path,
+              bearer: protected ? managerToken : null,
+              headers: const {'origin': origin},
+            );
+            expect(
+              refused.status,
+              403,
+              reason: '$peer protected=$protected: ${refused.body}',
+            );
+            expect(jsonDecode(refused.body), {'error': refusedError});
+            expect(
+              refused.headers['access-control-allow-origin'],
+              isNull,
+              reason: 'protected=$protected',
+            );
+            expect(await harness.extensionState(), before);
+            expect(harness.skins.mutations, isEmpty);
+
+            harness.skinServer.browserOriginAddresses = {peer};
+            final sameDevice = await harness.externalRequestFrom(
+              peer,
+              'POST',
+              path,
+              bearer: protected ? managerToken : null,
+              headers: const {'origin': origin},
+            );
+            expect(
+              sameDevice.status,
+              200,
+              reason: '$peer protected=$protected: ${sameDevice.body}',
+            );
+            expect(harness.skins.mutations, ['checkForSkinUpdates']);
+
+            harness.skinServer.browserOriginAddresses = const {};
+            final retired = await harness.externalRequestFrom(
+              peer,
+              'POST',
+              path,
+              bearer: protected ? managerToken : null,
+              headers: const {'origin': origin},
+            );
+            expect(
+              retired.status,
+              403,
+              reason: '$peer protected=$protected: ${retired.body}',
+            );
+            expect(harness.skins.mutations, hasLength(1));
+          } finally {
+            await harness.dispose();
+          }
+        }, () => FakeGitHub().client);
+      }
+    });
+
+    test(
+      'the live skin port and the API listener port stay trusted',
+      () => withProtected((harness) async {
+        final skinOrigin = 'http://localhost:${harness.skinServer.port}';
+        final apiOrigin = 'http://localhost:${harness.port}';
+        for (final origin in [skinOrigin, apiOrigin]) {
+          final outcome = await harness.externalRequest(
+            'POST',
+            '/api/v1/webui/skins/update',
+            bearer: managerToken,
+            headers: {'origin': origin},
+          );
+          expect(outcome.status, 200, reason: '$origin: ${outcome.body}');
+          expect(
+            outcome.headers['access-control-allow-origin'],
+            origin,
+            reason: origin,
+          );
+        }
+        expect(harness.skins.mutations, [
+          'checkForSkinUpdates',
+          'checkForSkinUpdates',
+        ]);
+
+        harness.skinServer.serving = false;
+        final retired = await harness.externalRequest(
+          'POST',
+          '/api/v1/webui/skins/update',
+          bearer: managerToken,
+          headers: {'origin': skinOrigin},
+        );
+        expect(retired.status, 403, reason: retired.body);
+        expect(harness.skins.mutations, hasLength(2));
+      }),
+    );
   });
 }
