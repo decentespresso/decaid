@@ -140,34 +140,53 @@ In an external browser `switchSkin` is a no-op. Use the REST skin controls
 (`PUT /api/v1/webui/skins/default` with `{"skinId": "<id>"}`, then the WebUI
 server stop and start endpoints) and then open the stable entry point on port
 3000, which redirects to the selected skin's origin. Those REST calls need an
-`extensions:manage` bearer token; see
+`extensions:manage` bearer token while extension management protection is ON
+(and none by default); see
 [Managing Plugins and Skins from a Skin](#managing-plugins-and-skins-from-a-skin).
 
 ### Managing Plugins and Skins from a Skin
 
 The REST routes that install, replace, configure, enable, disable or remove
 plugins and skins, change the default skin, or start and stop the skin server
-require `Authorization: Bearer <token>` with the `extensions:manage` scope. The
-rest of the API stays unauthenticated. The full list is in
+are open by default. While the native **Settings → Security → "Require
+authorization for extension management"** option is ON, each of them requires
+`Authorization: Bearer <token>` with the `extensions:manage` scope; the rest of
+the API stays unauthenticated in both modes. The full list is in
 [REST management routes](#rest-management-routes).
 
-One narrow exception exists for update checks: when `automaticUpdateCheck` is
-enabled in native settings, `POST /api/v1/webui/skins/update` (and
-`POST /api/v1/plugins/update`) also admit a tokenless caller on the same
-device — an IPv4/IPv6 loopback peer address with a loopback `Host` on the API
-port and, when present, a loopback skin/API `Origin`. LAN peers, spoofed
-forwarding headers, `Origin: null` and cross-origin requests are never
-admitted. When automatic updates are off, tokenless local checks are refused
-until the native-confirmation follow-up.
+There is no loopback or update-check exception in either mode: with protection
+ON, `POST /api/v1/webui/skins/update` and `POST /api/v1/plugins/update` need the
+same credential as the other management routes, and the
+`automaticUpdateCheck` setting only governs the app's own scheduled checks.
+
+A skin page's management calls are also checked against its browser `Origin`,
+in both modes and before any handler work. The trusted skin origin is the live
+one: scheme `http`, host `localhost`, `127.0.0.1`, `::1` or the device's current
+numeric address, and the port the active skin server is actually serving on.
+That port is read live, so it follows a skin switch, a restart and a
+re-allocated port; a retired port is not trusted, and neither is the port 3000
+entry point, which only redirects to the live origin (the page always ends up
+running and posting from there). A `localhost` origin is additionally trusted
+only from a request whose socket peer is the device itself — loopback or one
+of its current addresses — so a page on another computer cannot borrow the name
+even with a valid token. `Origin: null`, `https`, a hostname, another
+device's address and a malformed value are refused with `403` and
+`{"error":"Extension management is not allowed from this browser origin"}`,
+whether or not the page sends a token, and the refusal applies to the same
+routes and body-gated keys as everywhere else; see
+[Browser origins](Api.md#browser-origins). Requests that carry no `Origin`
+header, such as the skin's own asset and `GET` requests and non-browser
+clients, are unaffected.
 
 Skins get no implicit management authority. The account-proxy token Decaid
 injects into served skin pages has only the `account:proxy` scope, and the
-management routes refuse it with 403. A skin that offers plugin or skin
-management has these options:
+management routes refuse it with 403 while protection is ON. With protection
+OFF (the default) a skin's `fetch` calls need no credential at all. A skin that
+offers plugin or skin management has these options:
 
 - **Switch skins inside the app** with `window.decentApp.switchSkin(skinId)`
   (see [Switching Skins from an Embedded Skin](#switching-skins-from-an-embedded-skin)).
-  It needs no token and is unaffected by this gate.
+  It needs no token in either mode.
 - **Ask the user for a token** created in the app (**Decent Account** page,
   **API access tokens**, **Create**, turn on **Manage plugins and skins**; the
   token is shown once) and send it as a bearer. Keep it in memory for the life of
@@ -202,11 +221,11 @@ async function manage(path, init = {}) {
 await manage('/api/v1/plugins/my.reaplugin/enable', { method: 'POST' });
 ```
 
-The responses are 401 `{"error":"Missing or malformed bearer token"}`, 401
-`{"error":"Invalid token"}` for an unknown or revoked token, and 403
-`{"error":"Token is not scoped for extensions:manage"}` for a token of another
-scope. HTTP bearer tokens are not confidential on the LAN; use a trusted network
-until Decaid has an HTTPS listener.
+The responses while protection is ON are 401 `{"error":"Missing or malformed
+bearer token"}`, 401 `{"error":"Invalid token"}` for an unknown or revoked
+token, and 403 `{"error":"Token is not scoped for extensions:manage"}` for a
+token of another scope. HTTP bearer tokens are not confidential on the LAN; use
+a trusted network until Decaid has an HTTPS listener (#925).
 
 ### Live Camera Access on Android, iOS and macOS
 
@@ -364,6 +383,14 @@ stable origin is not visible**, and anything written during that run is not
 visible after it. Nothing is deleted; it is simply keyed to a different origin.
 A temporary origin is exceptional: it changes per run, it is never persisted,
 and it never becomes a redirect alias, so it is not a bookmark target.
+
+**Only the live origin is trusted for extension management.** The management
+browser-origin check reads the port the active skin server is currently serving
+on, so a switch, restart, fallback or re-allocation moves the trusted origin
+with it, and stopping the skin server leaves no skin origin trusted at all. The
+port 3000 entry point, an inactive skin's redirect alias and any previously
+assigned port are not trusted: they never serve the skin page, so a page cannot
+post from them. See [Browser origins](Api.md#browser-origins).
 
 A skin that must not lose state across such a run should persist it through the
 Decaid API rather than browser storage. The KV endpoints are unaffected by
@@ -1655,10 +1682,12 @@ Only include fields you want to update. Changes take effect immediately.
 A body that contains `webUiPath` or sets `defaultSkinId` to a skin other than the
 current default changes which skin is served, and one that sets
 `automaticUpdateCheck` to `true` while it is off lets Decaid install skin and
-plugin updates, so these need an `extensions:manage` bearer token. Without one
-the request is refused with 401 or 403 and none of its fields are applied.
-Values already in effect, turning `automaticUpdateCheck` off, and other fields
-need no token. Restoring a backup (`POST /api/v1/data/import`) or pulling a sync
+plugin updates. While extension management protection is ON, those bodies need
+an `extensions:manage` bearer token; without one the request is refused with 401
+or 403 and none of its fields are applied. With protection OFF (the default) no
+token is needed, and in both modes values already in effect, turning
+`automaticUpdateCheck` off, and other fields need none. While protection is ON,
+restoring a backup (`POST /api/v1/data/import`) or pulling a sync
 (`POST /api/v1/data/sync`) without the token imports everything except a
 `defaultSkinId` that differs from the current one and an
 `automaticUpdateCheck: true` while automatic updates are off, and reports a
@@ -1763,9 +1792,11 @@ Returns current settings for the plugin.
 
 #### Update Plugin Settings
 
-Requires an `extensions:manage` bearer token; see
+Requires an `extensions:manage` bearer token while extension management
+protection is ON (none by default); see
 [Managing Plugins and Skins from a Skin](#managing-plugins-and-skins-from-a-skin).
-Enabling, disabling, installing, updating and removing plugins need it too.
+Enabling, disabling, installing, updating and removing plugins are gated the
+same way.
 
 ```http
 POST /api/v1/plugins/{id}/settings
@@ -3443,7 +3474,8 @@ This creates an `out/` directory with static HTML/CSS/JS files.
 3. Enter `owner/repo` (and optionally the asset name, or the branch, defaulting to `main`)
 4. The skin is installed and appears in the skin list; **Check for updates** re-fetches from the same source
 
-**Option C: Install via REST API** (needs an `extensions:manage` token, see
+**Option C: Install via REST API** (needs an `extensions:manage` token while
+extension management protection is ON, and no token by default; see
 [REST management routes](#rest-management-routes)):
 
 ```bash
@@ -3717,10 +3749,12 @@ Live-edit validates that the selected folder contains an `index.html`.
 
 The bundled **settings plugin** provides a web-based settings dashboard at `/api/v1/plugins/settings.reaplugin/ui`. Its "Web Interface" section shows the installed skins and the skin server's status, with controls to select the active skin, start or stop the server, install or remove skins, and check for updates.
 
-The page has no authority. Its management actions (switching or removing a skin,
-starting or stopping the server, installing, checking for updates, or changing a
-plugin) are refused and the page says to use the settings in the Decaid app or
-to call the API with a token. It does not ask for a token: plugin pages share
+The page holds no management token. With protection OFF (the default), its
+management actions work from a trusted browser origin. With protection ON,
+those actions are refused and the page says to use the settings in the Decaid
+app or call the API with an `extensions:manage` token. This includes switching
+or removing a skin, starting or stopping the server, installing, checking for
+updates, and changing a plugin. It does not ask for a token: plugin pages share
 the API origin, so another plugin's page could read one entered there. Viewing
 and changing ordinary settings works as before.
 
@@ -3778,18 +3812,19 @@ the update notice, and installation still requires a separate action.
 | GET | `/api/v1/webui/server/status` | no | Current status (`{serving, path, port, ip}`) |
 | POST | `/api/v1/webui/server/start` | yes | Start serving the default skin through the port 3000 entry point |
 | POST | `/api/v1/webui/server/stop` | yes | Stop serving |
-| POST | `/api/v1/webui/skins/update` | yes | Check all remote skin sources for updates |
+| POST | `/api/v1/webui/skins/update` | yes | Check the configured and recorded skin sources for updates |
 
-The start endpoint uses `defaultSkinId` from settings. To switch skins: set the default via `PUT /api/v1/webui/skins/default`, then restart the server. All three steps need an `extensions:manage` bearer token.
+The start endpoint uses `defaultSkinId` from settings. To switch skins: set the default via `PUT /api/v1/webui/skins/default`, then restart the server. All three steps are gated the same way, needing an `extensions:manage` bearer token while extension management protection is ON and none by default.
 
 ### REST Management Routes
 
-These routes need `Authorization: Bearer <token>` with the `extensions:manage`
-scope. Without it they answer 401; with a token of another scope, such as the
-skin's injected account-proxy token, 403.
-
-`POST /api/v1/webui/skins/update` additionally admits a tokenless same-device
-loopback caller while `automaticUpdateCheck` is on; see [Managing Plugins and Skins from a Skin](#managing-plugins-and-skins-from-a-skin).
+These routes are open by default. While extension management protection is ON
+they need `Authorization: Bearer <token>` with the `extensions:manage` scope:
+without it they answer 401, and with a token of another scope, such as the
+skin's injected account-proxy token, 403. There is no tokenless loopback
+exception for the update check in either mode. A browser origin that is not the
+device's own is refused with 403 before the handler in both modes, whatever
+credential it carries; see [Browser origins](Api.md#browser-origins).
 
 | Method | Path |
 |--------|------|
@@ -3889,7 +3924,7 @@ The default skin preference:
 - Defaults to `streamline-project` if no preference is set
 - Persists across app restarts
 - Automatically saved when user selects a skin in Settings view
-- Can be changed via API (with an `extensions:manage` token) or in the app's Settings view; the Settings plugin's web page can no longer change it
+- Can be changed via API (with an `extensions:manage` token while extension management protection is ON) or in the app's Settings view; the Settings plugin's web page can change it too while protection is OFF
 
 ---
 
@@ -3966,13 +4001,11 @@ rejected as an invalid package and the installed skin is left alone.
 **Update Detection:**
 - User-installed skins are checked for updates via `updateAllSkins()`, which
   runs on the app's periodic update check, from `POST /api/v1/webui/skins/update`
-  (which needs an `extensions:manage` token, or a same-device loopback caller
-  while `automaticUpdateCheck` is on; see [Managing Plugins and Skins from a Skin](#managing-plugins-and-skins-from-a-skin)),
+  (gated while protection is ON; see [Managing Plugins and Skins from a Skin](#managing-plugins-and-skins-from-a-skin)),
   and from the native skin page's
   cogwheel menu under **Check for updates**. The web settings plugin's "Check
-  for Skin Updates" button only triggers it when automatic updates are on and
-  the request comes from the same device; otherwise its request is refused
-  with 401.
+  for Skin Updates" button triggers it without a credential while protection is
+  OFF, and reports that it needs a token while protection is ON.
 - During an update check on the native skin page, the cogwheel shows progress
   and **Check for updates** is disabled until the check finishes, including
   after a failure. The menu can still be opened to access installation.

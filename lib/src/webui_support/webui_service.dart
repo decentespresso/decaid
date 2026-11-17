@@ -652,6 +652,18 @@ class WebUIService {
 
   bool get isServing => _server != null;
 
+  Set<int> get browserOriginPorts => _server == null ? const {} : {port};
+
+  Future<Set<String>> currentBrowserOriginAddresses() async => {
+    for (final address in await _listLocalAddresses())
+      ?_numericAddress(address),
+  };
+
+  String? _numericAddress(String address) {
+    if (address.contains('%')) return null;
+    return InternetAddress.tryParse(address)?.address;
+  }
+
   Future<void> stopServing() async {
     final version = ++_lifecycleVersion;
     final server = _server;

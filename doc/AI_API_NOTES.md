@@ -42,7 +42,8 @@ valid surrogate pairs, encoded control characters, and whitespace round-trip.
 Host-assigned UUID resource IDs,
 plugin management/KV/skin/file/command paths, and account-proxy normalization
 retain their existing path-encoding contracts. Plugin and skin management
-routes additionally require an `extensions:manage` token; see Extension
+routes additionally require an `extensions:manage` token while the native
+extension management protection setting is ON (OFF by default); see Extension
 Management Authorization.
 
 ### Patch Nullability
@@ -220,26 +221,59 @@ A hostname that resolves to a device address does pass the port-3000 entry redir
 ### Problem
 
 Plugin and skin management routes were open to any LAN client and to any
-plugin that can reach the local API (issue #1031).
+plugin that can reach the local API (issue #1031). PR #1142 closed that by
+gating every route on an `extensions:manage` token for everybody, which broke
+Home Assistant, MCP clients, Streamline, DYE2 (#1187) and the bundled settings
+plugin. Issue #1191 restores the open default and makes the gate opt-in.
 
 ### Solution
 
 `lib/src/services/webserver/extension_management_auth.dart` holds the whole
 policy: `extensionManagementRoutes` (18 method + `shelf_router` patterns) and
 `extensionManagementAuthMiddleware`, installed in `buildWebServerHandler` right
-after `proxyAuthMiddleware`. A matching request needs a bearer scoped
-`extensions:manage`: 401 for a missing, malformed, unknown or revoked bearer,
-403 for a known token without the scope. Tokens come from the native API
-tokens section, or for development and automation from `--extensions-token` or
-the `DECAID_EXTENSIONS_TOKEN` environment variable at launch.
+after `proxyAuthMiddleware`. One persisted, native-only setting decides the
+mode, read fresh for every request that is classified as relevant through the
+`requireExtensionManagementAuthorization` callback wired to
+`SettingsController.currentRequireExtensionManagementAuthorization()`, which
+returns a new storage-backed future per call, and is resolved lazily at most
+once per request by the middleware's snapshot:
+
+- **OFF (compatibility, the shipped default)**: every route in the table and
+every body-dependent gate is authorized without consulting a credential, with
+no loopback, update or `automaticUpdateCheck` condition. A stale, revoked or
+wrong-scope `Authorization` header changes nothing.
+- **ON (protected)**: the #1031 decision applies unchanged, 401 for a missing,
+  malformed, unknown or revoked bearer, 403 for a known token without the
+  scope, plus the in-process `manage.extensions` grant.
+
+An omitted callback resolves to **protected** (fail closed), as does a throwing
+read; the persisted key itself resolves to OFF when absent, so new installs and
+upgrades run in compatibility mode. Tokens come from the native API tokens
+section, or for development and automation from `--extensions-token` or the
+`DECAID_EXTENSIONS_TOKEN` environment variable at launch.
 
 ### Design Choices
 
 - Matching builds a real `shelf_router` `Router` from the table, so encoding,
   case and trailing slashes are judged as the handlers' router judges them and
   method-specific entries leave plugin endpoints with reserved names alone.
-- The middleware is installed even without a `ProxyTokenService`; then only
-  in-process grants pass, so the routes fail closed.
+- The mode is one lazy, memoized `_ExtensionManagementModeSnapshot` per request,
+  created by the middleware and stored in the shelf request context (the
+  existing `_authorizationContextKey` slot). The stored read is resolved at most
+  once and reused by the route gate and the body-dependent handlers, so the two
+  can never disagree and a settings write that flips the toggle cannot land
+  between them. Handlers never read storage, and an active in-process grant is
+  decided before the read is ever started. The reader is only touched when the
+  outcome can depend on the mode: the 18 management routes, a
+  `POST /api/v1/settings` body with a gated key, an import, and a pull/two-way
+  sync that includes `settings`. Machine, state, polling, account, read-only,
+  plugin-defined routes, ordinary settings bodies, `automaticUpdateCheck: false`
+  and a push or non-settings sync never resolve it, so they do not queue behind
+  storage. Import reads it once after its bounded stream because the gated keys
+  are only known after ZIP parsing; an origin refusal short-circuits before any
+  read.
+- The middleware is installed even without a `ProxyTokenService`; in protected
+  mode only in-process grants pass then, so the routes fail closed.
 - Body-dependent gates (`POST /api/v1/settings` with `webUiPath`, a changed
   `defaultSkinId` or `automaticUpdateCheck` turned on; import and pull-sync of a
   changed `defaultSkinId` or `automaticUpdateCheck: true`) read the middleware's
@@ -266,10 +300,62 @@ the `DECAID_EXTENSIONS_TOKEN` environment variable at launch.
 - A bearer the token service recognises is removed from the request before
   handlers run, so plugin-defined endpoints never see it.
 - The scope is independent of `account:proxy`; each middleware checks its own.
+- The toggle is native-only by construction: `extensionManagementSettingsKeys`
+  stays `{defaultSkinId, automaticUpdateCheck}`, `SettingsExportSection` neither
+  exports nor imports the key, `POST /api/v1/settings` ignores it as an unknown
+  key, and `GET /api/v1/settings` does not expose it.
+- The retired #1163 loopback update exception is gone, not merely disabled:
+  `_TokenlessUpdateCheckPolicy`, its 30-second throttle, its per-route CORS echo
+  and the middleware's `automaticUpdateCheckEnabled`/`localOrigins`/`clock`
+  parameters were deleted. Background scheduling still reads
+  `automaticUpdateCheck` inside the update services.
+- The browser boundary is `extensionManagementBrowserOriginMiddleware`, the
+  outermost middleware in `buildWebServerHandler`, so it runs before
+  `accountProxyCorsMiddleware`, the general `corsHeaders` echo, authentication
+  and body reading. It classifies `Origin` through
+  `ExtensionManagementBrowserOrigins`: originless (no header) passes, trusted
+  means scheme `http`, a literal local host (`localhost`, `127.0.0.1`, `::1` or
+  a numeric local-interface address) and a port that is either the live skin
+  page port (`WebUIService.browserOriginPorts`, which follows the active
+  server, restart and dynamic allocation) or the actual API listener port; every
+  other value is untrusted. A literal loopback host additionally needs socket
+  peer provenance: `classify` takes the `shelf.io.connection_info` context
+  value, and a loopback origin is trusted only when `remoteAddress` is loopback
+  or equals an address from the fresh interface listing. A missing, wrong-typed
+  or throwing peer, or a non-loopback peer that is not one of this device's
+  current addresses, is refused, so another machine's browser cannot borrow
+  `localhost`. The address listing is
+  `WebUIService.currentBrowserOriginAddresses()`, which enumerates the live
+  interfaces whenever a comparison needs them (no cache, no skin-serve gate, no
+  stale WiFi fallback), so it is available before any skin is served and a
+  retired address drops out without one; an enumeration failure is caught into
+  a fail-closed refusal. Nothing is taken from the request itself, so `Host`,
+  `Referer`, forwarding headers and DNS names cannot widen it, and a retired
+  port (including the port 3000 redirect) is not trusted. Untrusted actual
+  requests to the 18 routes are refused `403` before the handler. The three
+  body-gated routes are decided by `requireTrustedBrowserOrigin` in the handler:
+  import always (before the archive is read), a settings body that contains a
+  gated key, and a pull/two-way sync that includes `settings` (before any
+  network or write). Untrusted preflights for a guarded method on a guarded path
+  are refused `403` with no `access-control-*` headers before the general CORS
+  middleware can answer; that includes `POST /api/v1/settings`,
+  `/api/v1/data/import` and `/api/v1/data/sync`, whose relevance depends on a
+  body a preflight does not carry, so a browser cannot send a safe settings
+  write or a `push` sync as a JSON request from an untrusted origin even though
+  the actual request is admitted. Preflights for read-only methods on shared
+  paths and for plugin-defined routes keep the general answer. Handler-level
+  refusals are
+  marked in the response context and stripped of `access-control-*` by the outer
+  middleware (`_withoutAffirmativeCors`). Origin is not authentication: an
+  originless or forged-origin LAN client is unaffected, which is why
+  originless LAN compatibility and the protected-mode recommendation for shared
+  deployments both stay explicit in `doc/Api.md`.
 
 When adding a plugin or skin mutation route, add it to
-`extensionManagementRoutes` and declare `security: [extensionsManage]` with
-401/403 in `rest_v1.yml`; `test/api/extension_management_spec_test.dart`
+`extensionManagementRoutes` and declare `security: [{}, extensionsManage]` with
+401/403 responses in `rest_v1.yml`. The empty alternative is what tells a
+generated client the credential is optional; the descriptions state the
+protection-conditional requirement. `test/api/extension_management_spec_test.dart`
 fails until both agree or the route is listed as reviewed-open there, and
 `test/webserver/extension_management_route_coverage_test.dart` fails for any
 mutating route `PluginsHandler` or `WebUIHandler` registers that is in neither
@@ -301,7 +387,7 @@ Workflow JSON has both `context` (new: `WorkflowContext` with `grinderModel`, `c
 3. Register in `webserver_service.dart` `_init()`.
 4. Update `assets/api/rest_v1.yml` (or `websocket_v1.yml`) in the same commit.
 5. Update `doc/Api.md` if user-facing.
-6. A route that installs, configures or removes plugins or skins goes in `extensionManagementRoutes` and gets the `extensionsManage` security in the spec (enforced by `test/api/extension_management_spec_test.dart`).
+6. A route that installs, configures or removes plugins or skins goes in `extensionManagementRoutes` and gets the `[{}, extensionsManage]` security alternatives in the spec (enforced by `test/api/extension_management_spec_test.dart`).
 7. Smoke-test via `scripts/sb-dev.sh` + `curl`/`websocat`.
 
 ## Focused Tests

@@ -11,7 +11,14 @@ import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/services/account/account_consent_store.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/app_log_upload_service.dart';
+import 'package:reaprime/src/services/simulated_device_service.dart';
+import 'package:reaprime/src/services/webserver/extension_management_auth.dart';
+import 'package:reaprime/src/settings/settings_controller.dart';
+import 'package:reaprime/src/settings/settings_service.dart';
+import 'package:shelf/shelf.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'helpers/mock_settings_service.dart';
 
 class _FakePluginLoaderService extends Fake implements PluginLoaderService {
   _FakePluginLoaderService({this.calls});
@@ -47,6 +54,21 @@ class _FakeConnectionManager extends Fake implements ConnectionManager {
 }
 
 class _FakeCredentialStore extends Fake implements CredentialStore {}
+
+class _GatedSettingsService extends MockSettingsService {
+  _GatedSettingsService({this.loadGate, this.failLoad = false});
+
+  final Completer<void>? loadGate;
+  final bool failLoad;
+
+  @override
+  Future<String> logLevel() async {
+    final gate = loadGate;
+    if (gate != null) await gate.future;
+    if (failLoad) throw StateError('settings load failed');
+    return super.logLevel();
+  }
+}
 
 Future<AppLogUploadService> _createAppLogUploadService() async {
   SharedPreferences.setMockInitialValues({});
@@ -155,5 +177,127 @@ void main() {
     await tester.pump();
 
     expect(loader.disposeCalls, 1);
+  });
+
+  testWidgets('resume refreshes the extension management policy', (
+    tester,
+  ) async {
+    final service = MockSettingsService();
+    final controller = SettingsController(service);
+    await controller.loadSettings();
+    expect(controller.requireExtensionManagementAuthorization, isFalse);
+    final observer = app.AppLifecycleObserver(settingsController: controller);
+
+    await service.setRequireExtensionManagementAuthorization(true);
+    expect(controller.requireExtensionManagementAuthorization, isFalse);
+
+    observer.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    await tester.pump();
+    await tester.pump();
+
+    expect(controller.requireExtensionManagementAuthorization, isTrue);
+    observer.dispose();
+  });
+
+  testWidgets('requests after resume use the current persisted policy', (
+    tester,
+  ) async {
+    final service = MockSettingsService();
+    final controller = SettingsController(service);
+    await controller.loadSettings();
+    final observer = app.AppLifecycleObserver(settingsController: controller);
+    final handler = const Pipeline()
+        .addMiddleware(
+          extensionManagementAuthMiddleware(
+            null,
+            requireExtensionManagementAuthorization: () =>
+                controller.currentRequireExtensionManagementAuthorization(),
+          ),
+        )
+        .addHandler((request) => Response.ok('inner'));
+
+    Request install() =>
+        Request('POST', Uri.parse('http://localhost/api/v1/plugins/install'));
+
+    expect((await handler(install())).statusCode, 200);
+
+    await service.setRequireExtensionManagementAuthorization(true);
+    observer.didChangeAppLifecycleState(AppLifecycleState.paused);
+    observer.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    await tester.pump();
+    await tester.pump();
+
+    expect(controller.requireExtensionManagementAuthorization, isTrue);
+    expect((await handler(install())).statusCode, 401);
+    observer.dispose();
+  });
+
+  group('startup settings order', () {
+    testWidgets('the API starts only after the settings load completes', (
+      tester,
+    ) async {
+      final loadGate = Completer<void>();
+      final service = _GatedSettingsService(loadGate: loadGate);
+      final controller = SettingsController(service);
+      final devices = SimulatedDeviceService();
+      final started = <String>[];
+
+      final boot = app.loadSettingsBeforeWebServer(
+        settingsController: controller,
+        simulatedDevicesService: devices,
+        startWebServer: () async {
+          started.add('api');
+        },
+      );
+      await tester.pump();
+
+      expect(started, isEmpty, reason: 'the API must wait for the settings');
+      expect(controller.requireExtensionManagementAuthorization, isFalse);
+
+      loadGate.complete();
+      await boot;
+
+      expect(started, ['api']);
+    });
+
+    testWidgets('a failed settings load never starts the API', (tester) async {
+      final service = _GatedSettingsService(failLoad: true);
+      final controller = SettingsController(service);
+      final started = <String>[];
+
+      final boot = app.loadSettingsBeforeWebServer(
+        settingsController: controller,
+        simulatedDevicesService: SimulatedDeviceService(),
+        startWebServer: () async {
+          started.add('api');
+        },
+      );
+
+      await expectLater(boot, throwsA(isA<StateError>()));
+      await tester.pump();
+
+      expect(started, isEmpty);
+    });
+
+    testWidgets('startup keeps the simulate preference listener live', (
+      tester,
+    ) async {
+      final service = MockSettingsService();
+      await service.setSimulatedDevices({SimulatedDevicesTypes.scale});
+      final controller = SettingsController(service);
+      final devices = SimulatedDeviceService();
+
+      await app.loadSettingsBeforeWebServer(
+        settingsController: controller,
+        simulatedDevicesService: devices,
+        startWebServer: () async {},
+      );
+
+      expect(devices.enabledDevices, {SimulatedDevicesTypes.scale});
+
+      await controller.setSimulatedDevices({SimulatedDevicesTypes.machine});
+
+      expect(devices.enabledDevices, {SimulatedDevicesTypes.machine});
+    });
   });
 }

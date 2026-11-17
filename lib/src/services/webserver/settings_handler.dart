@@ -77,14 +77,21 @@ class SettingsHandler {
       final enablesAutomaticUpdates =
           json['automaticUpdateCheck'] == true &&
           !_controller.automaticUpdateCheck;
-      final extensionsAuthorized = mayManageExtensions(request);
       if (changesSkin || enablesAutomaticUpdates) {
-        final denial = requireExtensionManagement(
+        final originRefusal = requireTrustedBrowserOrigin(
+          request,
+          action: 'POST /api/v1/settings extension settings',
+        );
+        if (originRefusal != null) return originRefusal;
+        final denial = await requireExtensionManagement(
           request,
           action: 'POST /api/v1/settings extension settings',
         );
         if (denial != null) return denial;
       }
+      final freezeUntrustedExtensionSettings = isUntrustedBrowserOrigin(
+        request,
+      );
       if (json.containsKey('gatewayMode')) {
         final GatewayMode? gatewayMode = GatewayModeFromString.fromString(
           json['gatewayMode'],
@@ -206,7 +213,9 @@ class SettingsHandler {
           });
         }
       }
-      if (extensionsAuthorized && json.containsKey('defaultSkinId')) {
+      if (json.containsKey('defaultSkinId') &&
+          !freezeUntrustedExtensionSettings &&
+          await mayManageExtensions(request)) {
         final value = json['defaultSkinId'];
         if (value is String) {
           try {
@@ -223,7 +232,9 @@ class SettingsHandler {
       if (json.containsKey('automaticUpdateCheck')) {
         final value = json['automaticUpdateCheck'];
         if (value is bool) {
-          if (extensionsAuthorized || !value) {
+          if (!value ||
+              (!freezeUntrustedExtensionSettings &&
+                  await mayManageExtensions(request))) {
             await _controller.setAutomaticUpdateCheck(value);
           }
         } else {

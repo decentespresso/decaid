@@ -1153,6 +1153,31 @@ void main() {
       contains('installs one explicitly requested source'),
       reason: 'the exclusivity claim must exclude the single-source installs',
     );
+    expect(
+      updateDescription,
+      contains('protection is ON'),
+      reason: 'the credential stays conditional, as the other routes describe',
+    );
+    expect(
+      updateDescription,
+      contains('automaticUpdateCheck'),
+      reason:
+          'the integrated description must keep the scheduled-update setting '
+          'distinct from a manual check',
+    );
+    expect(updateDescription, contains('scheduled'));
+    expect(update['security'], [
+      {},
+      {'extensionsManage': []},
+    ], reason: 'the management token must stay an optional alternative');
+    final updateForbidden =
+        ((update['responses'] as YamlMap)['403'] as YamlMap)['description']
+            as String;
+    expect(
+      updateForbidden,
+      contains('Origin'),
+      reason: 'the browser-origin refusal applies to the update check too',
+    );
     final results =
         (((update['responses'] as YamlMap)['200'] as YamlMap)['content']
                 as YamlMap)['application/json']

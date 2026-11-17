@@ -36,6 +36,7 @@ class _LocalExportException implements Exception {
 class DataSyncHandler {
   static const _skippedPushMessage =
       'Push was not attempted because pull did not complete.';
+  static const _settingsSection = 'settings';
 
   final DataExportHandler _exportHandler;
   final http.Client _httpClient;
@@ -147,6 +148,17 @@ class DataSyncHandler {
     final sections = sectionsResult.sections;
     final expectedSections = sections ?? _exportHandler.sectionKeys;
 
+    final pullsSettings =
+        (mode == SyncMode.pull || mode == SyncMode.twoWay) &&
+        (sections == null || sections.contains(_settingsSection));
+    if (pullsSettings) {
+      final originRefusal = requireTrustedBrowserOrigin(
+        request,
+        action: 'POST /api/v1/data/sync settings pull',
+      );
+      if (originRefusal != null) return originRefusal;
+    }
+
     DataTransferPhaseOutcome? pull;
     DataTransferPhaseOutcome? push;
 
@@ -156,7 +168,9 @@ class DataSyncHandler {
           targetUri,
           strategy,
           expectedSections,
-          extensionsAuthorized: mayManageExtensions(request),
+          extensionsAuthorized: pullsSettings
+              ? await mayManageExtensions(request)
+              : false,
         );
       } catch (error) {
         pull = _failure(error);

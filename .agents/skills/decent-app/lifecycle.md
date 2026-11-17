@@ -32,7 +32,7 @@ scripts/sb-dev.sh start \
   --connect-scale MockScale
 ```
 
-The routes that install, replace, configure, enable, disable or remove plugins and skins, change the default skin, or start and stop the skin server need `Authorization: Bearer <token>` with the `extensions:manage` scope. For a scenario that calls them, start with a process-lifetime token (at least 32 characters, not persisted; `restart` reuses it) and send it on those calls:
+The routes that install, replace, configure, enable, disable or remove plugins and skins, change the default skin, or start and stop the skin server are open by default. They need `Authorization: Bearer <token>` with the `extensions:manage` scope only while the native **Settings → Security → "Require authorization for extension management"** switch is ON, which ships OFF for new installs and upgrades. For a scenario that runs in protected mode, start with a process-lifetime token (at least 32 characters, not persisted; `restart` reuses it) and send it on those calls:
 
 ```bash
 TOKEN="$(openssl rand -hex 32)"
@@ -42,7 +42,7 @@ curl -sf -X POST http://localhost:8080/api/v1/plugins/<id>/enable \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-`scenarios/extension-management-auth.md` verifies the gate itself.
+Passing the token does not change the policy. The switch is a native action with no REST, CLI, import, sync or plugin equivalent, so flip it in the app window and verify it there before expecting a 401 or a 200. `scenarios/extension-management-auth.md` covers both modes, runs on simulated devices only, and never touches real hardware.
 
 For real hardware, `--connect-machine DE1` can match the advertised name during scanning but does not set a saved preference. Supply the actual BLE device ID separately when needed:
 

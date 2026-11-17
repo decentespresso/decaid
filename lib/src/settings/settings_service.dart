@@ -40,6 +40,8 @@ abstract class SettingsService {
   Future<void> setPreferredGrinderDeviceId(String? deviceId);
   Future<String> defaultSkinId();
   Future<void> setDefaultSkinId(String skinId);
+  Future<bool> requireExtensionManagementAuthorization();
+  Future<void> setRequireExtensionManagementAuthorization(bool value);
   Future<bool> automaticUpdateCheck();
   Future<void> setAutomaticUpdateCheck(bool value);
   Future<UpdateChannel> updateChannel();
@@ -303,6 +305,22 @@ class SharedPreferencesSettingsService extends SettingsService {
   @override
   Future<void> setAutomaticUpdateCheck(bool value) async {
     await prefs.setBool(SettingsKeys.automaticUpdateCheck.name, value);
+  }
+
+  @override
+  Future<bool> requireExtensionManagementAuthorization() async {
+    return await prefs.getBool(
+          SettingsKeys.requireExtensionManagementAuthorization.name,
+        ) ??
+        false;
+  }
+
+  @override
+  Future<void> setRequireExtensionManagementAuthorization(bool value) async {
+    await prefs.setBool(
+      SettingsKeys.requireExtensionManagementAuthorization.name,
+      value,
+    );
   }
 
   @override
@@ -669,6 +687,7 @@ enum SettingsKeys {
   androidWarningDismissed,
   showSkinExitInstructions,
   enableSimulatedWebViews,
+  requireExtensionManagementAuthorization,
 }
 
 enum SimulatedDevicesTypes { machine, scale, sensor, bengle, replay }

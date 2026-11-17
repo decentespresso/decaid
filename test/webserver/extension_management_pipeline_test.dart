@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
+import 'package:reaprime/src/plugins/plugin_source.dart';
 import 'package:reaprime/src/plugins/plugin_source_service.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/account/decent_proxy_service.dart';
@@ -28,7 +29,15 @@ const _idleId = 'idle.reaplugin';
 const _releasedId = 'installed.reaplugin';
 const _defaultSkinId = 'streamline.js';
 const _otherSkinId = 'other.skin';
-const _origin = 'http://skin.example';
+const _trustedPagePort = 25707;
+const _nextPagePort = 34101;
+const _trustedDeviceAddress = '192.168.12.64';
+const _untrustedLanAddress = '192.168.12.99';
+const _trustedOrigin = 'http://127.0.0.1:$_trustedPagePort';
+const _origin = _trustedOrigin;
+const _untrustedOrigin = 'https://evil.example';
+const _originRefused =
+    'Extension management is not allowed from this browser origin';
 const _bundledPluginIds = [
   'time-to-ready.reaplugin',
   'visualizer.reaplugin',
@@ -44,13 +53,19 @@ const _invalidToken = 'Invalid token';
 const _unscoped = 'Token is not scoped for extensions:manage';
 
 class _RecordingWebUIStorage extends Fake implements WebUIStorage {
-  _RecordingWebUIStorage(String root)
+  _RecordingWebUIStorage(this.root)
     : _skins = {
         for (final id in [_defaultSkinId, _otherSkinId])
           id: WebUISkin(id: id, name: id, path: '$root/skins/$id'),
       };
 
+  final String root;
   final Map<String, WebUISkin> _skins;
+
+  void addSkin(String id) {
+    _skins[id] = WebUISkin(id: id, name: id, path: '$root/skins/$id');
+  }
+
   final List<String> calls = [];
   String defaultSkinId = _defaultSkinId;
   RemoteUpdateReport? skinUpdateReport;
@@ -208,6 +223,10 @@ final class _Credential {
   final String error;
 }
 
+typedef _Caller = ({String name, String? authorization});
+
+typedef _RouteProbe = Future<void> Function(_Caller caller);
+
 Map<String, dynamic> _manifestJson(
   String id, {
   String version = '1.0.0',
@@ -355,6 +374,23 @@ void main() {
   late String accountWriteToken;
   late String revokedToken;
   late String unknownToken;
+  late String staleToken;
+  late bool protectedMode;
+  late int securityReads;
+  late Set<int> browserPagePorts;
+  late Set<String> browserDeviceAddresses;
+  late _MemoryCredentialStore pluginCredentials;
+  final connections = <({String remote, int remotePort, int localPort})>[];
+
+  List<_Caller> legacyCredentials() => [
+    (name: 'no bearer', authorization: null),
+    (name: 'a stale bearer', authorization: 'Bearer $staleToken'),
+    (name: 'a revoked bearer', authorization: 'Bearer $revokedToken'),
+    (name: 'an unknown bearer', authorization: 'Bearer $unknownToken'),
+    (name: 'a wrong-scope bearer', authorization: 'Bearer $accountToken'),
+    (name: 'a malformed header', authorization: 'Basic $managerToken'),
+    (name: 'an empty bearer', authorization: 'Bearer '),
+  ];
   List<_Credential> refusedCredentials() => [
     const _Credential('no bearer', null, 401, _missingBearer),
     _Credential(
@@ -418,9 +454,39 @@ void main() {
     return listener;
   }
 
+  Future<HttpServer> bind(InternetAddress address) => shelf_io.serve(
+    (Request request) async {
+      final info = request.context['shelf.io.connection_info'];
+      if (info is HttpConnectionInfo) {
+        connections.add((
+          remote: info.remoteAddress.address,
+          remotePort: info.remotePort,
+          localPort: info.localPort,
+        ));
+      }
+      final handler = activeHandler;
+      if (handler == null) return Response.internalServerError();
+      return http.runWithClient(() => handler(request), gitHubClient);
+    },
+    address,
+    0,
+  );
+
+  Future<T> withGitHub<T>(Future<T> Function() body) =>
+      http.runWithClient(body, gitHubClient);
+
   Handler pipeline({AdmissionGate? gate}) => buildWebServerHandler(
     routes,
     proxyTokenService: tokens,
+    requireExtensionManagementAuthorization: () async {
+      securityReads += 1;
+      return protectedMode;
+    },
+    browserOrigins: ExtensionManagementBrowserOrigins(
+      apiListenerPort: () => listenerPort,
+      pagePorts: () => browserPagePorts,
+      deviceAddresses: () async => browserDeviceAddresses,
+    ),
     admissionGate:
         gate ??
         AdmissionGate(
@@ -432,6 +498,11 @@ void main() {
         ),
   );
 
+  void useMode(bool required) {
+    protectedMode = required;
+    activeHandler = pipeline();
+  }
+
   Future<_Reply> send(
     String method,
     String path, {
@@ -439,11 +510,12 @@ void main() {
     Object? body,
     Map<String, String> headers = const {},
     HttpServer? to,
+    String host = '127.0.0.1',
   }) async {
     final port = (to ?? server).port;
     final request = await client.openUrl(
       method,
-      Uri.parse('http://127.0.0.1:$port$path'),
+      Uri(scheme: 'http', host: host, port: port, path: path),
     );
     request.followRedirects = false;
     if (authorization != null) {
@@ -457,6 +529,51 @@ void main() {
     final response = await request.close();
     final text = await utf8.decoder.bind(response).join();
     return _Reply(response.statusCode, response.headers, text);
+  }
+
+  Future<({int status, String body})> rawSocketRequest(
+    InternetAddress target,
+    int port,
+    String method,
+    String path, {
+    InternetAddress? sourceAddress,
+    String? authorization,
+    Map<String, String> headers = const {},
+    Object? body,
+    String hostHeader = '127.0.0.1',
+  }) async {
+    final socket = await Socket.connect(
+      target,
+      port,
+      sourceAddress: sourceAddress,
+    );
+    try {
+      final payload = body == null ? null : jsonEncode(body);
+      final head = StringBuffer()
+        ..write('$method $path HTTP/1.1\r\n')
+        ..write('Host: $hostHeader\r\n')
+        ..write('Connection: close\r\n');
+      if (authorization != null) {
+        head.write('Authorization: $authorization\r\n');
+      }
+      headers.forEach((name, value) => head.write('$name: $value\r\n'));
+      if (payload == null) {
+        head.write('Content-Length: 0\r\n');
+      } else {
+        head
+          ..write('Content-Type: application/json\r\n')
+          ..write('Content-Length: ${utf8.encode(payload).length}\r\n');
+      }
+      head.write('\r\n');
+      socket.write(head.toString());
+      if (payload != null) socket.write(payload);
+      await socket.flush();
+      final raw = await utf8.decoder.bind(socket).join();
+      final status = int.parse(raw.split('\r\n').first.split(' ')[1]);
+      return (status: status, body: raw.substring(raw.indexOf('\r\n\r\n') + 4));
+    } finally {
+      socket.destroy();
+    }
   }
 
   Future<_Reply> sendRaw(String requestLine, {HttpServer? to}) async {
@@ -556,15 +673,7 @@ void main() {
       File('${source.path}/plugin.js').writeAsStringSync(_echoPluginJs(id));
     }
 
-    server = await shelf_io.serve(
-      (request) async {
-        final handler = activeHandler;
-        if (handler == null) return Response.internalServerError();
-        return http.runWithClient(() => handler(request), gitHubClient);
-      },
-      InternetAddress.loopbackIPv4,
-      0,
-    );
+    server = await bind(InternetAddress.loopbackIPv4);
     listenerPort = server.port;
   });
 
@@ -590,7 +699,11 @@ void main() {
     releaseArchive = _releaseArchive();
 
     kvStore = FakeKeyValueStoreService();
-    service = PluginLoaderService(kvStore: kvStore);
+    pluginCredentials = _MemoryCredentialStore();
+    service = PluginLoaderService(
+      kvStore: kvStore,
+      credentialStore: pluginCredentials,
+    );
     await service.initialize();
     for (final id in _bundledPluginIds) {
       if (service.getPluginManifest(id) != null) await service.removePlugin(id);
@@ -639,6 +752,8 @@ void main() {
         ),
       )
       ..revokeToken(revokedToken);
+    staleToken = tokens.skinToken;
+    tokens.rotateSkinToken(const ProxyCaller(id: 'skin', scopes: {}));
 
     final credentials = _MemoryCredentialStore();
     await credentials.write(key: 'email', value: 'user@example.com');
@@ -661,6 +776,10 @@ void main() {
     WebUIHandler(storage: storage, service: webUi).addRoutes(app);
     AccountProxyHandler(proxy: proxy, enableWrites: true).addRoutes(app);
     routes = app.call;
+    protectedMode = true;
+    securityReads = 0;
+    browserPagePorts = {_trustedPagePort};
+    browserDeviceAddresses = {_trustedDeviceAddress};
     activeHandler = pipeline();
     client = HttpClient();
   }
@@ -716,6 +835,22 @@ void main() {
       });
     }
 
+    test(
+      'a rotated-away skin token is a stale credential when protected',
+      () async {
+        final before = await snapshot();
+        final reply = await send(
+          'POST',
+          '/api/v1/plugins/$_idleId/enable',
+          authorization: 'Bearer $staleToken',
+        );
+        expect(reply.status, 401, reason: '$reply');
+        expect(reply.error, _invalidToken);
+        expect(await snapshot(), before);
+        expect(service.isPluginLoaded(_idleId), isFalse);
+      },
+    );
+
     test('path spellings the router canonicalises are still refused', () async {
       final before = await snapshot();
       for (final requestLine in [
@@ -750,341 +885,718 @@ void main() {
     );
   });
 
-  group('authorized management requests keep their handler semantics', () {
-    String bearer() => 'Bearer $managerToken';
+  for (final required in [true, false]) {
+    group('authorized management requests keep their handler semantics '
+        '(${required ? 'protected' : 'compatibility'})', () {
+      setUp(() => useMode(required));
 
-    test(
-      'every table route reaches its real handler with extensions:manage',
-      () async {
-        for (final route in extensionManagementRoutes) {
-          final reply = await send(
-            route.method,
-            _concretePath(route),
-            authorization: bearer(),
-            body: _bodyFor(route),
-          );
-          expect(reply.status, isNot(anyOf(401, 403)), reason: '$route');
-          expect(reply.body, isNot(contains('Route not found')));
-        }
-      },
-    );
+      String? bearer() => required ? 'Bearer $managerToken' : null;
 
-    test('PUT source creates a plugin and validation stays 400', () async {
-      const id = 'fresh.reaplugin';
-      final created = await send(
-        'PUT',
-        '/api/v1/plugins/$id/source',
-        authorization: bearer(),
-        body: {'manifest': _manifestJson(id), 'plugin': _echoPluginJs(id)},
-      );
-      expect(created.status, 200, reason: '$created');
-      expect(created.json, containsPair('version', '1.0.0'));
-      expect(service.getPluginManifest(id), isNotNull);
-      expect(
-        File('${tempDir.path}/plugins/$id/plugin.js').existsSync(),
-        isTrue,
-      );
-
-      final invalid = await send(
-        'PUT',
-        '/api/v1/plugins/$id/source',
-        authorization: bearer(),
-        body: {'plugin': _echoPluginJs(id)},
-      );
-      expect(invalid.status, 400);
-      expect(invalid.error, 'manifest object is required');
-    });
-
-    test(
-      'enable, disable, settings and delete apply; unknown ids are 404',
-      () async {
-        final enabled = await send(
-          'POST',
-          '/api/v1/plugins/$_idleId/enable',
+      test('PUT source creates a plugin and validation stays 400', () async {
+        const id = 'fresh.reaplugin';
+        final created = await send(
+          'PUT',
+          '/api/v1/plugins/$id/source',
           authorization: bearer(),
+          body: {'manifest': _manifestJson(id), 'plugin': _echoPluginJs(id)},
         );
-        expect(enabled.status, 200, reason: '$enabled');
-        expect(service.isPluginLoaded(_idleId), isTrue);
-
-        final disabled = await send(
-          'POST',
-          '/api/v1/plugins/$_idleId/disable',
-          authorization: bearer(),
-        );
-        expect(disabled.status, 200, reason: '$disabled');
-        expect(service.isPluginLoaded(_idleId), isFalse);
-        expect(await service.shouldAutoLoad(_idleId), isFalse);
-
-        final saved = await send(
-          'POST',
-          '/api/v1/plugins/$_idleId/settings',
-          authorization: bearer(),
-          body: {'Label': 'remote'},
-        );
-        expect(saved.status, 200, reason: '$saved');
+        expect(created.status, 200, reason: '$created');
+        expect(created.json, containsPair('version', '1.0.0'));
+        expect(service.getPluginManifest(id), isNotNull);
         expect(
-          await service.pluginSettings(_idleId),
-          containsPair('Label', 'remote'),
+          File('${tempDir.path}/plugins/$id/plugin.js').existsSync(),
+          isTrue,
         );
 
-        final removed = await send(
-          'DELETE',
-          '/api/v1/plugins/$_idleId',
+        final invalid = await send(
+          'PUT',
+          '/api/v1/plugins/$id/source',
+          authorization: bearer(),
+          body: {'plugin': _echoPluginJs(id)},
+        );
+        expect(invalid.status, 400);
+        expect(invalid.error, 'manifest object is required');
+      });
+
+      test(
+        'enable, disable, settings and delete apply; unknown ids are 404',
+        () async {
+          final enabled = await send(
+            'POST',
+            '/api/v1/plugins/$_idleId/enable',
+            authorization: bearer(),
+          );
+          expect(enabled.status, 200, reason: '$enabled');
+          expect(service.isPluginLoaded(_idleId), isTrue);
+
+          final disabled = await send(
+            'POST',
+            '/api/v1/plugins/$_idleId/disable',
+            authorization: bearer(),
+          );
+          expect(disabled.status, 200, reason: '$disabled');
+          expect(service.isPluginLoaded(_idleId), isFalse);
+          expect(await service.shouldAutoLoad(_idleId), isFalse);
+
+          final saved = await send(
+            'POST',
+            '/api/v1/plugins/$_idleId/settings',
+            authorization: bearer(),
+            body: {'Label': 'remote'},
+          );
+          expect(saved.status, 200, reason: '$saved');
+          expect(
+            await service.pluginSettings(_idleId),
+            containsPair('Label', 'remote'),
+          );
+
+          final removed = await send(
+            'DELETE',
+            '/api/v1/plugins/$_idleId',
+            authorization: bearer(),
+          );
+          expect(removed.status, 200, reason: '$removed');
+          expect(service.getPluginManifest(_idleId), isNull);
+
+          for (final (method, path) in [
+            ('POST', '/api/v1/plugins/$_idleId/enable'),
+            ('POST', '/api/v1/plugins/$_idleId/disable'),
+            ('DELETE', '/api/v1/plugins/$_idleId'),
+            ('POST', '/api/v1/plugins/$_idleId/update/approve'),
+          ]) {
+            final missing = await send(method, path, authorization: bearer());
+            expect(missing.status, 404, reason: '$method $path');
+          }
+        },
+      );
+
+      test('GitHub install, update, approval and the 409 without a pending '
+          'update', () async {
+        final installed = await send(
+          'POST',
+          '/api/v1/plugins/install/github-release',
+          authorization: bearer(),
+          body: {'repo': 'acme/plugin'},
+        );
+        expect(installed.status, 200, reason: '$installed');
+        expect(installed.json, containsPair('id', _releasedId));
+        expect(gitHubRequests, isNotEmpty);
+        expect(
+          (await listedPlugin(_releasedId))['source']['repo'],
+          'acme/plugin',
+        );
+
+        final noPending = await send(
+          'POST',
+          '/api/v1/plugins/$_releasedId/update/approve',
           authorization: bearer(),
         );
-        expect(removed.status, 200, reason: '$removed');
-        expect(service.getPluginManifest(_idleId), isNull);
+        expect(noPending.status, 409, reason: '$noPending');
 
-        for (final (method, path) in [
-          ('POST', '/api/v1/plugins/$_idleId/enable'),
-          ('POST', '/api/v1/plugins/$_idleId/disable'),
-          ('DELETE', '/api/v1/plugins/$_idleId'),
-          ('POST', '/api/v1/plugins/$_idleId/update/approve'),
-        ]) {
-          final missing = await send(method, path, authorization: bearer());
-          expect(missing.status, 404, reason: '$method $path');
-        }
-      },
-    );
-
-    test('GitHub install, update, approval and the 409 without a pending '
-        'update', () async {
-      final installed = await send(
-        'POST',
-        '/api/v1/plugins/install/github-release',
-        authorization: bearer(),
-        body: {'repo': 'acme/plugin'},
-      );
-      expect(installed.status, 200, reason: '$installed');
-      expect(installed.json, containsPair('id', _releasedId));
-      expect(gitHubRequests, isNotEmpty);
-      expect(
-        (await listedPlugin(_releasedId))['source']['repo'],
-        'acme/plugin',
-      );
-
-      final noPending = await send(
-        'POST',
-        '/api/v1/plugins/$_releasedId/update/approve',
-        authorization: bearer(),
-      );
-      expect(noPending.status, 409, reason: '$noPending');
-
-      releaseTag = 'v1.1.0';
-      releaseArchive = _releaseArchive(
-        version: '1.1.0',
-        permissions: ['log', 'proxy.decent_api'],
-      );
-      final updated = await send(
-        'POST',
-        '/api/v1/plugins/update',
-        authorization: bearer(),
-      );
-      expect(updated.status, 200, reason: '$updated');
-      final pending = await listedPlugin(_releasedId);
-      expect(pending['version'], '1.0.0');
-      expect(pending['pendingUpdate']['addedPermissions'], [
-        'proxy.decent_api',
-      ]);
-
-      final approved = await send(
-        'POST',
-        '/api/v1/plugins/$_releasedId/update/approve',
-        authorization: bearer(),
-      );
-      expect(approved.status, 200, reason: '$approved');
-      final after = await listedPlugin(_releasedId);
-      expect(after['version'], '1.1.0');
-      expect(after['pendingUpdate'], isNull);
-
-      final missingRepo = await send(
-        'POST',
-        '/api/v1/plugins/install/github-release',
-        authorization: bearer(),
-        body: <String, dynamic>{},
-      );
-      expect(missingRepo.status, 400);
-
-      final urlInstall = await send(
-        'POST',
-        '/api/v1/plugins/install',
-        authorization: bearer(),
-        body: {'url': 'https://example.test/plugin.zip'},
-      );
-      expect(urlInstall.status, 501);
-    });
-
-    test(
-      'skin update returns 200 with per-item results on partial failure',
-      () async {
-        storage.skinUpdateReport = const RemoteUpdateReport([
-          RemoteUpdateItemResult(
-            item: 'a/b',
-            status: RemoteUpdateStatus.updated,
-          ),
-          RemoteUpdateItemResult(
-            item: 'c/d',
-            status: RemoteUpdateStatus.failed,
-            error: SocketException('offline'),
-          ),
+        releaseTag = 'v1.1.0';
+        releaseArchive = _releaseArchive(
+          version: '1.1.0',
+          permissions: ['log', 'proxy.decent_api'],
+        );
+        final updated = await send(
+          'POST',
+          '/api/v1/plugins/update',
+          authorization: bearer(),
+        );
+        expect(updated.status, 200, reason: '$updated');
+        final pending = await listedPlugin(_releasedId);
+        expect(pending['version'], '1.0.0');
+        expect(pending['pendingUpdate']['addedPermissions'], [
+          'proxy.decent_api',
         ]);
 
+        final approved = await send(
+          'POST',
+          '/api/v1/plugins/$_releasedId/update/approve',
+          authorization: bearer(),
+        );
+        expect(approved.status, 200, reason: '$approved');
+        final after = await listedPlugin(_releasedId);
+        expect(after['version'], '1.1.0');
+        expect(after['pendingUpdate'], isNull);
+
+        final missingRepo = await send(
+          'POST',
+          '/api/v1/plugins/install/github-release',
+          authorization: bearer(),
+          body: <String, dynamic>{},
+        );
+        expect(missingRepo.status, 400);
+
+        final urlInstall = await send(
+          'POST',
+          '/api/v1/plugins/install',
+          authorization: bearer(),
+          body: {'url': 'https://example.test/plugin.zip'},
+        );
+        expect(urlInstall.status, 501);
+      });
+
+      test(
+        'skin update returns 200 with per-item results on partial failure',
+        () async {
+          storage.skinUpdateReport = const RemoteUpdateReport([
+            RemoteUpdateItemResult(
+              item: 'a/b',
+              status: RemoteUpdateStatus.updated,
+            ),
+            RemoteUpdateItemResult(
+              item: 'c/d',
+              status: RemoteUpdateStatus.failed,
+              error: SocketException('offline'),
+            ),
+          ]);
+
+          final reply = await send(
+            'POST',
+            '/api/v1/webui/skins/update',
+            authorization: bearer(),
+          );
+          expect(reply.status, 200, reason: '$reply');
+          final json = reply.json as Map<String, dynamic>;
+          expect(json['message'], 'Skin update check completed');
+          final results = (json['results'] as List)
+              .cast<Map<String, dynamic>>();
+          expect(results, hasLength(2));
+          expect(results[0], {'item': 'a/b', 'status': 'updated'});
+          expect(results[1], {
+            'item': 'c/d',
+            'status': 'failed',
+            'error': 'Check your internet connection and try again.',
+          });
+        },
+      );
+
+      test(
+        'skin default, install, removal and the skin server apply',
+        () async {
+          final setDefault = await send(
+            'PUT',
+            '/api/v1/webui/skins/default',
+            authorization: bearer(),
+            body: {'skinId': _otherSkinId},
+          );
+          expect(setDefault.status, 200, reason: '$setDefault');
+          expect(storage.defaultSkinId, _otherSkinId);
+
+          final missingId = await send(
+            'PUT',
+            '/api/v1/webui/skins/default',
+            authorization: bearer(),
+            body: <String, dynamic>{},
+          );
+          expect(missingId.status, 400);
+
+          final unknownSkin = await send(
+            'PUT',
+            '/api/v1/webui/skins/default',
+            authorization: bearer(),
+            body: {'skinId': 'nope.skin'},
+          );
+          expect(unknownSkin.status, 404);
+
+          final installed = await send(
+            'POST',
+            '/api/v1/webui/skins/install/github-release',
+            authorization: bearer(),
+            body: {'repo': 'acme/skin'},
+          );
+          expect(installed.status, 200, reason: '$installed');
+          expect(storage.calls, contains('installFromGitHubRelease acme/skin'));
+
+          final noRepo = await send(
+            'POST',
+            '/api/v1/webui/skins/install/github-branch',
+            authorization: bearer(),
+            body: <String, dynamic>{},
+          );
+          expect(noRepo.status, 400);
+
+          final started = await send(
+            'POST',
+            '/api/v1/webui/server/start',
+            authorization: bearer(),
+          );
+          expect(started.status, 200, reason: '$started');
+          expect(webUi.serving, isTrue);
+          expect(webUi.path, '${tempDir.path}/skins/$_otherSkinId');
+
+          final stopped = await send(
+            'POST',
+            '/api/v1/webui/server/stop',
+            authorization: bearer(),
+          );
+          expect(stopped.status, 200, reason: '$stopped');
+          expect(webUi.serving, isFalse);
+
+          final removed = await send(
+            'DELETE',
+            '/api/v1/webui/skins/$_otherSkinId',
+            authorization: bearer(),
+          );
+          expect(removed.status, 200, reason: '$removed');
+          expect(storage.skinIds, isNot(contains(_otherSkinId)));
+        },
+      );
+    });
+  }
+
+  group('every management route runs its real handler', () {
+    var fresh = 0;
+    String freshId(String name) => '$name-${++fresh}.reaplugin';
+
+    final probes = <String, _RouteProbe>{
+      'POST /api/v1/plugins/install': (caller) async {
+        final reply = await send(
+          'POST',
+          '/api/v1/plugins/install',
+          authorization: caller.authorization,
+          body: {'url': 'https://example.test/plugin.zip'},
+        );
+        expect(reply.status, 501, reason: '${caller.name}: $reply');
+        expect(reply.error, contains('not supported'), reason: caller.name);
+      },
+      'POST /api/v1/plugins/install/github-release': (caller) async {
+        final polls = gitHubRequests.length;
+        final reply = await send(
+          'POST',
+          '/api/v1/plugins/install/github-release',
+          authorization: caller.authorization,
+          body: {'repo': 'acme/plugin'},
+        );
+        expect(reply.status, 200, reason: '${caller.name}: $reply');
+        expect(
+          reply.json,
+          containsPair('id', _releasedId),
+          reason: caller.name,
+        );
+        expect(gitHubRequests.length, greaterThan(polls), reason: caller.name);
+        expect(
+          sources.sourceFor(_releasedId)?.kind,
+          PluginSourceKind.githubRelease,
+          reason: caller.name,
+        );
+      },
+      'POST /api/v1/plugins/install/github-branch': (caller) async {
+        final reply = await send(
+          'POST',
+          '/api/v1/plugins/install/github-branch',
+          authorization: caller.authorization,
+          body: {'repo': 'acme/branch'},
+        );
+        expect(reply.status, 200, reason: '${caller.name}: $reply');
+        expect(
+          sources.sourceFor(_releasedId)?.kind,
+          PluginSourceKind.githubBranch,
+          reason: caller.name,
+        );
+        expect(
+          sources.sourceFor(_releasedId)?.commit,
+          'commit-1',
+          reason: caller.name,
+        );
+      },
+      'POST /api/v1/plugins/update': (caller) async {
+        await withGitHub(() => sources.installFromGitHubRelease('acme/plugin'));
+        final checked = sources.sourceFor(_releasedId)?.lastChecked;
+        final reply = await send(
+          'POST',
+          '/api/v1/plugins/update',
+          authorization: caller.authorization,
+        );
+        expect(reply.status, 200, reason: '${caller.name}: $reply');
+        expect(
+          (reply.json as Map)['message'],
+          'Plugin update check complete',
+          reason: caller.name,
+        );
+        expect(
+          sources.sourceFor(_releasedId)?.lastChecked,
+          isNot(checked),
+          reason: caller.name,
+        );
+      },
+      'POST /api/v1/plugins/<id>/settings': (caller) async {
+        final reply = await send(
+          'POST',
+          '/api/v1/plugins/$_echoId/settings',
+          authorization: caller.authorization,
+          body: {'Label': 'legacy'},
+        );
+        expect(reply.status, 200, reason: '${caller.name}: $reply');
+        expect(
+          await service.pluginSettings(_echoId),
+          containsPair('Label', 'legacy'),
+          reason: caller.name,
+        );
+      },
+      'PUT /api/v1/plugins/<id>/source': (caller) async {
+        final id = freshId('source');
+        final reply = await send(
+          'PUT',
+          '/api/v1/plugins/$id/source',
+          authorization: caller.authorization,
+          body: {
+            'manifest': _manifestJson(id, version: '1.0.1'),
+            'plugin': _echoPluginJs(id),
+          },
+        );
+        expect(reply.status, 200, reason: '${caller.name}: $reply');
+        expect(
+          service.getPluginManifest(id)?.version,
+          '1.0.1',
+          reason: caller.name,
+        );
+        expect(
+          File('${tempDir.path}/plugins/$id/plugin.js').existsSync(),
+          isTrue,
+          reason: caller.name,
+        );
+      },
+      'POST /api/v1/plugins/<id>/enable': (caller) async {
+        final reply = await send(
+          'POST',
+          '/api/v1/plugins/$_idleId/enable',
+          authorization: caller.authorization,
+        );
+        expect(reply.status, 200, reason: '${caller.name}: $reply');
+        expect(service.isPluginLoaded(_idleId), isTrue, reason: caller.name);
+        await service.disablePlugin(_idleId);
+      },
+      'POST /api/v1/plugins/<id>/disable': (caller) async {
+        final reply = await send(
+          'POST',
+          '/api/v1/plugins/$_echoId/disable',
+          authorization: caller.authorization,
+        );
+        expect(reply.status, 200, reason: '${caller.name}: $reply');
+        expect(service.isPluginLoaded(_echoId), isFalse, reason: caller.name);
+        expect(
+          await service.shouldAutoLoad(_echoId),
+          isFalse,
+          reason: caller.name,
+        );
+        await service.enablePlugin(_echoId);
+      },
+      'POST /api/v1/plugins/<id>/update/approve': (caller) async {
+        final reply = await send(
+          'POST',
+          '/api/v1/plugins/$_echoId/update/approve',
+          authorization: caller.authorization,
+        );
+        expect(reply.status, 409, reason: '${caller.name}: $reply');
+        expect(
+          reply.error,
+          contains('no update awaiting approval'),
+          reason: caller.name,
+        );
+      },
+      'DELETE /api/v1/plugins/<id>': (caller) async {
+        final id = freshId('delete');
+        await service.updatePluginSource(
+          id,
+          manifestJson: _manifestJson(id),
+          pluginJs: _echoPluginJs(id),
+        );
+        final reply = await send(
+          'DELETE',
+          '/api/v1/plugins/$id',
+          authorization: caller.authorization,
+        );
+        expect(reply.status, 200, reason: '${caller.name}: $reply');
+        expect(service.getPluginManifest(id), isNull, reason: caller.name);
+        expect(
+          Directory('${tempDir.path}/plugins/$id').existsSync(),
+          isFalse,
+          reason: caller.name,
+        );
+      },
+      'PUT /api/v1/webui/skins/default': (caller) async {
+        final reply = await send(
+          'PUT',
+          '/api/v1/webui/skins/default',
+          authorization: caller.authorization,
+          body: {'skinId': _otherSkinId},
+        );
+        expect(reply.status, 200, reason: '${caller.name}: $reply');
+        expect(storage.defaultSkinId, _otherSkinId, reason: caller.name);
+        storage.defaultSkinId = _defaultSkinId;
+      },
+      'POST /api/v1/webui/skins/install/github-release': (caller) async {
+        final reply = await send(
+          'POST',
+          '/api/v1/webui/skins/install/github-release',
+          authorization: caller.authorization,
+          body: {'repo': 'acme/skin'},
+        );
+        expect(reply.status, 200, reason: '${caller.name}: $reply');
+        expect(
+          storage.calls,
+          contains('installFromGitHubRelease acme/skin'),
+          reason: caller.name,
+        );
+      },
+      'POST /api/v1/webui/skins/install/github-branch': (caller) async {
+        final reply = await send(
+          'POST',
+          '/api/v1/webui/skins/install/github-branch',
+          authorization: caller.authorization,
+          body: {'repo': 'acme/skin'},
+        );
+        expect(reply.status, 200, reason: '${caller.name}: $reply');
+        expect(
+          storage.calls,
+          contains('installFromGitHub acme/skin main'),
+          reason: caller.name,
+        );
+      },
+      'POST /api/v1/webui/skins/install/url': (caller) async {
+        final reply = await send(
+          'POST',
+          '/api/v1/webui/skins/install/url',
+          authorization: caller.authorization,
+          body: {'url': 'https://example.test/skin.zip'},
+        );
+        expect(reply.status, 200, reason: '${caller.name}: $reply');
+        expect(
+          storage.calls,
+          contains('installFromUrl https://example.test/skin.zip'),
+          reason: caller.name,
+        );
+      },
+      'POST /api/v1/webui/skins/update': (caller) async {
+        storage.calls.clear();
         final reply = await send(
           'POST',
           '/api/v1/webui/skins/update',
-          authorization: bearer(),
+          authorization: caller.authorization,
         );
-        expect(reply.status, 200, reason: '$reply');
-        final json = reply.json as Map<String, dynamic>;
-        expect(json['message'], 'Skin update check completed');
-        final results = (json['results'] as List).cast<Map<String, dynamic>>();
-        expect(results, hasLength(2));
-        expect(results[0], {'item': 'a/b', 'status': 'updated'});
-        expect(results[1], {
-          'item': 'c/d',
-          'status': 'failed',
-          'error': 'Check your internet connection and try again.',
-        });
+        expect(reply.status, 200, reason: '${caller.name}: $reply');
+        expect(
+          storage.calls,
+          contains('checkForSkinUpdates'),
+          reason: caller.name,
+        );
       },
-    );
+      'DELETE /api/v1/webui/skins/<id>': (caller) async {
+        storage.addSkin(_otherSkinId);
+        final reply = await send(
+          'DELETE',
+          '/api/v1/webui/skins/$_otherSkinId',
+          authorization: caller.authorization,
+        );
+        expect(reply.status, 200, reason: '${caller.name}: $reply');
+        expect(
+          storage.skinIds,
+          isNot(contains(_otherSkinId)),
+          reason: caller.name,
+        );
+      },
+      'POST /api/v1/webui/server/start': (caller) async {
+        webUi
+          ..serving = false
+          ..calls.clear();
+        final reply = await send(
+          'POST',
+          '/api/v1/webui/server/start',
+          authorization: caller.authorization,
+        );
+        expect(reply.status, 200, reason: '${caller.name}: $reply');
+        expect(
+          webUi.calls,
+          contains('serveFolderAtPath ${tempDir.path}/skins/$_defaultSkinId'),
+          reason: caller.name,
+        );
+        expect(webUi.serving, isTrue, reason: caller.name);
+      },
+      'POST /api/v1/webui/server/stop': (caller) async {
+        webUi
+          ..serving = true
+          ..calls.clear();
+        final reply = await send(
+          'POST',
+          '/api/v1/webui/server/stop',
+          authorization: caller.authorization,
+        );
+        expect(reply.status, 200, reason: '${caller.name}: $reply');
+        expect(webUi.calls, contains('stopServing'), reason: caller.name);
+        expect(webUi.serving, isFalse, reason: caller.name);
+      },
+    };
 
-    test('skin default, install, removal and the skin server apply', () async {
-      final setDefault = await send(
-        'PUT',
-        '/api/v1/webui/skins/default',
-        authorization: bearer(),
-        body: {'skinId': _otherSkinId},
-      );
-      expect(setDefault.status, 200, reason: '$setDefault');
-      expect(storage.defaultSkinId, _otherSkinId);
-
-      final missingId = await send(
-        'PUT',
-        '/api/v1/webui/skins/default',
-        authorization: bearer(),
-        body: <String, dynamic>{},
-      );
-      expect(missingId.status, 400);
-
-      final unknownSkin = await send(
-        'PUT',
-        '/api/v1/webui/skins/default',
-        authorization: bearer(),
-        body: {'skinId': 'nope.skin'},
-      );
-      expect(unknownSkin.status, 404);
-
-      final installed = await send(
-        'POST',
-        '/api/v1/webui/skins/install/github-release',
-        authorization: bearer(),
-        body: {'repo': 'acme/skin'},
-      );
-      expect(installed.status, 200, reason: '$installed');
-      expect(storage.calls, contains('installFromGitHubRelease acme/skin'));
-
-      final noRepo = await send(
-        'POST',
-        '/api/v1/webui/skins/install/github-branch',
-        authorization: bearer(),
-        body: <String, dynamic>{},
-      );
-      expect(noRepo.status, 400);
-
-      final started = await send(
-        'POST',
-        '/api/v1/webui/server/start',
-        authorization: bearer(),
-      );
-      expect(started.status, 200, reason: '$started');
-      expect(webUi.serving, isTrue);
-      expect(webUi.path, '${tempDir.path}/skins/$_otherSkinId');
-
-      final stopped = await send(
-        'POST',
-        '/api/v1/webui/server/stop',
-        authorization: bearer(),
-      );
-      expect(stopped.status, 200, reason: '$stopped');
-      expect(webUi.serving, isFalse);
-
-      final removed = await send(
-        'DELETE',
-        '/api/v1/webui/skins/$_otherSkinId',
-        authorization: bearer(),
-      );
-      expect(removed.status, 200, reason: '$removed');
-      expect(storage.skinIds, isNot(contains(_otherSkinId)));
+    test('the probe table covers all 18 gated routes', () {
+      expect(probes.keys.toSet(), {
+        for (final route in extensionManagementRoutes) route.toString(),
+      });
     });
+
+    for (final required in [true, false]) {
+      group(required ? 'protected mode' : 'compatibility mode', () {
+        setUp(() => useMode(required));
+
+        for (final route in extensionManagementRoutes) {
+          test('$route', () async {
+            final probe = probes[route.toString()]!;
+            for (final caller
+                in required
+                    ? <_Caller>[
+                        (
+                          name: 'an extensions:manage token',
+                          authorization: 'Bearer $managerToken',
+                        ),
+                      ]
+                    : legacyCredentials()) {
+              storage.calls.clear();
+              await probe(caller);
+            }
+          });
+        }
+      });
+    }
   });
 
-  group('scope independence', () {
-    const proxyPath = '/api/v1/account/proxy/support/api/sn';
+  for (final required in [true, false]) {
+    group(
+      'scope independence (${required ? 'protected' : 'compatibility'})',
+      () {
+        setUp(() => useMode(required));
 
-    test(
-      'an extensions:manage token is refused by the account proxy',
-      () async {
-        final read = await send(
-          'GET',
-          proxyPath,
-          authorization: 'Bearer $managerToken',
-        );
-        expect(read.status, 403);
-        expect(read.body, '{"error":"Token is not scoped for account:proxy"}');
+        const proxyPath = '/api/v1/account/proxy/support/api/sn';
 
-        final write = await send(
-          'POST',
-          proxyPath,
-          authorization: 'Bearer $managerToken',
-          body: <String, dynamic>{},
+        test(
+          'an extensions:manage token is refused by the account proxy',
+          () async {
+            final read = await send(
+              'GET',
+              proxyPath,
+              authorization: 'Bearer $managerToken',
+            );
+            expect(read.status, 403);
+            expect(
+              read.body,
+              '{"error":"Token is not scoped for account:proxy"}',
+            );
+
+            final write = await send(
+              'POST',
+              proxyPath,
+              authorization: 'Bearer $managerToken',
+              body: <String, dynamic>{},
+            );
+            expect(write.status, 403);
+            expect(
+              write.body,
+              '{"error":"Token is not scoped for account:proxy:write"}',
+            );
+            expect(accountUpstream, isEmpty);
+          },
         );
-        expect(write.status, 403);
-        expect(
-          write.body,
-          '{"error":"Token is not scoped for account:proxy:write"}',
+
+        test('account-proxy 401 and 403 bodies are unchanged', () async {
+          for (final (authorization, status, body) in [
+            (null, 401, '{"error":"Missing or malformed bearer token"}'),
+            ('Basic abc', 401, '{"error":"Missing or malformed bearer token"}'),
+            ('Bearer $unknownToken', 401, '{"error":"Invalid token"}'),
+            ('Bearer $revokedToken', 401, '{"error":"Invalid token"}'),
+          ]) {
+            final reply = await send(
+              'GET',
+              proxyPath,
+              authorization: authorization,
+            );
+            expect(reply.status, status, reason: authorization);
+            expect(reply.body, body, reason: authorization);
+            expect(
+              reply.headers.value(HttpHeaders.wwwAuthenticateHeader),
+              isNull,
+            );
+          }
+          final readOnlyWrite = await send(
+            'POST',
+            proxyPath,
+            authorization: 'Bearer $accountToken',
+            body: <String, dynamic>{},
+          );
+          expect(readOnlyWrite.status, 403);
+          expect(
+            readOnlyWrite.body,
+            '{"error":"Token is not scoped for account:proxy:write"}',
+          );
+          expect(accountUpstream, isEmpty);
+        });
+
+        test(
+          'an account:proxy token still reaches the account proxy',
+          () async {
+            final reply = await send(
+              'GET',
+              proxyPath,
+              authorization: 'Bearer $accountToken',
+            );
+            expect(reply.status, 200, reason: '$reply');
+            expect(accountUpstream, isNotEmpty);
+          },
         );
-        expect(accountUpstream, isEmpty);
       },
     );
+  }
 
-    test('account-proxy 401 and 403 bodies are unchanged', () async {
-      for (final (authorization, status, body) in [
-        (null, 401, '{"error":"Missing or malformed bearer token"}'),
-        ('Basic abc', 401, '{"error":"Missing or malformed bearer token"}'),
-        ('Bearer $unknownToken', 401, '{"error":"Invalid token"}'),
-        ('Bearer $revokedToken', 401, '{"error":"Invalid token"}'),
+  group('security setting reads', () {
+    test('unrelated traffic never reads the security setting', () async {
+      useMode(true);
+      securityReads = 0;
+      for (final (method, path) in [
+        ('GET', '/api/v1/plugins'),
+        ('GET', '/api/v1/webui/skins'),
+        ('GET', '/api/v1/webui/server/status'),
+        ('GET', '/api/v1/plugins/$_echoId/echo'),
+        ('GET', '/api/v1/account/proxy/support/api/sn'),
       ]) {
         final reply = await send(
-          'GET',
-          proxyPath,
-          authorization: authorization,
+          method,
+          path,
+          authorization: path.startsWith('/api/v1/account/proxy/')
+              ? 'Bearer $accountToken'
+              : null,
         );
-        expect(reply.status, status, reason: authorization);
-        expect(reply.body, body, reason: authorization);
-        expect(reply.headers.value(HttpHeaders.wwwAuthenticateHeader), isNull);
+        expect(
+          reply.status,
+          isNot(anyOf(401, 403)),
+          reason: '$method $path -> $reply',
+        );
       }
-      final readOnlyWrite = await send(
-        'POST',
-        proxyPath,
-        authorization: 'Bearer $accountToken',
-        body: <String, dynamic>{},
-      );
-      expect(readOnlyWrite.status, 403);
-      expect(
-        readOnlyWrite.body,
-        '{"error":"Token is not scoped for account:proxy:write"}',
-      );
-      expect(accountUpstream, isEmpty);
+      expect(securityReads, 0);
     });
 
-    test('an account:proxy token still reaches the account proxy', () async {
+    test('an origin refusal short-circuits before the security read', () async {
+      useMode(true);
+      securityReads = 0;
       final reply = await send(
-        'GET',
-        proxyPath,
-        authorization: 'Bearer $accountToken',
+        'POST',
+        '/api/v1/plugins/$_idleId/enable',
+        headers: {'origin': _untrustedOrigin},
+      );
+      expect(reply.status, 403, reason: '$reply');
+      expect(securityReads, 0);
+      expect(service.isPluginLoaded(_idleId), isFalse);
+    });
+
+    test('a management mutation reads the security setting once', () async {
+      useMode(true);
+      securityReads = 0;
+      final reply = await send(
+        'POST',
+        '/api/v1/plugins/$_idleId/enable',
+        authorization: 'Bearer $managerToken',
       );
       expect(reply.status, 200, reason: '$reply');
-      expect(accountUpstream, isNotEmpty);
+      expect(securityReads, 1);
+      await service.disablePlugin(_idleId);
     });
   });
 
@@ -1133,33 +1645,553 @@ void main() {
     });
   });
 
-  group('bearer removal before plugin endpoints', () {
-    Future<Map<String, dynamic>> echoedHeaders(String? authorization) async {
-      final reply = await send(
-        'GET',
-        '/api/v1/plugins/$_echoId/echo',
-        authorization: authorization,
-      );
-      expect(reply.status, 200, reason: '$reply');
-      return Map<String, dynamic>.from(reply.json['headers'] as Map);
-    }
+  for (final required in [true, false]) {
+    group('bearer removal before plugin endpoints '
+        '(${required ? 'protected' : 'compatibility'})', () {
+      setUp(() => useMode(required));
 
-    test('a recognised bearer never reaches plugin code', () async {
-      for (final token in [managerToken, accountToken, tokens.skinToken]) {
-        final headers = await echoedHeaders('Bearer $token');
-        expect(
-          headers.keys.map((name) => name.toLowerCase()),
-          isNot(contains('authorization')),
+      Future<Map<String, dynamic>> echoedHeaders(String? authorization) async {
+        final reply = await send(
+          'GET',
+          '/api/v1/plugins/$_echoId/echo',
+          authorization: authorization,
         );
-        expect(jsonEncode(headers), isNot(contains(token)));
+        expect(reply.status, 200, reason: '$reply');
+        return Map<String, dynamic>.from(reply.json['headers'] as Map);
       }
-    });
 
-    test('an unknown bearer is passed through unchanged', () async {
-      final headers = await echoedHeaders('Bearer $unknownToken');
-      expect(headers['authorization'], 'Bearer $unknownToken');
+      test('a recognised bearer never reaches plugin code', () async {
+        for (final token in [managerToken, accountToken, tokens.skinToken]) {
+          final headers = await echoedHeaders('Bearer $token');
+          expect(
+            headers.keys.map((name) => name.toLowerCase()),
+            isNot(contains('authorization')),
+          );
+          expect(jsonEncode(headers), isNot(contains(token)));
+        }
+      });
+
+      test('an unknown bearer is passed through unchanged', () async {
+        final headers = await echoedHeaders('Bearer $unknownToken');
+        expect(headers['authorization'], 'Bearer $unknownToken');
+      });
     });
-  });
+  }
+
+  for (final required in [true, false]) {
+    group('browser origins (${required ? 'protected' : 'compatibility'})', () {
+      setUp(() => useMode(required));
+
+      String? bearer() => required ? 'Bearer $managerToken' : null;
+
+      List<String> untrustedOrigins() => [
+        _untrustedOrigin,
+        'http://$_untrustedLanAddress:$_trustedPagePort',
+        'http://decaid.local:$_trustedPagePort',
+        'http://localhost:3000',
+        'http://localhost:8080',
+        'https://$_trustedDeviceAddress:$_trustedPagePort',
+        'http://localhost',
+        'null',
+        'http://localhost:$_trustedPagePort, https://evil.example',
+      ];
+
+      List<String> trustedOrigins() => [
+        'http://localhost:$_trustedPagePort',
+        'http://127.0.0.1:$_trustedPagePort',
+        'http://[::1]:$_trustedPagePort',
+        'http://$_trustedDeviceAddress:$_trustedPagePort',
+        'http://$_trustedDeviceAddress:$listenerPort',
+        'http://127.0.0.1:$listenerPort',
+      ];
+
+      test('an untrusted origin is refused on every management route with no '
+          'work, even with a valid bearer', () async {
+        final before = await snapshot();
+        for (final route in extensionManagementRoutes) {
+          for (final origin in untrustedOrigins()) {
+            final reply = await send(
+              route.method,
+              _concretePath(route),
+              authorization: bearer(),
+              body: _bodyFor(route),
+              headers: {'origin': origin},
+            );
+            expect(reply.status, 403, reason: '$route $origin');
+            expect(reply.error, _originRefused, reason: '$route $origin');
+            expect(
+              reply.headers.value('access-control-allow-origin'),
+              isNull,
+              reason: '$route $origin',
+            );
+          }
+        }
+        expect(await snapshot(), before);
+        expect(gitHubRequests, isEmpty);
+        expect(storage.calls, isEmpty);
+        expect(webUi.calls, isEmpty);
+      });
+
+      test('a trusted skin page or same-origin API origin is admitted when '
+          'the credential policy allows', () async {
+        for (final origin in trustedOrigins()) {
+          final reply = await send(
+            'POST',
+            '/api/v1/plugins/$_idleId/enable',
+            authorization: bearer(),
+            headers: {'origin': origin},
+          );
+          expect(reply.status, 200, reason: '$origin: $reply');
+          expect(reply.error, isNull, reason: origin);
+          expect(
+            reply.headers.value('access-control-allow-origin'),
+            origin,
+            reason: origin,
+          );
+          expect(service.isPluginLoaded(_idleId), isTrue, reason: origin);
+          await service.disablePlugin(_idleId);
+        }
+      });
+
+      test('a trusted origin does not replace the credential policy', () async {
+        final reply = await send(
+          'POST',
+          '/api/v1/plugins/$_idleId/enable',
+          headers: {'origin': 'http://localhost:$_trustedPagePort'},
+        );
+        expect(reply.status, required ? 401 : 200, reason: '$reply');
+        expect(service.isPluginLoaded(_idleId), required ? isFalse : isTrue);
+        await service.disablePlugin(_idleId);
+      });
+
+      test('the trusted page origin follows the live skin port, restart and '
+          'stop', () async {
+        final live = 'http://localhost:$_trustedPagePort';
+        final next = 'http://localhost:$_nextPagePort';
+
+        Future<int> attempt(String origin) async => (await send(
+          'POST',
+          '/api/v1/plugins/$_idleId/enable',
+          authorization: bearer(),
+          headers: {'origin': origin},
+        )).status;
+
+        expect(await attempt(live), 200);
+        await service.disablePlugin(_idleId);
+
+        browserPagePorts = {_nextPagePort};
+        expect(await attempt(live), 403);
+        expect(await attempt(next), 200);
+        await service.disablePlugin(_idleId);
+
+        browserPagePorts = const {};
+        expect(await attempt(next), 403);
+        expect(service.isPluginLoaded(_idleId), isFalse);
+
+        browserPagePorts = {_nextPagePort};
+        expect(
+          await attempt('http://$_trustedDeviceAddress:$_nextPagePort'),
+          200,
+        );
+        await service.disablePlugin(_idleId);
+
+        browserDeviceAddresses = {'192.168.12.65'};
+        expect(
+          await attempt('http://$_trustedDeviceAddress:$_nextPagePort'),
+          403,
+        );
+        expect(await attempt('http://192.168.12.65:$_nextPagePort'), 200);
+        await service.disablePlugin(_idleId);
+      });
+
+      test('a loopback origin needs a socket peer that belongs to this '
+          'device', () async {
+        final lanServer = await bind(InternetAddress.anyIPv4);
+        addTearDown(() => lanServer.close(force: true));
+        final interfaces = await NetworkInterface.list(
+          type: InternetAddressType.IPv4,
+          includeLoopback: false,
+        );
+        final addresses = [
+          for (final interface in interfaces)
+            for (final address in interface.addresses) address,
+        ].where((address) => !address.isLoopback).toList();
+        if (addresses.isEmpty) {
+          markTestSkipped(
+            'No non-loopback IPv4 address; the LAN peer case was not '
+            'exercised',
+          );
+          return;
+        }
+        final peer = addresses.first;
+        const origin = 'http://localhost:$_trustedPagePort';
+
+        connections.clear();
+        final before = await snapshot();
+        browserDeviceAddresses = {_untrustedLanAddress};
+        final remote = await send(
+          'POST',
+          '/api/v1/plugins/$_idleId/enable',
+          authorization: bearer(),
+          headers: const {'origin': origin},
+          to: lanServer,
+          host: peer.address,
+        );
+        expect(remote.status, 403, reason: '${peer.address}: $remote');
+        expect(remote.error, _originRefused);
+        expect(remote.headers.value('access-control-allow-origin'), isNull);
+        expect(connections.last.remote, peer.address);
+        expect(InternetAddress(connections.last.remote).isLoopback, isFalse);
+        expect(await snapshot(), before);
+        expect(service.isPluginLoaded(_idleId), isFalse);
+
+        browserDeviceAddresses = {peer.address};
+        final sameDevice = await send(
+          'POST',
+          '/api/v1/plugins/$_idleId/enable',
+          authorization: bearer(),
+          headers: const {'origin': origin},
+          to: lanServer,
+          host: peer.address,
+        );
+        expect(
+          sameDevice.status,
+          200,
+          reason: 'a self peer keeps the local page origin: $sameDevice',
+        );
+        expect(service.isPluginLoaded(_idleId), isTrue);
+        await service.disablePlugin(_idleId);
+
+        browserDeviceAddresses = {_trustedDeviceAddress};
+        final numeric = await send(
+          'POST',
+          '/api/v1/plugins/$_idleId/enable',
+          authorization: bearer(),
+          headers: {
+            'origin': 'http://$_trustedDeviceAddress:$_trustedPagePort',
+          },
+          to: lanServer,
+          host: peer.address,
+        );
+        expect(
+          numeric.status,
+          200,
+          reason:
+              'a remote LAN browser keeps a numeric device origin: '
+              '$numeric',
+        );
+        expect(service.isPluginLoaded(_idleId), isTrue);
+        await service.disablePlugin(_idleId);
+      });
+
+      test('host, referer and forwarding headers do not make an origin '
+          'trusted', () async {
+        final before = await snapshot();
+        final forged = {
+          'origin': _untrustedOrigin,
+          'referer': 'http://localhost:$_trustedPagePort/settings',
+          'x-forwarded-host': 'localhost:$_trustedPagePort',
+          'x-forwarded-for': '127.0.0.1',
+          'x-real-ip': '127.0.0.1',
+          'forwarded': 'for=127.0.0.1;host=localhost;proto=http',
+        };
+        final reply = await send(
+          'POST',
+          '/api/v1/plugins/$_idleId/enable',
+          authorization: bearer(),
+          headers: forged,
+        );
+        expect(reply.status, 403, reason: '$reply');
+        expect(reply.error, _originRefused);
+
+        final raw = await rawSocketRequest(
+          InternetAddress.loopbackIPv4,
+          server.port,
+          'POST',
+          '/api/v1/plugins/$_idleId/enable',
+          authorization: bearer(),
+          hostHeader: 'localhost:$_trustedPagePort',
+          headers: const {'Origin': _untrustedOrigin},
+        );
+        expect(raw.status, 403, reason: raw.body);
+        expect(raw.body, contains(_originRefused));
+        expect(await snapshot(), before);
+        expect(service.isPluginLoaded(_idleId), isFalse);
+
+        final originless = await rawSocketRequest(
+          InternetAddress.loopbackIPv4,
+          server.port,
+          'POST',
+          '/api/v1/plugins/$_idleId/enable',
+          authorization: bearer(),
+          hostHeader: 'localhost:$_trustedPagePort',
+          headers: const {
+            'X-Forwarded-For': '127.0.0.1',
+            'X-Real-IP': '127.0.0.1',
+          },
+        );
+        expect(originless.status, 200, reason: originless.body);
+        expect(service.isPluginLoaded(_idleId), isTrue);
+        await service.disablePlugin(_idleId);
+      });
+
+      test('an untrusted preflight for a management mutation gets no '
+          'affirmative CORS or preflight headers', () async {
+        final before = await snapshot();
+        for (final route in extensionManagementRoutes) {
+          for (final origin in untrustedOrigins()) {
+            final reply = await send(
+              'OPTIONS',
+              _concretePath(route),
+              headers: {
+                'origin': origin,
+                'access-control-request-method': route.method,
+                'access-control-request-headers': 'authorization, content-type',
+              },
+            );
+            expect(reply.status, 403, reason: '$route $origin');
+            expect(reply.error, _originRefused, reason: '$route $origin');
+            for (final name in [
+              'access-control-allow-origin',
+              'access-control-allow-credentials',
+              'access-control-allow-methods',
+              'access-control-allow-headers',
+              'access-control-expose-headers',
+            ]) {
+              expect(
+                reply.headers.value(name),
+                isNull,
+                reason: '$route $origin $name',
+              );
+            }
+          }
+        }
+        expect(await snapshot(), before);
+      });
+
+      test('an untrusted preflight for a body-sensitive operation gets no '
+          'affirmative CORS or preflight headers', () async {
+        final before = await snapshot();
+        for (final path in [
+          '/api/v1/settings',
+          '/api/v1/data/import',
+          '/api/v1/data/sync',
+        ]) {
+          for (final origin in untrustedOrigins()) {
+            final reply = await send(
+              'OPTIONS',
+              path,
+              headers: {
+                'origin': origin,
+                'access-control-request-method': 'POST',
+                'access-control-request-headers': 'authorization, content-type',
+              },
+            );
+            expect(reply.status, 403, reason: '$path $origin');
+            expect(reply.error, _originRefused, reason: '$path $origin');
+            for (final name in [
+              'access-control-allow-origin',
+              'access-control-allow-credentials',
+              'access-control-allow-methods',
+              'access-control-allow-headers',
+              'access-control-expose-headers',
+              'access-control-max-age',
+            ]) {
+              expect(
+                reply.headers.value(name),
+                isNull,
+                reason: '$path $origin $name',
+              );
+            }
+          }
+        }
+        expect(await snapshot(), before);
+      });
+
+      test('an untrusted preflight for a read-only method on a shared '
+          'management path keeps the general CORS contract', () async {
+        final before = await snapshot();
+        for (final path in [
+          '/api/v1/plugins',
+          '/api/v1/plugins/$_echoId/settings',
+          '/api/v1/webui/skins',
+          '/api/v1/webui/skins/default',
+          '/api/v1/webui/skins/$_defaultSkinId',
+          '/api/v1/settings',
+        ]) {
+          for (final origin in [
+            _untrustedOrigin,
+            'null',
+            'http://unknown.example:9999',
+          ]) {
+            final reply = await send(
+              'OPTIONS',
+              path,
+              headers: {
+                'origin': origin,
+                'access-control-request-method': 'GET',
+              },
+            );
+            expect(reply.status, 200, reason: '$path $origin');
+            expect(reply.body, isEmpty, reason: '$path $origin');
+            expect(
+              reply.headers.value('access-control-allow-origin'),
+              origin,
+              reason: '$path $origin',
+            );
+            expect(
+              reply.headers.value('access-control-allow-methods'),
+              isNotNull,
+              reason: '$path $origin',
+            );
+            expect(
+              reply.headers.value('access-control-max-age'),
+              isNotNull,
+              reason: '$path $origin',
+            );
+          }
+        }
+        expect(await snapshot(), before);
+      });
+
+      test('an untrusted preflight for a mutation on a shared path is still '
+          'refused', () async {
+        final before = await snapshot();
+        for (final (method, path) in [
+          ('POST', '/api/v1/plugins/$_echoId/settings'),
+          ('PUT', '/api/v1/webui/skins/default'),
+          ('DELETE', '/api/v1/webui/skins/$_defaultSkinId'),
+          ('DELETE', '/api/v1/plugins/$_idleId'),
+          ('POST', '/api/v1/settings'),
+        ]) {
+          for (final origin in [...untrustedOrigins(), 'null']) {
+            final reply = await send(
+              'OPTIONS',
+              path,
+              headers: {
+                'origin': origin,
+                'access-control-request-method': method,
+              },
+            );
+            expect(reply.status, 403, reason: '$method $path $origin');
+            expect(reply.error, _originRefused, reason: '$method $path');
+            for (final name in [
+              'access-control-allow-origin',
+              'access-control-allow-credentials',
+              'access-control-allow-methods',
+              'access-control-allow-headers',
+              'access-control-expose-headers',
+              'access-control-max-age',
+            ]) {
+              expect(
+                reply.headers.value(name),
+                isNull,
+                reason: '$method $path $origin $name',
+              );
+            }
+          }
+        }
+        expect(await snapshot(), before);
+      });
+
+      test('an untrusted preflight for a plugin-defined route keeps the '
+          'general CORS contract', () async {
+        for (final (method, path) in [
+          ('POST', '/api/v1/plugins/$_echoId/echo'),
+          ('GET', '/api/v1/plugins/$_echoId/status'),
+        ]) {
+          final reply = await send(
+            'OPTIONS',
+            path,
+            headers: {
+              'origin': _untrustedOrigin,
+              'access-control-request-method': method,
+            },
+          );
+          expect(reply.status, 200, reason: '$method $path');
+          expect(
+            reply.headers.value('access-control-allow-origin'),
+            _untrustedOrigin,
+            reason: '$method $path',
+          );
+        }
+      });
+
+      test('an untrusted preflight without a usable requested method stays '
+          'refused on management paths', () async {
+        final before = await snapshot();
+        for (final value in const <String?>[null, '', 'GET, POST', 'P@ST']) {
+          for (final path in [
+            '/api/v1/plugins/$_echoId/settings',
+            '/api/v1/webui/skins/default',
+            '/api/v1/settings',
+          ]) {
+            final reply = await send(
+              'OPTIONS',
+              path,
+              headers: {
+                'origin': _untrustedOrigin,
+                'access-control-request-method': ?value,
+              },
+            );
+            expect(reply.status, 403, reason: '$value $path');
+            expect(reply.error, _originRefused, reason: '$value $path');
+            expect(
+              reply.headers.value('access-control-allow-origin'),
+              isNull,
+              reason: '$value $path',
+            );
+          }
+        }
+        expect(await snapshot(), before);
+      });
+
+      test('a trusted preflight for a body-sensitive operation keeps its '
+          'pre-existing CORS headers', () async {
+        for (final path in [
+          '/api/v1/settings',
+          '/api/v1/data/import',
+          '/api/v1/data/sync',
+        ]) {
+          final reply = await send(
+            'OPTIONS',
+            path,
+            headers: {
+              'origin': 'http://localhost:$_trustedPagePort',
+              'access-control-request-method': 'POST',
+            },
+          );
+          expect(reply.status, 200, reason: path);
+          expect(
+            reply.headers.value('access-control-allow-origin'),
+            'http://localhost:$_trustedPagePort',
+            reason: path,
+          );
+        }
+      });
+
+      test('an untrusted origin keeps read-only, plugin-defined and '
+          'unrelated routes unchanged', () async {
+        for (final (method, path) in [
+          ('GET', '/api/v1/plugins'),
+          ('GET', '/api/v1/plugins/$_echoId/echo'),
+          ('GET', '/api/v1/webui/server/status'),
+          ('POST', '/api/v1/plugins/$_echoId/echo'),
+        ]) {
+          final reply = await send(
+            method,
+            path,
+            headers: {'origin': _untrustedOrigin},
+          );
+          expect(
+            reply.status,
+            isNot(anyOf(401, 403)),
+            reason: '$method $path -> $reply',
+          );
+        }
+      });
+    });
+  }
 
   group('CORS and preflight', () {
     test('a preflight on every protected path answers without auth and '
@@ -1363,6 +2395,359 @@ void main() {
       ),
       service.isPluginLoaded(_echoId),
     );
+  });
+
+  group('#1187 visualizer settings save', () {
+    const id = 'visualizer.reaplugin';
+    const secureKey = 'plugin.settings.secure.$id';
+    const secret = 'sk-dye2-visualizer-0123456789abcdef';
+    const newerSecret = 'sk-dye2-visualizer-fedcba9876543210';
+
+    Map<String, dynamic> visualizerManifest() => {
+      ..._manifestJson(id),
+      'settings': {
+        'Label': {'type': 'string'},
+        'apiKey': {'type': 'string', 'secure': true},
+      },
+    };
+
+    setUp(() async {
+      await service.updatePluginSource(
+        id,
+        manifestJson: visualizerManifest(),
+        pluginJs: _echoPluginJs(id),
+      );
+    });
+
+    test('a tokenless save is legacy in compatibility mode and 401 in '
+        'protected mode, and the stored secret never leaks', () async {
+      useMode(false);
+      final saved = await send(
+        'POST',
+        '/api/v1/plugins/$id/settings',
+        body: {'Label': 'dye2', 'apiKey': secret},
+      );
+      expect(saved.status, 200, reason: '$saved');
+      expect(saved.body, isNot(contains(secret)));
+      expect((saved.json as Map)['apiKey'], {'isSet': true});
+      expect(await pluginCredentials.read(key: secureKey), contains(secret));
+
+      final fetched = await send('GET', '/api/v1/plugins/$id/settings');
+      expect(fetched.status, 200, reason: '$fetched');
+      expect(fetched.body, isNot(contains(secret)));
+      expect((fetched.json as Map)['apiKey'], {'isSet': true});
+      expect((fetched.json as Map)['Label'], 'dye2');
+
+      final invalid = await send(
+        'POST',
+        '/api/v1/plugins/$id/settings',
+        body: {'apiKey': newerSecret, 'notInTheManifest': 1},
+      );
+      expect(invalid.status, 400, reason: '$invalid');
+      expect(invalid.error, contains('notInTheManifest'));
+      expect(invalid.body, isNot(contains(newerSecret)));
+      expect(await pluginCredentials.read(key: secureKey), contains(secret));
+
+      useMode(true);
+      final refused = await send(
+        'POST',
+        '/api/v1/plugins/$id/settings',
+        body: {'apiKey': newerSecret},
+      );
+      expect(refused.status, 401, reason: '$refused');
+      expect(refused.error, _missingBearer);
+      expect(refused.body, isNot(contains(newerSecret)));
+      expect(await pluginCredentials.read(key: secureKey), contains(secret));
+
+      final managed = await send(
+        'POST',
+        '/api/v1/plugins/$id/settings',
+        authorization: 'Bearer $managerToken',
+        body: {'apiKey': newerSecret},
+      );
+      expect(managed.status, 200, reason: '$managed');
+      expect(managed.body, isNot(contains(newerSecret)));
+      expect(
+        await pluginCredentials.read(key: secureKey),
+        contains(newerSecret),
+      );
+
+      final protectedFetch = await send('GET', '/api/v1/plugins/$id/settings');
+      expect(protectedFetch.status, 200, reason: '$protectedFetch');
+      expect(protectedFetch.body, isNot(contains(newerSecret)));
+    });
+  });
+
+  group('real socket topologies', () {
+    HttpServer? ipv6Server;
+    late HttpServer lanServer;
+    late InternetAddress lanAddress;
+
+    bool hasLan() => lanAddress.address != '0.0.0.0';
+
+    setUp(() async {
+      ipv6Server = null;
+      try {
+        ipv6Server = await bind(InternetAddress.loopbackIPv6);
+      } catch (_) {
+        ipv6Server = null;
+      }
+      lanServer = await bind(InternetAddress.anyIPv4);
+      addTearDown(() async {
+        await ipv6Server?.close(force: true);
+        await lanServer.close(force: true);
+      });
+      final interfaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+        includeLoopback: false,
+      );
+      final addresses = [
+        for (final interface in interfaces)
+          for (final address in interface.addresses) address,
+      ].where((address) => !address.isLoopback).toList();
+      lanAddress = addresses.isEmpty
+          ? InternetAddress('0.0.0.0')
+          : InternetAddress(addresses.first.address);
+    });
+
+    List<({String name, String host, HttpServer? to, bool bound})> targets() =>
+        [
+          (name: 'IPv4 127.0.0.1', host: '127.0.0.1', to: null, bound: false),
+          (
+            name: 'the localhost hostname',
+            host: 'localhost',
+            to: null,
+            bound: false,
+          ),
+          if (ipv6Server != null)
+            (name: 'IPv6 ::1', host: '::1', to: ipv6Server, bound: false),
+          if (hasLan())
+            (
+              name: 'a LAN-bound socket',
+              host: lanAddress.address,
+              to: lanServer,
+              bound: true,
+            ),
+        ];
+
+    Future<({int status, String body})> requestOver(
+      ({String name, String host, HttpServer? to, bool bound}) target,
+      String method,
+      String path, {
+      String? authorization,
+      Map<String, String> headers = const {},
+    }) async {
+      if (target.bound) {
+        return rawSocketRequest(
+          lanAddress,
+          target.to!.port,
+          method,
+          path,
+          sourceAddress: lanAddress,
+          authorization: authorization,
+          headers: headers,
+          hostHeader: target.host,
+        );
+      }
+      final reply = await send(
+        method,
+        path,
+        host: target.host,
+        to: target.to,
+        authorization: authorization,
+        headers: headers,
+      );
+      return (status: reply.status, body: reply.body);
+    }
+
+    test('compatibility mode applies a tokenless management call over every '
+        'socket topology', () async {
+      printOnFailure('topologies: ${[for (final t in targets()) t.name]}');
+      useMode(false);
+      for (final target in targets()) {
+        final reply = await requestOver(
+          target,
+          'POST',
+          '/api/v1/plugins/$_idleId/enable',
+        );
+        expect(reply.status, 200, reason: '${target.name}: ${reply.body}');
+        expect(service.isPluginLoaded(_idleId), isTrue, reason: target.name);
+        await service.disablePlugin(_idleId);
+      }
+    });
+
+    test('the IPv6 ::1 loopback reaches the management handler in '
+        'compatibility mode and is gated in protected mode', () async {
+      if (ipv6Server == null) {
+        markTestSkipped(
+          'No IPv6 loopback listener; the ::1 case was not exercised',
+        );
+        return;
+      }
+      useMode(false);
+      final legacy = await send(
+        'POST',
+        '/api/v1/plugins/$_idleId/enable',
+        host: '::1',
+        to: ipv6Server,
+      );
+      expect(legacy.status, 200, reason: '$legacy');
+      expect(service.isPluginLoaded(_idleId), isTrue);
+      await service.disablePlugin(_idleId);
+
+      useMode(true);
+      final refused = await send(
+        'POST',
+        '/api/v1/plugins/$_idleId/enable',
+        host: '::1',
+        to: ipv6Server,
+      );
+      expect(refused.status, 401, reason: '$refused');
+      expect(refused.error, _missingBearer);
+      expect(service.isPluginLoaded(_idleId), isFalse);
+      expect(connections.last.remote, '::1');
+    });
+
+    test('protected mode refuses every credential over every socket topology '
+        'and accepts a manager token', () async {
+      for (final target in targets()) {
+        for (final credential in refusedCredentials()) {
+          final reply = await requestOver(
+            target,
+            'POST',
+            '/api/v1/plugins/$_idleId/enable',
+            authorization: credential.authorization,
+          );
+          expect(
+            reply.status,
+            credential.status,
+            reason: '${target.name} with ${credential.name}: ${reply.body}',
+          );
+          expect(
+            reply.body,
+            contains(credential.error),
+            reason: '${target.name} with ${credential.name}',
+          );
+        }
+        expect(
+          service.isPluginLoaded(_idleId),
+          isFalse,
+          reason: '${target.name} refused every credential without work',
+        );
+
+        final managed = await requestOver(
+          target,
+          'POST',
+          '/api/v1/plugins/$_idleId/enable',
+          authorization: 'Bearer $managerToken',
+        );
+        expect(
+          managed.status,
+          200,
+          reason: '${target.name} with a manager token: ${managed.body}',
+        );
+        expect(service.isPluginLoaded(_idleId), isTrue, reason: target.name);
+        await service.disablePlugin(_idleId);
+      }
+    });
+
+    test('forged forwarding and Host headers do not authorize over any '
+        'socket', () async {
+      if (hasLan()) {
+        browserDeviceAddresses = {
+          ...browserDeviceAddresses,
+          lanAddress.address,
+        };
+      }
+      final endpoints = [
+        (
+          name: 'IPv4',
+          address: InternetAddress.loopbackIPv4,
+          port: server.port,
+          source: null as InternetAddress?,
+        ),
+        if (ipv6Server != null)
+          (
+            name: 'IPv6 ::1',
+            address: InternetAddress.loopbackIPv6,
+            port: ipv6Server!.port,
+            source: null as InternetAddress?,
+          ),
+        if (hasLan())
+          (
+            name: 'LAN-bound',
+            address: lanAddress,
+            port: lanServer.port,
+            source: lanAddress as InternetAddress?,
+          ),
+      ];
+      for (final endpoint in endpoints) {
+        final reply = await rawSocketRequest(
+          endpoint.address,
+          endpoint.port,
+          'POST',
+          '/api/v1/plugins/$_idleId/enable',
+          sourceAddress: endpoint.source,
+          hostHeader: 'localhost',
+          headers: const {
+            'Origin': 'http://localhost:$_trustedPagePort',
+            'X-Forwarded-For': '127.0.0.1',
+            'X-Real-IP': '127.0.0.1',
+            'Forwarded': 'for=127.0.0.1;host=localhost',
+            'X-Forwarded-Host': 'localhost',
+          },
+        );
+        expect(reply.status, 401, reason: '${endpoint.name}: ${reply.body}');
+        expect(reply.body, contains(_missingBearer), reason: endpoint.name);
+        expect(service.isPluginLoaded(_idleId), isFalse, reason: endpoint.name);
+      }
+    });
+
+    test('a LAN-bound client is observed as a non-loopback remote address '
+        'and is still gated in protected mode', () async {
+      if (!hasLan()) {
+        markTestSkipped(
+          'No non-loopback IPv4 address; the LAN-bound peer case was not '
+          'exercised',
+        );
+        return;
+      }
+      useMode(false);
+      connections.clear();
+      final reply = await rawSocketRequest(
+        lanAddress,
+        lanServer.port,
+        'POST',
+        '/api/v1/plugins/$_idleId/enable',
+        sourceAddress: lanAddress,
+        hostHeader: lanAddress.address,
+      );
+      expect(reply.status, 200, reason: reply.body);
+      expect(service.isPluginLoaded(_idleId), isTrue);
+      final lan = connections.last;
+      expect(lan.remote, lanAddress.address);
+      expect(InternetAddress(lan.remote).isLoopback, isFalse);
+
+      useMode(true);
+      final refused = await rawSocketRequest(
+        lanAddress,
+        lanServer.port,
+        'POST',
+        '/api/v1/plugins/$_idleId/disable',
+        sourceAddress: lanAddress,
+        hostHeader: lanAddress.address,
+      );
+      expect(refused.status, 401, reason: refused.body);
+      expect(refused.body, contains(_missingBearer));
+      expect(connections.last.remote, lanAddress.address);
+      expect(service.isPluginLoaded(_idleId), isTrue);
+      await service.disablePlugin(_idleId);
+
+      final loopback = await send('POST', '/api/v1/plugins/$_idleId/enable');
+      expect(loopback.status, 401, reason: '$loopback');
+      expect(connections.last.remote, '127.0.0.1');
+      expect(InternetAddress(connections.last.remote).isLoopback, isTrue);
+    });
   });
 
   group('alternate listeners', () {

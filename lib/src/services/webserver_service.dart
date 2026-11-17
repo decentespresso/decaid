@@ -374,6 +374,7 @@ Future<void> startWebServer(
     );
   }
 
+  int? apiListenerPort;
   final handler = _init(
     deviceHandler,
     de1Handler,
@@ -399,8 +400,11 @@ Future<void> startWebServer(
     derekHandler,
     proxyTokenService,
     () => accountProxyCorsAllowedOrigins(webUIService),
-    () async => settingsController.automaticUpdateCheck,
-    () => loopbackUpdateCheckOrigins(webUIService),
+    () => settingsController.currentRequireExtensionManagementAuthorization(),
+    extensionManagementBrowserOrigins(
+      webUIService,
+      apiListenerPort: () => apiListenerPort,
+    ),
     dataExportHandler,
     dataSyncHandler,
     beansHandler,
@@ -413,6 +417,7 @@ Future<void> startWebServer(
   );
   pluginService.pluginManager.attachLocalApi(handler);
   final server = await serveOrReportPortInUse(handler, '0.0.0.0', 8080);
+  apiListenerPort = server.port;
   log.info('API Web server running on ${server.address.host}:${server.port}');
 
   await startApiDocsServer();
@@ -443,8 +448,8 @@ Handler _init(
   DerekHandler derekHandler,
   ProxyTokenService? proxyTokenService,
   Set<String> Function() accountProxyAllowedOrigins,
-  Future<bool> Function() automaticUpdateCheckEnabled,
-  Set<String> Function() localOrigins,
+  Future<bool> Function() requireExtensionManagementAuthorization,
+  ExtensionManagementBrowserOrigins browserOrigins,
   DataExportHandler dataExportHandler,
   DataSyncHandler dataSyncHandler,
   BeansHandler? beansHandler,
@@ -508,27 +513,22 @@ Handler _init(
     app.call,
     proxyTokenService: proxyTokenService,
     accountProxyAllowedOrigins: accountProxyAllowedOrigins,
-    automaticUpdateCheckEnabled: automaticUpdateCheckEnabled,
-    localOrigins: localOrigins,
+    requireExtensionManagementAuthorization:
+        requireExtensionManagementAuthorization,
+    browserOrigins: browserOrigins,
   );
 }
 
 Set<String> _noAccountProxyOrigins() => const {};
 
-/// Loopback origins of the active skin server and the API server. These are
-/// the only browser origins eligible for the #1163 tokenless update-check
-/// exception; a LAN origin is never listed here, so it can never qualify.
-Set<String> loopbackUpdateCheckOrigins(WebUIService webUIService) {
-  final skinPort = webUIService.port;
-  return {
-    'http://localhost:$skinPort',
-    'http://127.0.0.1:$skinPort',
-    'http://[::1]:$skinPort',
-    'http://localhost:8080',
-    'http://127.0.0.1:8080',
-    'http://[::1]:8080',
-  };
-}
+ExtensionManagementBrowserOrigins extensionManagementBrowserOrigins(
+  WebUIService webUIService, {
+  required int? Function() apiListenerPort,
+}) => ExtensionManagementBrowserOrigins(
+  apiListenerPort: apiListenerPort,
+  pagePorts: () => webUIService.browserOriginPorts,
+  deviceAddresses: () => webUIService.currentBrowserOriginAddresses(),
+);
 
 class ApiDocsConfiguration {
   const ApiDocsConfiguration();
@@ -581,11 +581,18 @@ Handler buildWebServerHandler(
   Handler routes, {
   ProxyTokenService? proxyTokenService,
   Set<String> Function() accountProxyAllowedOrigins = _noAccountProxyOrigins,
-  Future<bool> Function()? automaticUpdateCheckEnabled,
-  Set<String> Function()? localOrigins,
+  Future<bool> Function()? requireExtensionManagementAuthorization,
+  ExtensionManagementBrowserOrigins? browserOrigins,
   AdmissionGate? admissionGate,
 }) {
-  return const Pipeline()
+  var pipeline = const Pipeline();
+  final origins = browserOrigins;
+  if (origins != null) {
+    pipeline = pipeline.addMiddleware(
+      extensionManagementBrowserOriginMiddleware(origins),
+    );
+  }
+  return pipeline
       .addMiddleware(accountProxyCorsMiddleware(accountProxyAllowedOrigins))
       .addMiddleware(logRequestsWithClientIp())
       .addMiddleware(
@@ -606,8 +613,8 @@ Handler buildWebServerHandler(
       .addMiddleware(
         extensionManagementAuthMiddleware(
           proxyTokenService,
-          automaticUpdateCheckEnabled: automaticUpdateCheckEnabled,
-          localOrigins: localOrigins,
+          requireExtensionManagementAuthorization:
+              requireExtensionManagementAuthorization,
         ),
       )
       .addMiddleware(requestBodyReadMiddleware())

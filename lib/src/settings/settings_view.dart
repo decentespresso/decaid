@@ -12,6 +12,7 @@ import 'package:reaprime/src/settings/battery_charging_settings_page.dart';
 import 'package:reaprime/src/settings/common.dart';
 import 'package:reaprime/src/settings/device_management_page.dart';
 import 'package:reaprime/src/settings/presence_settings_page.dart';
+import 'package:reaprime/src/settings/security_page.dart';
 import 'package:reaprime/src/settings/charging_mode.dart';
 import 'package:reaprime/src/settings/update_dialog.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
@@ -204,6 +205,19 @@ class SettingsView extends StatelessWidget {
                     'Prevent the tablet screen from turning off while the app is running',
                   ),
                 ),
+              ),
+
+              const SettingsSectionHeader('Security'),
+              SettingsTile(
+                icon: Icons.shield_outlined,
+                label: 'Security',
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => SecurityPage(controller: controller),
+                    ),
+                  );
+                },
               ),
 
               const SettingsSectionHeader('About'),

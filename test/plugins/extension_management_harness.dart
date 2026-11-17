@@ -109,12 +109,20 @@ class RecordingWebUIStorage extends Fake implements WebUIStorage {
 class RecordingWebUIService extends Fake implements WebUIService {
   final List<String> mutations = [];
   bool serving = true;
+  Set<String> browserOriginAddresses = const {};
 
   @override
   bool get isServing => serving;
 
   @override
   int get port => 3000;
+
+  @override
+  Set<int> get browserOriginPorts => serving ? {port} : const {};
+
+  @override
+  Future<Set<String>> currentBrowserOriginAddresses() async =>
+      browserOriginAddresses;
 
   @override
   String serverPath() => '/recorded-skin';
@@ -286,8 +294,7 @@ class ExtensionManagementHarness {
   String get loopback => '127.0.0.1';
 
   static Future<ExtensionManagementHarness> start({
-    bool? automaticUpdates,
-    Set<String>? localOrigins,
+    bool? requireExtensionManagementAuthorization,
   }) async {
     HttpOverrides.global = null;
     SharedPreferences.setMockInitialValues({});
@@ -341,7 +348,7 @@ class ExtensionManagementHarness {
       grant:
           request.context[extensionManagementGrantContextKey]
               as ExtensionManagementGrant?,
-      mayManage: mayManageExtensions(request),
+      mayManage: await mayManageExtensions(request),
     );
 
     final app = Router().plus;
@@ -380,7 +387,7 @@ class ExtensionManagementHarness {
       final slow = slowRoutes[name]!;
       slow.entered.complete(await see(request));
       await slow.release.future;
-      slow.finished.complete(mayManageExtensions(request));
+      slow.finished.complete(await mayManageExtensions(request));
       return Response.ok('slow done');
     });
     app.all('/api/v1/account/proxy/<rest|.*>', (Request request) async {
@@ -394,13 +401,18 @@ class ExtensionManagementHarness {
     ).addRoutes(app);
     WebUIHandler(storage: skins, service: skinServer).addRoutes(app);
 
+    final requirement = requireExtensionManagementAuthorization;
+    int? apiListenerPort;
     final handler = buildWebServerHandler(
       app.call,
       proxyTokenService: tokens,
-      automaticUpdateCheckEnabled: automaticUpdates == null
+      requireExtensionManagementAuthorization: requirement == null
           ? null
-          : () async => automaticUpdates,
-      localOrigins: localOrigins == null ? null : () => localOrigins,
+          : () async => requirement,
+      browserOrigins: extensionManagementBrowserOrigins(
+        skinServer,
+        apiListenerPort: () => apiListenerPort,
+      ),
     );
     loader.pluginManager.attachLocalApi((request) {
       bridged.add('${request.method} ${request.requestedUri.path}');
@@ -416,6 +428,7 @@ class ExtensionManagementHarness {
       InternetAddress.anyIPv4,
       0,
     );
+    apiListenerPort = server.port;
 
     return ExtensionManagementHarness._(
       tempDir: tempDir,
@@ -580,23 +593,35 @@ class ExtensionManagementHarness {
     'globalThis.$as = globalThis.__probes[${jsonEncode(pluginId)}];',
   );
 
-  Future<({int status, String body})> externalRequest(
+  Future<({int status, String body, Map<String, String> headers})>
+  externalRequest(
     String method,
     String path, {
     String? bearer,
     Object? body,
-  }) => externalRequestFrom(loopback, method, path, bearer: bearer, body: body);
+    Map<String, String> headers = const {},
+  }) => externalRequestFrom(
+    loopback,
+    method,
+    path,
+    bearer: bearer,
+    body: body,
+    headers: headers,
+  );
 
-  Future<({int status, String body})> externalRequestFrom(
+  Future<({int status, String body, Map<String, String> headers})>
+  externalRequestFrom(
     String host,
     String method,
     String path, {
     String? bearer,
     Object? body,
+    Map<String, String> headers = const {},
   }) async {
     final client = HttpClient();
     try {
       final request = await client.openUrl(method, Uri.parse(url(host, path)));
+      headers.forEach(request.headers.set);
       if (bearer != null) {
         request.headers.set('authorization', 'Bearer $bearer');
       }
@@ -605,9 +630,14 @@ class ExtensionManagementHarness {
         request.write(jsonEncode(body));
       }
       final response = await request.close();
+      final received = <String, String>{};
+      response.headers.forEach(
+        (name, values) => received[name.toLowerCase()] = values.join(', '),
+      );
       return (
         status: response.statusCode,
         body: await response.transform(utf8.decoder).join(),
+        headers: received,
       );
     } finally {
       client.close(force: true);
