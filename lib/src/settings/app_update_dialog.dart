@@ -12,41 +12,55 @@ Future<void> showAppUpdateDialog(
 ) async {
   final update = service.availableUpdate;
   if (update == null || !context.mounted) return;
-  final releaseUrl = service.getReleaseUrl(update)!;
+  void viewReleaseNotes() {
+    final releaseUrl = service.getReleaseUrl();
+    if (releaseUrl != null) launchUrl(Uri.parse(releaseUrl));
+  }
+
   await showDialog<void>(
     context: context,
-    barrierDismissible: !service.canInstall,
     builder: (dialogContext) => service.canInstall
         ? UpdateDialog(
             service: service,
             updateInfo: update,
             currentVersion: BuildInfo.version,
-            onViewReleaseNotes: () => launchUrl(Uri.parse(releaseUrl)),
+            onViewReleaseNotes: viewReleaseNotes,
           )
-        : AlertDialog(
-            title: const Text('Update Available'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Version ${update.version} is available'),
-                const SizedBox(height: 8),
-                Text('Current version: ${BuildInfo.version}'),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(),
-                child: const Text('Later'),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.of(dialogContext).pop();
-                  launchUrl(Uri.parse(releaseUrl));
-                },
-                child: const Text("What's new"),
-              ),
-            ],
+        : StreamBuilder<AppUpdateState>(
+            stream: service.updateState,
+            initialData: service.currentState,
+            builder: (_, _) {
+              final current = service.availableUpdate;
+              return AlertDialog(
+                title: const Text('Update Available'),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (current == null)
+                      const Text('This update is no longer available.')
+                    else
+                      Text('Version ${current.version} is available'),
+                    const SizedBox(height: 8),
+                    Text('Current version: ${BuildInfo.version}'),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    child: const Text('Later'),
+                  ),
+                  if (current != null)
+                    ElevatedButton(
+                      onPressed: () {
+                        Navigator.of(dialogContext).pop();
+                        viewReleaseNotes();
+                      },
+                      child: const Text("What's new"),
+                    ),
+                ],
+              );
+            },
           ),
   );
 }

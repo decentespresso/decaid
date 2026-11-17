@@ -39,14 +39,13 @@ class _RecordingWebUIStorage extends WebUIStorage {
 }
 
 class _FakeUpdater extends AndroidUpdater {
-  _FakeUpdater() : super(owner: 'tadelv', repo: 'reaprime');
+  _FakeUpdater(this.downloadPath) : super(owner: 'tadelv', repo: 'reaprime');
 
   UpdateInfo? nextCheck;
   Completer<UpdateInfo?>? checkGate;
   bool throwOnCheck = false;
   bool throwOnDownload = false;
-  bool throwOnInstall = false;
-  String downloadPath = '/tmp/update.apk';
+  String downloadPath;
   bool installResult = true;
   List<double> progressToEmit = const [];
 
@@ -57,6 +56,7 @@ class _FakeUpdater extends AndroidUpdater {
 
   Completer<void>? downloadGate;
   Completer<void>? installGate;
+  final installStarted = Completer<void>();
 
   @override
   Future<UpdateInfo?> checkForUpdate(
@@ -82,14 +82,15 @@ class _FakeUpdater extends AndroidUpdater {
     for (final p in progressToEmit) {
       onProgress?.call(p);
     }
+    await File(downloadPath).writeAsBytes([1, 2, 3]);
     return downloadPath;
   }
 
   @override
   Future<bool> installUpdate(String apkPath) async {
     installCalls++;
+    if (!installStarted.isCompleted) installStarted.complete();
     if (installGate != null) await installGate!.future;
-    if (throwOnInstall) throw FileSystemException('APK unavailable', apkPath);
     return installResult;
   }
 
@@ -106,17 +107,24 @@ UpdateInfo _update({String version = '9.9.9'}) => UpdateInfo(
 );
 
 void main() {
+  late Directory directory;
   late _FakeUpdater updater;
   late MockSettingsService settingsService;
   late _RecordingWebUIStorage webUIStorage;
   late _RecordingPluginSourceService pluginSourceService;
+
+  setUp(() async {
+    directory = await Directory.systemTemp.createTemp('update-service-');
+  });
+
+  tearDown(() => directory.delete(recursive: true));
 
   UpdateCheckService build({
     bool isAndroid = true,
     bool isMacOS = false,
     bool externallyManaged = false,
   }) {
-    updater = _FakeUpdater();
+    updater = _FakeUpdater('${directory.path}/update.apk');
     settingsService = MockSettingsService();
     final settingsController = SettingsController(settingsService);
     webUIStorage = _RecordingWebUIStorage(settingsController);
@@ -284,7 +292,7 @@ void main() {
 
         expect(svc.installationStarted, isFalse);
         expect(svc.currentState.phase, AppUpdatePhase.available);
-        expect(svc.downloadedPath, '/tmp/update.apk');
+        expect(svc.downloadedPath, updater.downloadPath);
         expect(updater.installCalls, 1);
         await svc.checkForUpdate();
         expect(updater.checkCalls, 2);
@@ -307,6 +315,7 @@ void main() {
 
         svc.onAppResumed();
         final second = svc.installUpdate(path);
+        await updater.installStarted.future;
         expect(updater.installCalls, 1);
         updater.installGate!.complete();
         expect(await first, isTrue);
@@ -333,31 +342,25 @@ void main() {
       expect(svc.currentState.phase, AppUpdatePhase.available);
     });
 
-    test(
-      'a missing cached APK can be downloaded again after install failure',
-      () async {
-        final cache = await Directory.systemTemp.createTemp(
-          'decaid-update-test-',
-        );
-        addTearDown(() => cache.delete(recursive: true));
-        final svc = build();
-        addTearDown(svc.dispose);
-        updater.nextCheck = _update();
-        updater.downloadPath = '${cache.path}/removed.apk';
-        await svc.checkForUpdate();
-        final path = await svc.downloadUpdate(svc.availableUpdate!, (_) {});
-        updater.throwOnInstall = true;
+    test('a missing cached APK is rejected before install and can be downloaded again', () async {
+      final cache = await Directory.systemTemp.createTemp(
+        'decaid-update-test-',
+      );
+      addTearDown(() => cache.delete(recursive: true));
+      final svc = build();
+      addTearDown(svc.dispose);
+      updater.nextCheck = _update();
+      updater.downloadPath = '${cache.path}/removed.apk';
+      await svc.checkForUpdate();
+      final path = await svc.downloadUpdate(svc.availableUpdate!, (_) {});
+      await File(path).delete();
 
-        await expectLater(
-          svc.installUpdate(path),
-          throwsA(isA<FileSystemException>()),
-        );
-        expect(svc.downloadedPath, isNull);
-        updater.throwOnInstall = false;
-        await svc.downloadUpdate(svc.availableUpdate!, (_) {});
-        expect(updater.downloadCalls, 2);
-      },
-    );
+      await expectLater(svc.installUpdate(path), throwsStateError);
+      expect(updater.installCalls, 0);
+      expect(svc.downloadedPath, isNull);
+      await svc.downloadUpdate(svc.availableUpdate!, (_) {});
+      expect(updater.downloadCalls, 2);
+    });
 
     test('local repeated install requests launch the installer once', () async {
       final svc = build();
@@ -368,6 +371,7 @@ void main() {
 
       final first = svc.installUpdate(path);
       final second = svc.installUpdate(path);
+      await updater.installStarted.future;
       expect(updater.installCalls, 1);
       updater.installGate!.complete();
       expect(await first, isTrue);
@@ -395,7 +399,7 @@ void main() {
         expect(svc.currentState.phase, AppUpdatePhase.downloading);
         updater.downloadGate!.complete();
         expect(await first, await second);
-        expect(svc.downloadedPath, '/tmp/update.apk');
+        expect(svc.downloadedPath, updater.downloadPath);
         expect(updater.installCalls, 0);
         expect(svc.currentState.phase, AppUpdatePhase.available);
 
@@ -413,7 +417,7 @@ void main() {
         updater.nextCheck = _update();
         updater.installResult = false;
         await svc.downloadAndInstall();
-        expect(svc.downloadedPath, '/tmp/update.apk');
+        expect(svc.downloadedPath, updater.downloadPath);
         updater.installResult = true;
 
         await svc.downloadAndInstall();
@@ -566,7 +570,7 @@ void main() {
       final svc = UpdateCheckService(
         settingsService: settings,
         webUIStorage: WebUIStorage(SettingsController(settings)),
-        updater: _FakeUpdater(),
+        updater: _FakeUpdater('${directory.path}/update.apk'),
         platformIsAndroid: true,
         platformIsMacOS: false,
       );

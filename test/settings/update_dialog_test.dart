@@ -4,12 +4,22 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/services/android_updater.dart';
+import 'package:reaprime/src/services/app_update_state.dart';
 import 'package:reaprime/src/services/update_check_service.dart';
+import 'package:reaprime/src/settings/app_update_dialog.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/settings/update_dialog.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
 
 import '../helpers/mock_settings_service.dart';
+
+UpdateInfo _release({String version = '1.2.3', String? url}) => UpdateInfo(
+  version: version,
+  downloadUrl: url ?? 'https://example.com/decent.apk',
+  releaseNotes: '## Internal Markdown\n- implementation detail',
+  isPrerelease: false,
+  tagName: 'v$version',
+);
 
 class _Updater extends AndroidUpdater {
   _Updater() : super(owner: 'test', repo: 'test');
@@ -20,20 +30,14 @@ class _Updater extends AndroidUpdater {
   int downloadCalls = 0;
   int installCalls = 0;
   Completer<UpdateInfo?>? checkGate;
+  UpdateInfo? update = _release();
+  UpdateInfo? lastDownload;
 
   @override
   Future<UpdateInfo?> checkForUpdate(
     String version, {
     UpdateChannel channel = UpdateChannel.stable,
-  }) async =>
-      checkGate?.future ??
-      UpdateInfo(
-        version: '1.2.3',
-        downloadUrl: 'https://example.com/decent.apk',
-        releaseNotes: '## Internal Markdown\n- implementation detail',
-        isPrerelease: false,
-        tagName: 'v1.2.3',
-      );
+  }) async => checkGate?.future ?? update;
 
   @override
   Future<String> downloadUpdate(
@@ -42,6 +46,7 @@ class _Updater extends AndroidUpdater {
     Directory? cacheDir,
   }) {
     downloadCalls++;
+    lastDownload = updateInfo;
     return download((progress) => onProgress?.call(progress));
   }
 
@@ -55,9 +60,14 @@ class _Updater extends AndroidUpdater {
 void main() {
   late _Updater updater;
   late UpdateCheckService service;
+  late Directory directory;
+  late File apk;
 
   setUp(() async {
+    directory = await Directory.systemTemp.createTemp('update-dialog-');
+    apk = await File('${directory.path}/update.apk').writeAsBytes([1, 2, 3]);
     updater = _Updater();
+    updater.download = (_) async => apk.path;
     final settings = MockSettingsService();
     service = UpdateCheckService(
       settingsService: settings,
@@ -70,7 +80,10 @@ void main() {
     await service.checkForUpdate();
   });
 
-  tearDown(() => service.dispose());
+  tearDown(() async {
+    service.dispose();
+    await directory.delete(recursive: true);
+  });
 
   Widget dialog({VoidCallback? onViewReleaseNotes}) => UpdateDialog(
     service: service,
@@ -84,8 +97,7 @@ void main() {
       home: Scaffold(
         body: Builder(
           builder: (context) => TextButton(
-            onPressed: () =>
-                showDialog<void>(context: context, builder: (_) => dialog()),
+            onPressed: () => showAppUpdateDialog(context, service),
             child: const Text('Open update'),
           ),
         ),
@@ -114,11 +126,17 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Install'), findsOneWidget);
     expect(updater.installCalls, 0);
-    await tester.tap(find.text('Install'));
+    await tester.runAsync(() async {
+      final finished = service.updateState.firstWhere(
+        (state) => state.phase == AppUpdatePhase.error,
+      );
+      await tester.tap(find.text('Install'));
+      await finished;
+    });
     await tester.pumpAndSettle();
     expect(updater.installCalls, 1);
     expect(find.text('Retry'), findsOneWidget);
-    expect(service.downloadedPath, '/tmp/decent.apk');
+    expect(service.downloadedPath, apk.path);
   });
 
   testWidgets('download failure offers a friendly retry', (tester) async {
@@ -126,7 +144,7 @@ void main() {
       if (updater.downloadCalls == 1) {
         throw const SocketException('private host lookup');
       }
-      return '/tmp/decent.apk';
+      return apk.path;
     };
     await tester.pumpWidget(MaterialApp(home: dialog()));
     await tester.tap(find.text('Download'));
@@ -143,6 +161,100 @@ void main() {
     expect(find.text('Install'), findsOneWidget);
     expect(find.textContaining('Check your internet'), findsNothing);
   });
+
+  for (final replacement in ['new version', 'replaced asset']) {
+    testWidgets('a confirmed $replacement clears an earlier action error', (
+      tester,
+    ) async {
+      await mount(tester);
+      await tester.tap(find.text('Open update'));
+      await tester.pumpAndSettle();
+      service.clearAvailableUpdate();
+      await tester.tap(find.text('Download'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text("Couldn't download the app update. Try again."),
+        findsOneWidget,
+      );
+      updater.update = replacement == 'new version'
+          ? _release(version: '2.0.0')
+          : _release(url: 'https://example.com/replaced.apk');
+
+      await tester.runAsync(() => service.checkForUpdate());
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text("Couldn't download the app update. Try again."),
+        findsNothing,
+      );
+      expect(find.text('Download'), findsOneWidget);
+      expect(find.text('Retry'), findsNothing);
+      expect(updater.downloadCalls, 0);
+      expect(updater.installCalls, 0);
+    });
+
+    testWidgets('an open dialog follows a confirmed $replacement', (
+      tester,
+    ) async {
+      await tester.pumpWidget(MaterialApp(home: dialog()));
+      final next = replacement == 'new version'
+          ? _release(version: '2.0.0')
+          : _release(url: 'https://example.com/replaced.apk');
+      updater.update = next;
+      await tester.runAsync(() => service.checkForUpdate());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Version ${next.version}'), findsOneWidget);
+      expect(updater.downloadCalls, 0);
+      await tester.tap(find.text('Download'));
+      await tester.pumpAndSettle();
+
+      expect(updater.lastDownload, same(next));
+      expect(updater.downloadCalls, 1);
+      expect(updater.installCalls, 0);
+    });
+
+    testWidgets('a confirmed $replacement clears the cached Install control', (
+      tester,
+    ) async {
+      await service.downloadUpdate(service.availableUpdate!, (_) {});
+      await tester.pumpWidget(MaterialApp(home: dialog()));
+      expect(find.text('Install'), findsOneWidget);
+      final next = replacement == 'new version'
+          ? _release(version: '2.0.0')
+          : _release(url: 'https://example.com/replaced.apk');
+      updater.update = next;
+      await tester.runAsync(() => service.checkForUpdate());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Version ${next.version}'), findsOneWidget);
+      expect(find.text('Install'), findsNothing);
+      expect(updater.installCalls, 0);
+      await tester.tap(find.text('Download'));
+      await tester.pumpAndSettle();
+      expect(updater.lastDownload, same(next));
+      expect(updater.downloadCalls, 2);
+    });
+  }
+
+  testWidgets(
+    'a withdrawn update removes download, install and release notes',
+    (tester) async {
+      await service.downloadUpdate(service.availableUpdate!, (_) {});
+      await tester.pumpWidget(MaterialApp(home: dialog()));
+      expect(find.text('Install'), findsOneWidget);
+      updater.update = null;
+      await tester.runAsync(() => service.checkForUpdate());
+      await tester.pumpAndSettle();
+
+      expect(find.text('This update is no longer available.'), findsOneWidget);
+      expect(find.text('Download'), findsNothing);
+      expect(find.text('Install'), findsNothing);
+      expect(find.text("What's new"), findsNothing);
+      expect(updater.downloadCalls, 1);
+      expect(updater.installCalls, 0);
+    },
+  );
 
   testWidgets('a pending check disables Download until its result arrives', (
     tester,
@@ -214,17 +326,31 @@ void main() {
   testWidgets('rapid Install taps close only the update dialog', (
     tester,
   ) async {
-    final installation = Completer<bool>();
-    updater.install = (_) => installation.future;
+    late Completer<bool> installation;
     await mount(tester);
     await tester.tap(find.text('Open update'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Download'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Install'));
-    await tester.tap(find.text('Install'));
+    await tester.runAsync(() async {
+      installation = Completer<bool>();
+      final requested = Completer<void>();
+      updater.install = (_) {
+        requested.complete();
+        return installation.future;
+      };
+      await tester.tap(find.text('Install'));
+      await tester.tap(find.text('Install'));
+      await requested.future;
+    });
     expect(updater.installCalls, 1);
-    installation.complete(true);
+    await tester.runAsync(() async {
+      final finished = service.updateState.firstWhere(
+        (_) => service.installationStarted,
+      );
+      installation.complete(true);
+      await finished;
+    });
     await tester.pumpAndSettle();
     expect(find.byType(UpdateDialog), findsNothing);
     expect(find.text('Open update'), findsOneWidget);
@@ -240,7 +366,13 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Download'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Install'));
+    await tester.runAsync(() async {
+      final finished = service.updateState.firstWhere(
+        (_) => service.installationStarted,
+      );
+      await tester.tap(find.text('Install'));
+      await finished;
+    });
     await tester.pumpAndSettle();
     expect(find.byType(UpdateDialog), findsNothing);
     expect(updater.installCalls, 1);
@@ -249,7 +381,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Install'), findsOneWidget);
     expect(updater.downloadCalls, 1);
-    await tester.tap(find.text('Install'));
+    await tester.runAsync(() async {
+      final finished = service.updateState.firstWhere(
+        (_) => service.installationStarted,
+      );
+      await tester.tap(find.text('Install'));
+      await finished;
+    });
     await tester.pumpAndSettle();
     expect(updater.installCalls, 2);
     expect(updater.downloadCalls, 1);
@@ -257,41 +395,93 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('reopening shares live progress and cannot dismiss a download', (
+  for (final dismissal in ['Back', 'Cancel']) {
+    testWidgets('$dismissal closes a download without losing shared progress', (
+      tester,
+    ) async {
+      final download = Completer<String>();
+      updater.download = (onProgress) {
+        onProgress(0.42);
+        return download.future;
+      };
+      final operation = service.downloadUpdate(
+        service.availableUpdate!,
+        (_) {},
+      );
+      try {
+        await mount(tester);
+        await tester.tap(find.text('Open update'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        expect(find.text('Downloading update… 42%'), findsOneWidget);
+        if (dismissal == 'Back') {
+          await tester.binding.handlePopRoute();
+        } else {
+          await tester.tap(find.text('Cancel'));
+        }
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        expect(find.byType(UpdateDialog), findsNothing);
+        expect(service.currentState.phase, AppUpdatePhase.downloading);
+        expect(updater.downloadCalls, 1);
+
+        await tester.tap(find.text('Open update'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        expect(find.text('Downloading update… 42%'), findsOneWidget);
+        expect(updater.downloadCalls, 1);
+        download.complete(apk.path);
+        await operation;
+        await tester.pumpAndSettle();
+        expect(find.text('Install'), findsOneWidget);
+        expect(updater.installCalls, 0);
+
+        await tester.tap(find.text('Cancel'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Open update'));
+        await tester.pumpAndSettle();
+        expect(find.text('Install'), findsOneWidget);
+        expect(updater.downloadCalls, 1);
+      } finally {
+        if (!download.isCompleted) download.complete(apk.path);
+        await operation;
+      }
+    });
+  }
+
+  testWidgets('reopening after a dismissed download shows its shared failure', (
     tester,
   ) async {
     final download = Completer<String>();
-    updater.download = (onProgress) {
-      onProgress(0.42);
-      return download.future;
-    };
+    updater.download = (_) => download.future;
     final operation = service.downloadUpdate(service.availableUpdate!, (_) {});
-    await mount(tester);
-    await tester.tap(find.text('Open update'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
-    expect(
-      tester
-          .widget<LinearProgressIndicator>(find.byType(LinearProgressIndicator))
-          .value,
-      0.42,
+    final result = operation.then<Object?>(
+      (_) => null,
+      onError: (Object error) => error,
     );
-    expect(find.text('Downloading update… 42%'), findsOneWidget);
-    await tester.binding.handlePopRoute();
-    await tester.pump();
-    expect(find.byType(UpdateDialog), findsOneWidget);
-    expect(updater.downloadCalls, 1);
-    download.complete('/tmp/decent.apk');
-    await operation;
-    await tester.pumpAndSettle();
-    expect(find.text('Install'), findsOneWidget);
-    expect(updater.installCalls, 0);
-    await tester.tap(find.text('Cancel'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Open update'));
-    await tester.pumpAndSettle();
-    expect(find.text('Install'), findsOneWidget);
-    expect(updater.downloadCalls, 1);
+    try {
+      await mount(tester);
+      await tester.tap(find.text('Open update'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.tap(find.text('Cancel'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.byType(UpdateDialog), findsNothing);
+      download.completeError(const SocketException('private host lookup'));
+      expect(await result, isA<SocketException>());
+      await tester.tap(find.text('Open update'));
+      await tester.pumpAndSettle();
+
+      expect(find.text(service.currentState.error!), findsOneWidget);
+      expect(find.text('Retry'), findsOneWidget);
+      expect(updater.downloadCalls, 1);
+      expect(updater.installCalls, 0);
+      expect(tester.takeException(), isNull);
+    } finally {
+      if (!download.isCompleted) download.complete(apk.path);
+      await result;
+    }
   });
 
   testWidgets('opens GitHub release notes instead of rendering raw Markdown', (

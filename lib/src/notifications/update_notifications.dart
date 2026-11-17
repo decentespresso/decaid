@@ -84,17 +84,22 @@ class UpdateNotifications {
       }
       return;
     }
-    if ((state.phase == AppUpdatePhase.downloading ||
-            state.phase == AppUpdatePhase.installing) &&
-        center.value.any(
-          (notice) =>
-              notice.namespace == NotificationNamespace.host &&
-              notice.sourceId == sourceId &&
-              notice.id == update.version &&
-              center.isConfirmed(notice),
-        )) {
+    if (center.value.any(
+      (notice) =>
+          notice.namespace == NotificationNamespace.host &&
+          notice.sourceId == sourceId &&
+          notice.id == update.version &&
+          center.isConfirmed(notice),
+    )) {
       return;
     }
+    final previouslyRead = center.value.any(
+      (notice) =>
+          notice.namespace == NotificationNamespace.host &&
+          notice.sourceId == sourceId &&
+          notice.id == update.version &&
+          notice.read,
+    );
     await center.publish(
       NativeNotification(
         namespace: NotificationNamespace.host,
@@ -125,6 +130,18 @@ class UpdateNotifications {
         },
       ),
     );
+    if (previouslyRead) {
+      await center.markRead(
+        center.value
+            .where(
+              (notice) =>
+                  notice.namespace == NotificationNamespace.host &&
+                  notice.sourceId == sourceId &&
+                  notice.id == update.version,
+            )
+            .toList(),
+      );
+    }
   }
 
   Future<void> dispose() async {

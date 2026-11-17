@@ -25,3 +25,19 @@ permission coordination remains owned by #320.
 Download and Install are disabled while checking. Dialog-local validation
 feedback must not overwrite the shared operation state. Download progress is
 indeterminate until a valid measured percentage arrives.
+
+The service owns a transfer independently of its dialog. Back, Cancel and the
+modal barrier may close the dialog without cancelling that transfer. Re-entry
+reads canonical progress, completion or failure rather than creating a new
+downloader. Display, release notes and actions follow the current confirmed
+release, identified by version and asset URL; withdrawal removes obsolete
+actions, and feedback from an older release does not label a replacement Retry.
+
+An accepted download or installation fences pending metadata checks at each
+asynchronous boundary, including failures. Rejected stale requests do not claim
+ownership. Cache reuse and native installation require a nonempty regular file;
+unusable files are discarded so an explicit retry can download a replacement.
+
+Retain unchanged confirmed notices without another persistence write. Restored
+notices still need revalidation, read state survives host-action migration, and
+removed notices may be recreated with a fresh activation binding.

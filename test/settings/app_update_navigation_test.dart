@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/display_controller.dart';
 import 'package:reaprime/src/controllers/presence_controller.dart';
@@ -21,6 +22,7 @@ import 'package:reaprime/src/settings/update_dialog.dart';
 import 'package:reaprime/src/skin_feature/skin_view.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
+import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
 import '../helpers/mock_de1_controller.dart';
 import '../helpers/mock_settings_service.dart';
@@ -33,9 +35,22 @@ final _update = UpdateInfo(
   tagName: 'v99.0.0',
 );
 
-class _Updater extends AndroidUpdater {
-  _Updater() : super(owner: 'decentespresso', repo: 'decaid');
+class _Launcher extends Fake
+    with MockPlatformInterfaceMixin
+    implements UrlLauncherPlatform {
+  final launches = <String>[];
 
+  @override
+  Future<bool> launchUrl(String url, LaunchOptions options) async {
+    launches.add(url);
+    return true;
+  }
+}
+
+class _Updater extends AndroidUpdater {
+  _Updater(this.downloadPath) : super(owner: 'decentespresso', repo: 'decaid');
+
+  final String downloadPath;
   UpdateInfo? update = _update;
   int checks = 0;
   int downloads = 0;
@@ -130,7 +145,15 @@ Future<(GlobalKey<NavigatorState>, _Updater, UpdateCheckService)> _mount(
     ),
   );
   final logs = WebViewLogService(logDirectoryPath: '.');
-  final updater = _Updater()..update = available ? _update : null;
+  final directory = (await tester.runAsync(() async {
+    final directory = await Directory.systemTemp.createTemp(
+      'update-navigation-',
+    );
+    await File('${directory.path}/update.apk').writeAsBytes([1, 2, 3]);
+    return directory;
+  }))!;
+  final updater = _Updater('${directory.path}/update.apk')
+    ..update = available ? _update : null;
   final storage = _OfflineStorage(settings);
   final service = UpdateCheckService(
     settingsService: preferences,
@@ -162,6 +185,9 @@ Future<(GlobalKey<NavigatorState>, _Updater, UpdateCheckService)> _mount(
     return notifications;
   }))!;
   addTearDown(() async {
+    if (!updater.download.isCompleted) {
+      updater.download.complete(updater.downloadPath);
+    }
     await tester.runAsync(() => notifications.dispose());
     actions.dispose();
     center.dispose();
@@ -170,6 +196,7 @@ Future<(GlobalKey<NavigatorState>, _Updater, UpdateCheckService)> _mount(
     display.dispose();
     logs.dispose();
     settings.dispose();
+    await tester.runAsync(() => directory.delete(recursive: true));
   });
   await tester.pumpWidget(
     ShadApp(
@@ -252,19 +279,21 @@ void main() {
         );
         expect(find.textContaining('42%'), findsOneWidget);
 
-        navigator.currentState!.pop();
+        await tester.binding.handlePopRoute();
         await _pumpRoute(tester);
+        expect(find.byType(UpdateDialog), findsNothing);
+        expect(service.currentState.phase, AppUpdatePhase.downloading);
         unawaited(SettingsView.openUpdate(navigator.currentState!, '99.0.0'));
         await _pumpRoute(tester);
         expect(find.byType(UpdateDialog), findsOneWidget);
         expect(find.textContaining('42%'), findsOneWidget);
         expect(updater.downloads, 1);
 
-        updater.download.complete('/tmp/update.apk');
+        updater.download.complete(updater.downloadPath);
         await tester.pump();
         await tester.pump();
         expect(find.text('Install'), findsOneWidget);
-        expect(service.downloadedPath, '/tmp/update.apk');
+        expect(service.downloadedPath, updater.downloadPath);
         expect(updater.installations, 0);
 
         await tester.tap(find.text('Cancel'));
@@ -327,6 +356,69 @@ void main() {
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
+
+  for (final android in [true, false]) {
+    testWidgets(
+      'open ${android ? 'Android' : 'desktop'} release notes follow the confirmed release',
+      (tester) async {
+        final original = UrlLauncherPlatform.instance;
+        final launcher = _Launcher();
+        UrlLauncherPlatform.instance = launcher;
+        addTearDown(() => UrlLauncherPlatform.instance = original);
+        final (_, updater, service) = await _mount(tester, android: android);
+        await tester.tap(find.text('Open notifications'));
+        await _pumpRoute(tester);
+        await tester.tap(find.text('View'));
+        await _pumpRoute(tester);
+        final latest = UpdateInfo(
+          version: '99.1.0',
+          downloadUrl: 'https://example.test/latest.apk',
+          releaseNotes: 'New changes',
+          isPrerelease: false,
+          tagName: 'v99.1.0',
+        );
+        updater.update = latest;
+        await tester.runAsync(() => service.checkForUpdate());
+        await _pumpRoute(tester);
+
+        expect(
+          find.text(android ? 'Version 99.1.0' : 'Version 99.1.0 is available'),
+          findsOneWidget,
+        );
+        await tester.tap(find.text("What's new"));
+        await _pumpRoute(tester);
+        expect(launcher.launches, [service.getReleaseUrl(latest)]);
+        expect(updater.downloads, 0);
+        expect(updater.installations, 0);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+
+    testWidgets(
+      'a withdrawn ${android ? 'Android' : 'desktop'} release removes launch actions',
+      (tester) async {
+        final (_, updater, service) = await _mount(tester, android: android);
+        await tester.tap(find.text('Open notifications'));
+        await _pumpRoute(tester);
+        await tester.tap(find.text('View'));
+        await _pumpRoute(tester);
+        updater.update = null;
+        await tester.runAsync(() => service.checkForUpdate());
+        await _pumpRoute(tester);
+
+        expect(
+          find.text('This update is no longer available.'),
+          findsOneWidget,
+        );
+        expect(find.text("What's new"), findsNothing);
+        expect(find.text('Download'), findsNothing);
+        expect(find.text('Install'), findsNothing);
+        expect(updater.downloads, 0);
+        expect(updater.installations, 0);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+  }
 
   testWidgets(
     'desktop app-update View opens update info without APK controls',

@@ -47,6 +47,8 @@ class _Updater extends AndroidUpdater {
 }
 
 void main() {
+  late Directory directory;
+  late String downloadPath;
   late SharedPreferences preferences;
   late NotificationCenter center;
   late UpdateCheckService service;
@@ -89,6 +91,9 @@ void main() {
   }
 
   setUp(() async {
+    directory = await Directory.systemTemp.createTemp('update-notices-');
+    downloadPath = '${directory.path}/update.apk';
+    await File(downloadPath).writeAsBytes([1, 2, 3]);
     SharedPreferences.setMockInitialValues({});
     preferences = await SharedPreferences.getInstance();
     center = NotificationCenter(preferences: preferences);
@@ -115,6 +120,7 @@ void main() {
     await updates.dispose();
     service.dispose();
     center.dispose();
+    await directory.delete(recursive: true);
   });
 
   test(
@@ -138,6 +144,98 @@ void main() {
       expect(center.unreadCount, 0);
       expect(center.isCurrent(previous), isTrue);
       await previous.binding!.onActivate!(previous.notice.actions.first);
+      expect(views, ['99.0.0']);
+    },
+  );
+
+  test(
+    'unchanged confirmed notices retain activation without persistence writes',
+    () async {
+      await updates.dispose();
+      center.dispose();
+      var saves = 0;
+      center = NotificationCenter(
+        save: (_) async {
+          saves++;
+          return true;
+        },
+      );
+      updates = UpdateNotifications(
+        center: center,
+        service: service,
+        onView: (info) async => views.add(info.version),
+      );
+      await updates.settled;
+      updater.next = update('99.0.0');
+      await service.checkForUpdate();
+      await updates.settled;
+      await center.markRead(center.value);
+      final notice = center.value.single;
+      final activation = center.activation(notice);
+      final saved = saves;
+      var changes = 0;
+      center.addListener(() => changes++);
+
+      await service.checkForUpdate();
+      await updates.settled;
+
+      expect(saves, saved);
+      expect(changes, 0);
+      expect(center.value.single, same(notice));
+      expect(center.unreadCount, 0);
+      expect(center.isCurrent(activation), isTrue);
+      await activation.binding!.onActivate!(notice.actions.single);
+      expect(views, ['99.0.0']);
+
+      await center.removeSource(
+        NotificationNamespace.host,
+        UpdateNotifications.sourceId,
+      );
+      await service.checkForUpdate();
+      await updates.settled;
+
+      expect(center.value.single.id, '99.0.0');
+      expect(center.isConfirmed(center.value.single), isTrue);
+      expect(center.isCurrent(activation), isFalse);
+    },
+  );
+
+  test(
+    'revalidating legacy actions preserves a read restored notice',
+    () async {
+      await center.publish(
+        NativeNotification(
+          namespace: NotificationNamespace.host,
+          sourceId: UpdateNotifications.sourceId,
+          sourceName: 'Decaid',
+          id: '99.0.0',
+          message: 'Update available: 99.0.0',
+          actions: const [
+            NotificationAction(
+              id: 'download',
+              label: 'Download',
+              type: NotificationActionType.downloadUpdate,
+            ),
+          ],
+        ),
+      );
+      await center.markRead(center.value);
+      await restart();
+      final restored = center.activation(center.value.single);
+      expect(center.isCurrent(restored), isFalse);
+
+      updater.next = update('99.0.0');
+      await service.checkForUpdate();
+      await updates.settled;
+
+      expect(center.unreadCount, 0);
+      expect(
+        center.value.single.actions.single.type,
+        NotificationActionType.viewUpdate,
+      );
+      expect(center.isCurrent(restored), isFalse);
+      final confirmed = center.activation(center.value.single);
+      await confirmed.binding!.onActivate!(confirmed.notice.actions.single);
       expect(views, ['99.0.0']);
     },
   );
@@ -174,7 +272,7 @@ void main() {
       expect(saves, beforeDownload);
       expect(center.value.single, same(notice));
       expect(center.isCurrent(activation), isTrue);
-      updater.download.complete('/tmp/update.apk');
+      updater.download.complete(downloadPath);
       await downloading;
       await updates.settled;
       final beforeInstall = saves;
@@ -213,7 +311,7 @@ void main() {
         expect(center.isConfirmed(center.value.single), isTrue);
         if (attachment == 0) await updates.dispose();
       }
-      updater.download.complete('/tmp/update.apk');
+      updater.download.complete(downloadPath);
       await downloading;
       await updates.settled;
     },
