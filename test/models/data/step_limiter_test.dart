@@ -16,7 +16,7 @@ void main() {
     'limiter': limiter,
   };
 
-  Profile profileWithLimiter(dynamic limiter) => Profile.fromJson({
+  Map<String, dynamic> profileJsonWithLimiter(dynamic limiter) => {
     'version': '2',
     'title': 'limiter canonicalization',
     'beverage_type': 'espresso',
@@ -25,9 +25,20 @@ void main() {
     'target_weight': 40,
     'target_volume_count_start': 2,
     'tank_temperature': 0,
-  });
+  };
 
-  group('StepLimiter.fromJson — unchanged behaviour', () {
+  Profile profileWithLimiter(dynamic limiter) =>
+      Profile.fromJson(profileJsonWithLimiter(limiter));
+
+  Matcher refusesNaming(String field) => throwsA(
+    isA<FormatException>().having(
+      (e) => e.message,
+      'message',
+      'limiter "$field" must be a number',
+    ),
+  );
+
+  group('StepLimiter.fromJson - unchanged behaviour', () {
     test('parses a complete limiter', () {
       final limiter = StepLimiter.fromJson({'value': 9.0, 'range': 0.6});
 
@@ -47,114 +58,111 @@ void main() {
       expect(limiter.value, 8.0);
       expect(limiter.range, 0.6);
     });
-  });
 
-  group('StepLimiter.fromJson — optional range', () {
-    test('a value-only limiter parses as a hard cap (range 0)', () {
-      final limiter = StepLimiter.fromJson({'value': 0.1});
+    test('form (b): an explicit range 0 parses as range 0', () {
+      final limiter = StepLimiter.fromJson({'value': 6, 'range': 0});
 
-      expect(limiter.value, 0.1);
-      expect(limiter.range, 0.0);
-      expect(limiter, equals(const StepLimiter(value: 0.1, range: 0)));
+      expect(limiter, equals(const StepLimiter(value: 6, range: 0)));
+      expect(limiter.toJson(), {'value': 6.0, 'range': 0.0});
     });
 
-    test('toJson materialises the defaulted range as 0.0', () {
-      final json = StepLimiter.fromJson({'value': 0.1}).toJson();
+    test('an explicit range 0 with value 0 parses as an OFF limiter', () {
+      final limiter = StepLimiter.fromJson({'value': 0, 'range': 0});
 
-      expect(json['value'], 0.1);
-      expect(json['range'], 0.0);
-    });
-
-    test('an explicit null range behaves like an absent one', () {
-      final limiter = StepLimiter.fromJson({'value': 0.1, 'range': null});
-
-      expect(limiter, equals(const StepLimiter(value: 0.1, range: 0)));
-    });
-
-    test('the undo-after-arm body parses to an OFF limiter', () {
-      final limiter = StepLimiter.fromJson({'value': 0});
-
-      expect(limiter.value, 0.0);
-      expect(limiter.range, 0.0);
-    });
-
-    test('the keypad body parses', () {
-      final limiter = StepLimiter.fromJson({'value': 2.5});
-
-      expect(limiter, equals(const StepLimiter(value: 2.5, range: 0)));
+      expect(limiter, equals(const StepLimiter(value: 0, range: 0)));
     });
   });
 
-  group('StepLimiter.fromJson — refusals name the field', () {
+  group('StepLimiter.fromJson - a missing range is refused', () {
+    test('form (a): a value-only limiter refuses by naming "range"', () {
+      expect(() => StepLimiter.fromJson({'value': 6}), refusesNaming('range'));
+    });
+
+    test('form (c): an explicit null range refuses by naming "range"', () {
+      expect(
+        () => StepLimiter.fromJson({'value': 6, 'range': null}),
+        refusesNaming('range'),
+      );
+    });
+
+    test('the undo-after-arm body {value: 0} refuses by naming "range"', () {
+      expect(() => StepLimiter.fromJson({'value': 0}), refusesNaming('range'));
+    });
+
+    test('the keypad body {value: 2.5} refuses by naming "range"', () {
+      expect(
+        () => StepLimiter.fromJson({'value': 2.5}),
+        refusesNaming('range'),
+      );
+    });
+  });
+
+  group('StepLimiter.fromJson - refusals name the field', () {
     test('an empty limiter refuses by naming "value"', () {
       expect(
         () => StepLimiter.fromJson(<String, dynamic>{}),
-        throwsA(
-          isA<FormatException>().having(
-            (e) => e.message,
-            'message',
-            contains('limiter "value"'),
-          ),
-        ),
+        refusesNaming('value'),
       );
     });
 
-    test('a range-only limiter refuses by naming "value"', () {
-      expect(
-        () => StepLimiter.fromJson({'range': 0.6}),
-        throwsA(
-          isA<FormatException>().having(
-            (e) => e.message,
-            'message',
-            contains('limiter "value"'),
-          ),
-        ),
-      );
+    test('form (d): a range-only limiter refuses by naming "value"', () {
+      expect(() => StepLimiter.fromJson({'range': 1}), refusesNaming('value'));
     });
 
-    test('an explicitly null value refuses by naming "value"', () {
+    test('form (e): an explicitly null value refuses by naming "value"', () {
       expect(
-        () => StepLimiter.fromJson({'value': null}),
-        throwsA(
-          isA<FormatException>().having(
-            (e) => e.message,
-            'message',
-            contains('limiter "value"'),
-          ),
-        ),
+        () => StepLimiter.fromJson({'value': null, 'range': 1}),
+        refusesNaming('value'),
       );
     });
 
     test('an unparseable value refuses by naming "value"', () {
       expect(
         () => StepLimiter.fromJson({'value': 'abc', 'range': 0.6}),
-        throwsA(
-          isA<FormatException>().having(
-            (e) => e.message,
-            'message',
-            contains('limiter "value"'),
-          ),
-        ),
+        refusesNaming('value'),
       );
     });
 
-    test('a garbage range refuses by naming "range" rather than capping', () {
+    test('form (f): a non-numeric range refuses by naming "range"', () {
       expect(
-        () => StepLimiter.fromJson({'value': 1, 'range': 'abc'}),
-        throwsA(
-          isA<FormatException>().having(
-            (e) => e.message,
-            'message',
-            contains('limiter "range"'),
-          ),
-        ),
+        () => StepLimiter.fromJson({'value': 6, 'range': 'x'}),
+        refusesNaming('range'),
       );
     });
   });
 
+  group('StepLimiter.fromJson - a JSON type that is not a number', () {
+    for (final (json, field) in [
+      (<String, dynamic>{'value': 6, 'range': true}, 'range'),
+      (<String, dynamic>{'value': 6, 'range': <dynamic>[]}, 'range'),
+      (<String, dynamic>{'value': 6, 'range': <String, dynamic>{}}, 'range'),
+      (<String, dynamic>{'value': true, 'range': 1}, 'value'),
+      (
+        <String, dynamic>{
+          'value': <dynamic>[1],
+          'range': 1,
+        },
+        'value',
+      ),
+    ]) {
+      test('$json refuses by naming "$field"', () {
+        expect(() => StepLimiter.fromJson(json), refusesNaming(field));
+      });
+    }
+  });
+
   group('steps carrying a rangeless limiter', () {
-    test('a flow step accepts one', () {
-      final step = ProfileStep.fromJson(flowStepJson(limiter: {'value': 0.1}));
+    test('a flow step refuses one by naming "range"', () {
+      expect(
+        () => ProfileStep.fromJson(flowStepJson(limiter: {'value': 0.1})),
+        refusesNaming('range'),
+      );
+    });
+
+    test('a flow step accepts an explicit range 0', () {
+      final step = ProfileStep.fromJson(
+        flowStepJson(limiter: {'value': 0.1, 'range': 0}),
+      );
 
       expect(step.limiter, equals(const StepLimiter(value: 0.1, range: 0)));
     });
@@ -168,14 +176,8 @@ void main() {
   });
 
   group('profile hash', () {
-    test('a rangeless limiter hashes as an explicit range 0', () {
-      final defaulted = profileWithLimiter({'value': 2.5});
-      final explicit = profileWithLimiter({'value': 2.5, 'range': 0});
-
-      expect(
-        ProfileHash.calculateProfileHash(defaulted),
-        equals(ProfileHash.calculateProfileHash(explicit)),
-      );
+    test('a profile with a rangeless limiter refuses before it has a hash', () {
+      expect(() => profileWithLimiter({'value': 2.5}), refusesNaming('range'));
     });
 
     test('a complete limiter keeps the hash it has today', () {
