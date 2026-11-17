@@ -241,6 +241,52 @@ void main() {
     expect(text, isNot(contains('native confirmation ships')));
   });
 
+  test('the skin update check keeps its sources, outcomes and manual'
+      ' scheduling distinct', () {
+    final update = operations.firstWhere(
+      (operation) =>
+          operation.method == 'POST' &&
+          operation.path == '/api/v1/webui/skins/update',
+    );
+    final description = update.definition['description'] as String;
+    expect(description, contains('only skin API operation'));
+    expect(description, contains('configured sources'));
+    expect(description, contains('recorded source'));
+    expect(description, contains('installs one explicitly requested source'));
+    expect(description, contains('automaticUpdateCheck'));
+    expect(description, contains('scheduled'));
+    expect(
+      description,
+      contains('manual'),
+      reason:
+          'a manual check must stay separate from the scheduled setting, so '
+          'a client does not read the setting as a manual-check switch',
+    );
+    expect(
+      update.definition['security'],
+      [
+        {},
+        {_schemeName: []},
+      ],
+      reason:
+          'the credential must stay optional, with $_schemeName as the only '
+          'alternative',
+    );
+    final forbidden =
+        ((update.definition['responses'] as YamlMap)['403']
+            as YamlMap)['description'];
+    expect(
+      forbidden,
+      contains('Origin'),
+      reason: 'the browser-origin boundary applies to the update check too',
+    );
+    expect(
+      forbidden,
+      contains('both modes'),
+      reason: 'an untrusted browser origin is refused whatever the setting',
+    );
+  });
+
   test('the security scheme marks the credential as protection-only', () {
     final schemes =
         (spec['components'] as YamlMap)['securitySchemes'] as YamlMap;

@@ -3749,10 +3749,12 @@ Live-edit validates that the selected folder contains an `index.html`.
 
 The bundled **settings plugin** provides a web-based settings dashboard at `/api/v1/plugins/settings.reaplugin/ui`. Its "Web Interface" section shows the installed skins and the skin server's status, with controls to select the active skin, start or stop the server, install or remove skins, and check for updates.
 
-The page has no authority. Its management actions (switching or removing a skin,
-starting or stopping the server, installing, checking for updates, or changing a
-plugin) are refused and the page says to use the settings in the Decaid app or
-to call the API with a token. It does not ask for a token: plugin pages share
+The page holds no management token. With protection OFF (the default), its
+management actions work from a trusted browser origin. With protection ON,
+those actions are refused and the page says to use the settings in the Decaid
+app or call the API with an `extensions:manage` token. This includes switching
+or removing a skin, starting or stopping the server, installing, checking for
+updates, and changing a plugin. It does not ask for a token: plugin pages share
 the API origin, so another plugin's page could read one entered there. Viewing
 and changing ordinary settings works as before.
 
@@ -3810,7 +3812,7 @@ the update notice, and installation still requires a separate action.
 | GET | `/api/v1/webui/server/status` | no | Current status (`{serving, path, port, ip}`) |
 | POST | `/api/v1/webui/server/start` | yes | Start serving the default skin through the port 3000 entry point |
 | POST | `/api/v1/webui/server/stop` | yes | Stop serving |
-| POST | `/api/v1/webui/skins/update` | yes | Check all remote skin sources for updates |
+| POST | `/api/v1/webui/skins/update` | yes | Check the configured and recorded skin sources for updates |
 
 The start endpoint uses `defaultSkinId` from settings. To switch skins: set the default via `PUT /api/v1/webui/skins/default`, then restart the server. All three steps are gated the same way, needing an `extensions:manage` bearer token while extension management protection is ON and none by default.
 
@@ -3967,6 +3969,35 @@ Decaid tracks skin metadata in `.rea_metadata.json`:
 - A plain `http(s)://` URL — raw URL installs, tracked via `etag` /
   `lastModified` headers
 
+### Installed version versus remote version
+
+Decaid reports installed state; it does not guess remote state.
+`GET /api/v1/webui/skins` and `GET /api/v1/webui/skins/{id}` read `version`
+from the installed skin's own manifest (`skin-manifest.json`, falling back to
+`manifest.json`) on every scan. Both routes return the same value for the same
+skin, including immediately after a `POST /api/v1/webui/skins/update` and after
+an app restart, because the version lives in the skin folder on disk and not in
+memory.
+
+When a manifest has no `version`, the field is `null` and a skin card shows
+`Version unknown`. It is never inferred from a release tag, `sourceUrl`,
+`commitHash`, an `ETag` / `Last-Modified` header, or `reaMetadata.lastChecked`,
+and it is not a claim that the latest remote version is installed.
+`lastChecked` records that a check ran, nothing more; it is serialized once,
+inside `reaMetadata`.
+
+Both GET routes are strictly read-only: they serve the current scan of the
+installed skins and never contact GitHub, download a ZIP, or install anything.
+`POST /api/v1/webui/skins/update` is the only skin API operation that checks
+the configured sources and the recorded user sources for updates and installs
+eligible changes; the individual install routes (`/install/github-release`,
+`/install/github-branch`, `/install/url`) install one explicitly requested
+source rather than running the batch update check. A failed source leaves its installed
+folder, manifest version and recorded source untouched, and its `results`
+entry reports `failed` with the reason; successful items in the same batch
+still update. A downloaded file that cannot be read as a zip archive is
+rejected as an invalid package and the installed skin is left alone.
+
 **Update Detection:**
 - User-installed skins are checked for updates via `updateAllSkins()`, which
   runs on the app's periodic update check, from `POST /api/v1/webui/skins/update`
@@ -3984,8 +4015,13 @@ Decaid tracks skin metadata in `.rea_metadata.json`:
 - Raw-URL and GitHub-release skins are compared against their recorded source
   on every check: URL skins via HTTP `ETag` / `Last-Modified` headers,
   release skins by re-resolving the latest release (honoring the recorded
-  `releaseAssetName` and `includePrerelease`).
-- Only downloads if remote version differs from installed version
+  `releaseAssetName` and `includePrerelease`). The comparison uses that recorded
+  source identity, not the installed manifest `version`.
+- The package download is skipped only when the recorded source still
+  matches: the resolved release tag is the recorded one, or the source
+  returns the recorded HTTP `ETag` / `Last-Modified` validator. When neither
+  matches, including when the source supplies no validator, the package may be
+  downloaded and reinstalled even if its URL and content are unchanged.
 - Updates are automatic for remote bundled skins and all user-installed skins
   (GitHub branch, GitHub release, or raw URL)
 

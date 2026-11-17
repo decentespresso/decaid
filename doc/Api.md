@@ -846,7 +846,7 @@ Android session-only USB machine and scale IDs are usable for the current attach
 | POST | `/api/v1/webui/skins/install/github-branch` | Install from GitHub branch and persist its source for update checks | | required |
 | POST | `/api/v1/webui/skins/install/url` | Install from ZIP URL | | required |
 | DELETE | `/api/v1/webui/skins/:id` | Remove installed skin | | required |
-| POST | `/api/v1/webui/skins/update` | Check all skins for updates from remote sources; returns per-item `results` | | required |
+| POST | `/api/v1/webui/skins/update` | Check the configured and recorded skin sources for updates; returns per-item `results` | | required |
 | GET | `/api/v1/webui/server/status` | Server status (`{serving, path, port, ip}`) | | |
 | POST | `/api/v1/webui/server/start` | Start serving default skin through the port 3000 entry point | | required |
 | POST | `/api/v1/webui/server/stop` | Stop serving | | required |
@@ -858,7 +858,23 @@ Rows marked `required` need a bearer token scoped `extensions:manage` while exte
 check runs to completion, even if some skins fail. Each `results` entry has
 `item`, `status` (`updated`, `alreadyCurrent`, or `failed`), and an `error`
 string only when `status` is `failed`. A `500` now means the check itself could
-not run, not that some items failed.
+not run, not that some items failed. A manual call answers regardless of the
+`automaticUpdateCheck` setting, which governs only the app's own scheduled
+checks.
+
+`GET /api/v1/webui/skins` and `GET /api/v1/webui/skins/:id` report installed
+state only. `version` is read from the installed skin's `skin-manifest.json`
+(falling back to `manifest.json`) and is `null` when the manifest omits it, so a
+client shows an unknown version instead of inferring one from a release tag,
+`sourceUrl`, `commitHash`, an `ETag` / `Last-Modified` header or
+`reaMetadata.lastChecked`. Both GET routes are strictly read-only: they never
+contact GitHub or another source and never install anything, and they keep
+reporting the installed version immediately after an update and across an app
+restart. `POST /api/v1/webui/skins/update` is the only skin API operation that
+checks the configured sources and recorded user sources for updates and
+installs eligible changes. The individual install routes
+(`/install/github-release`, `/install/github-branch`, `/install/url`) install
+one explicitly requested source rather than running the batch update check.
 
 ### Plugins
 
