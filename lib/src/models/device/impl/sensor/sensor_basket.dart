@@ -25,7 +25,7 @@ class SensorBasket implements Sensor {
       _connectionSubject.asBroadcastStream();
 
   @override
-  Stream<Map<String, dynamic>> get data => _streamSubject.asBroadcastStream();
+  Stream<Map<String, dynamic>> get data => _streamSubject.stream;
 
   @override
   String get deviceId => _transport.id;

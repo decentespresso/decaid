@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -14,8 +15,11 @@ import 'package:reaprime/src/models/data/shot_record.dart';
 import 'package:reaprime/src/models/data/shot_snapshot.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/models/device/impl/sensor/sensor_basket.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/scan_filter.dart';
+import 'package:reaprime/src/models/device/transport/data_transport.dart';
+import 'package:reaprime/src/models/device/transport/serial_port.dart';
 import 'package:reaprime/src/services/database/database.dart' hide ShotRecord;
 import 'package:reaprime/src/services/storage/drift_storage_service.dart';
 import 'package:rxdart/rxdart.dart';
@@ -87,6 +91,44 @@ class _SubjectSensor extends TestSensor {
 
   @override
   Stream<Map<String, dynamic>> get data => subject.stream;
+}
+
+class _BasketTransport implements SerialTransport {
+  @override
+  final String id = 'sensor-basket';
+
+  @override
+  String get name => 'SensorBasket';
+
+  @override
+  TransportType get transportType => TransportType.serial;
+
+  @override
+  Stream<ConnectionState> get connectionState =>
+      Stream.value(ConnectionState.connected);
+
+  final StreamController<String> lines = StreamController.broadcast();
+
+  @override
+  Stream<String> get readStream => lines.stream;
+
+  @override
+  Stream<Uint8List> get rawStream => const Stream.empty();
+
+  @override
+  Future<void> connect() async {}
+
+  @override
+  Future<void> disconnect() async {}
+
+  @override
+  Future<void> dispose() async => lines.close();
+
+  @override
+  Future<void> writeCommand(String command) async {}
+
+  @override
+  Future<void> writeHexCommand(Uint8List command) async {}
 }
 
 Profile _profile() => Profile(
@@ -518,6 +560,36 @@ void main() {
         expect(second.sensors?[_sensorId], isNull);
       },
     );
+
+    test(
+      'a SensorBasket frame from before the bind is not in the first samples',
+      () async {
+        final basket = SensorBasket(transport: _BasketTransport());
+        basket.onData('24 24.69 1.20 0.04 0.00');
+        await sensorController.register(basket);
+
+        final first = await takeSample();
+        final second = await takeSample();
+
+        expect(first.sensors?['sensor-basket'], isNull);
+        expect(second.sensors?['sensor-basket'], isNull);
+      },
+    );
+
+    test('a SensorBasket frame after the bind is recorded', () async {
+      final basket = SensorBasket(transport: _BasketTransport());
+      basket.onData('24 24.69 1.20 0.04 0.00');
+      await sensorController.register(basket);
+      await takeSample();
+
+      basket.onData('24 25.00 1.30 0.05 0.00');
+      await pumpEventQueue();
+
+      expect(
+        (await takeSample()).sensors!['sensor-basket']!['temperature'],
+        25.0,
+      );
+    });
 
     test('a frame emitted after the bind is recorded', () async {
       final sensor = _SubjectSensor({'r1': 4.5});
