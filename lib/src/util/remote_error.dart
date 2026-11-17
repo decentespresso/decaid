@@ -54,6 +54,8 @@ String remoteErrorMessage(Object error, {required String action}) {
   return '$prefix ${_errorAdvice(error)}';
 }
 
+String remoteErrorReason(Object error) => _errorAdvice(error);
+
 String _errorAdvice(Object error) {
   final advice = _connectionAdvice(error);
   if (advice != null) return advice;

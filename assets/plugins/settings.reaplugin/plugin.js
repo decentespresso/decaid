@@ -1290,8 +1290,28 @@ function createPlugin(host) {
                 showToast('Checking for skin updates...');
                 const response = await fetch(baseUrl + '/api/v1/webui/skins/update', { method: 'POST' });
                 if (response.ok) {
-                    showToast('Skin update check completed');
-                    setTimeout(() => location.reload(), 1000);
+                    const data = await response.json().catch(() => ({}));
+                    const results = Array.isArray(data.results) ? data.results : null;
+                    if (results === null) {
+                        showToast('Skin update check returned an unexpected response', true);
+                        return;
+                    }
+                    const failed = results.filter(r => r && r.status === 'failed');
+                    const updated = results.filter(r => r && r.status === 'updated');
+                    if (failed.length === 0) {
+                        showToast('Skin update check completed');
+                        if (updated.length > 0) {
+                            setTimeout(() => location.reload(), 1000);
+                        }
+                    } else if (failed.length === results.length) {
+                        showToast('Skin update check failed: ' + describeSkinFailures(failed), true);
+                    } else {
+                        showToast(
+                            'Skin update check completed with errors: ' + describeSkinFailures(failed) +
+                            (updated.length > 0 ? ' - reload to see the updates' : ''),
+                            true
+                        );
+                    }
                 } else {
                     const error = await responseErrorText(response);
                     showToast('Update check failed: ' + error, true);
@@ -1299,6 +1319,12 @@ function createPlugin(host) {
             } catch (e) {
                 showToast('Error checking for updates: ' + e.message, true);
             }
+        }
+
+        function describeSkinFailures(failed) {
+            return failed.map(function (f) {
+                return (f.item || 'unknown') + (f.error ? ': ' + f.error : '');
+            }).join('; ');
         }
 
         async function installSkin() {

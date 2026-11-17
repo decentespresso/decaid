@@ -15,6 +15,7 @@ import 'package:reaprime/src/services/github_rate_limit.dart';
 import 'package:reaprime/src/util/github_archive.dart';
 import 'package:reaprime/src/util/remote_error.dart';
 import 'package:reaprime/src/util/remote_update_exception.dart';
+import 'package:reaprime/src/util/remote_update_report.dart';
 import 'package:reaprime/src/webui_support/webui_zip_support.dart';
 
 class PluginApprovalRequiredException implements Exception {
@@ -59,6 +60,7 @@ class PluginSourceService {
   final GitHubReleaseCache _releaseCache;
   final _log = Logger('PluginSourceService');
   final ValueNotifier<Future<void>?> _updateCheck = ValueNotifier(null);
+  Future<RemoteUpdateReport>? _updateCheckReport;
 
   PluginSourceService(
     this._loader, {
@@ -273,25 +275,53 @@ class PluginSourceService {
     }
   }
 
-  Future<void> updateAllPlugins() => _updateCheck.value ??= _updateAllPlugins()
-      .whenComplete(() => _updateCheck.value = null);
+  Future<void> updateAllPlugins() async {
+    final report = await checkForPluginUpdates();
+    if (report.hasFailures) {
+      throw RemoteUpdateException(
+        attemptedCount: report.results.length,
+        failures: report.failures,
+      );
+    }
+  }
 
-  Future<void> _updateAllPlugins() async {
+  Future<RemoteUpdateReport> checkForPluginUpdates() {
+    final existing = _updateCheckReport;
+    if (existing != null) return existing;
+    final report = _runPluginUpdates().whenComplete(() {
+      _updateCheckReport = null;
+      _updateCheck.value = null;
+    });
+    _updateCheckReport = report;
+    _updateCheck.value = report.then<void>((_) {}).catchError((Object _) {});
+    return report;
+  }
+
+  Future<RemoteUpdateReport> _runPluginUpdates() async {
     _log.info('Starting update check for managed plugins');
     seedBundledSources();
-    var failures = const <({String item, Object error})>[];
-    var attemptedCount = 0;
+    final results = <RemoteUpdateItemResult>[];
 
     for (final manifest in _loader.availablePlugins) {
       final source = sourceFor(manifest.id);
       if (source == null || !source.kind.isManaged) continue;
-      attemptedCount++;
 
       try {
-        await _updatePlugin(manifest, source);
+        results.add(
+          RemoteUpdateItemResult(
+            item: manifest.id,
+            status: await _updatePlugin(manifest, source),
+          ),
+        );
       } catch (e, st) {
         _log.warning('Failed to update plugin "${manifest.id}"', e, st);
-        failures = [...failures, (item: manifest.id, error: e)];
+        results.add(
+          RemoteUpdateItemResult(
+            item: manifest.id,
+            status: RemoteUpdateStatus.failed,
+            error: e,
+          ),
+        );
         try {
           _writeSource(
             manifest.id,
@@ -311,15 +341,10 @@ class PluginSourceService {
     }
 
     _log.info('Finished update check for managed plugins');
-    if (failures.isNotEmpty) {
-      throw RemoteUpdateException(
-        attemptedCount: attemptedCount,
-        failures: failures,
-      );
-    }
+    return RemoteUpdateReport(results);
   }
 
-  Future<void> _updatePlugin(
+  Future<RemoteUpdateStatus> _updatePlugin(
     PluginManifest installed,
     PluginSource source,
   ) async {
@@ -338,12 +363,12 @@ class PluginSourceService {
           installed.id,
           source.copyWith(lastChecked: now, clearLastError: true),
         );
-        return;
+        return RemoteUpdateStatus.alreadyCurrent;
       }
 
       final asset = _selectReleaseAsset(release, source.assetName);
       final bytes = await downloadGitHubArchive(asset.downloadUrl);
-      await _withStaging((staging) async {
+      return _withStaging((staging) async {
         _extractArchive(bytes, staging);
         final package = resolvePluginPackage(staging);
         _requireSamePlugin(installed, package);
@@ -372,7 +397,7 @@ class PluginSourceService {
               ),
             ),
           );
-          return;
+          return RemoteUpdateStatus.pendingApproval;
         }
 
         await _install(
@@ -387,8 +412,8 @@ class PluginSourceService {
             lastChecked: now,
           ),
         );
+        return RemoteUpdateStatus.updated;
       });
-      return;
     }
 
     final branch = source.branch ?? 'main';
@@ -403,13 +428,13 @@ class PluginSourceService {
         installed.id,
         source.copyWith(lastChecked: now, clearLastError: true),
       );
-      return;
+      return RemoteUpdateStatus.alreadyCurrent;
     }
 
     final bytes = await downloadGitHubArchive(
       gitHubCommitArchiveUrl(source.repo!, commit),
     );
-    await _withStaging((staging) async {
+    return _withStaging((staging) async {
       _extractArchive(bytes, staging);
       final package = resolvePluginPackage(staging);
       _requireSamePlugin(installed, package);
@@ -433,7 +458,7 @@ class PluginSourceService {
             ),
           ),
         );
-        return;
+        return RemoteUpdateStatus.pendingApproval;
       }
 
       await _install(
@@ -447,6 +472,7 @@ class PluginSourceService {
           lastChecked: now,
         ),
       );
+      return RemoteUpdateStatus.updated;
     });
   }
 

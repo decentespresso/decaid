@@ -117,4 +117,20 @@ void main() {
       "Some updates couldn't be completed. Check your internet connection and try again.",
     );
   });
+
+  test('remoteErrorReason mirrors error advice without an action prefix', () {
+    expect(
+      remoteErrorReason(const SocketException('private')),
+      'Check your internet connection and try again.',
+    );
+    expect(
+      remoteErrorReason(remoteHttpError(500)),
+      'The service could not complete the request. Try again later.',
+    );
+    expect(
+      remoteErrorReason(const FormatException('x')),
+      'The downloaded data or package is invalid. Check the source and try again.',
+    );
+    expect(remoteErrorReason(StateError('x')), 'Try again.');
+  });
 }

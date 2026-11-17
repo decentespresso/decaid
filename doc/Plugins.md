@@ -375,18 +375,28 @@ fallback. This transport option is not a user-facing upload setting.
 ### `host.localApi(path, options)`
 Call the plugin and skin management routes of Decaid's own REST API in-process,
 with the authority to manage plugins and skins. Requires the `manage.extensions`
-permission. This is the only way a plugin reaches the management routes listed in
-[Plugin Lifecycle Management](#plugin-lifecycle-management-rest-api); `fetch` and
-`host.transport` reach the same server without any authority and get 401.
+permission. It is the only way a plugin reaches the management routes listed in
+[Plugin Lifecycle Management](#plugin-lifecycle-management-rest-api) with an
+authority of its own: `fetch` and `host.transport` reach the same server without
+that authority, so they are refused (401/403) while extension management
+protection is ON, even though those calls work in compatibility mode where no
+credential is needed.
 
 `path` is a path under `/api/v1/`, optionally with a query string. A scheme, a
 host, a port or a fragment is refused.
+
+`host.localApi` builds its request in process and sends no `Origin` header, so
+the browser-origin check in `doc/Api.md#browser-origins` never applies to it: an
+approved plugin is judged by its grant, in both modes. A plugin that calls the
+API with `fetch` from its own page sends that page's origin, which is the API
+origin because plugin pages are served on the API port; those calls pass the
+origin check and are judged by the credential policy instead.
 
 `host.localApi` reaches these routes and no others:
 
 | Routes | What they are |
 |--------|---------------|
-| The 18 plugin and skin routes that need an `extensions:manage` token: those marked **yes** in [Plugin Lifecycle Management](#plugin-lifecycle-management-rest-api) and the skin routes in `doc/Skins.md` (`doc/Api.md` lists them all) | The plugin and skin management operations |
+| The 18 plugin and skin routes decaid#1031 put behind `extensions:manage` (and that need a token only while extension management protection is ON): those marked **yes** in [Plugin Lifecycle Management](#plugin-lifecycle-management-rest-api) and the skin routes in `doc/Skins.md` (`doc/Api.md` lists them all) | The plugin and skin management operations |
 | `GET /api/v1/plugins`, `GET /api/v1/plugins/{id}/settings` | Reading plugins and their settings |
 | `GET /api/v1/webui/skins`, `GET /api/v1/webui/skins/default`, `GET /api/v1/webui/skins/{id}`, `GET /api/v1/webui/server/status` | Reading skins and the skin server |
 | `POST /api/v1/settings` with a JSON object holding only `defaultSkinId` or `automaticUpdateCheck` | The settings that choose the default skin and turn automatic update checks on or off (plugin and skin updates are installed; app updates are only offered) |
@@ -398,8 +408,8 @@ settings, data export, import and sync, the key-value store, the account proxy,
 skin assets and plugin-defined endpoints (`/api/v1/plugins/{id}/{endpoint}`) are
 all out of reach. `host.localApi` does not stand in for the `api` permission,
 and `api` gives no management authority. A plugin that holds `api` keeps calling
-the rest of the API with `fetch`, which carries no management authority and is
-how it reads `GET /api/v1/settings`; a plugin that holds only
+the rest of the API with `fetch`, which carries no management authority of its
+own and is how it reads `GET /api/v1/settings`; a plugin that holds only
 `manage.extensions` has no call of its own into the rest of the API.
 
 That limit is on what the plugin itself can call, not on what it can cause.
@@ -1714,7 +1724,8 @@ Branch installs have no tag rule. The resolved commit is the update signal, so a
 branch-backed plugin updates when the branch moves even if `version` never
 changes.
 
-Both install routes need an `extensions:manage` bearer token; see
+Both install routes need an `extensions:manage` bearer token while extension
+management protection is ON, and need none while it is OFF (the default); see
 [Authorization](#authorization).
 
 ```bash
@@ -1758,8 +1769,11 @@ Native/API errors and new `lastError` values use plain-language guidance; parser
 details stay in logs. **Retry** retains options and reopens current permission
 review for approval downloads. Changed candidates require fresh confirmation.
 Downgrades explain removal of the installed version and retain HTTP 409.
-Failed or partial batches return HTTP 500 after processing all items, retaining
-successes. Background failures stay quiet; installed plugins remain usable offline.
+Update endpoints return HTTP 200 with per-item `results` (`updated`,
+`alreadyCurrent`, `failed`, `pendingApproval`) even when some or all items fail,
+after processing all items and retaining successes. HTTP 500 means the overall
+check could not run. Background failures stay quiet; installed plugins remain
+usable offline.
 Native folder installation and plugin removal also use plain-language guidance,
 with filesystem and parser diagnostics kept in logs.
 Invalid folder selections explicitly require a `.reaplugin` folder; denied iOS
@@ -1802,9 +1816,11 @@ curl -X POST http://tablet:8080/api/v1/plugins/my.reaplugin/update/approve \
 A pending update can be approved by:
 
 - the user, in the Plugins settings screen;
-- a REST client sending a bearer token with the `extensions:manage` scope (see
+- a REST client sending a bearer token with the `extensions:manage` scope while
+  extension management protection is ON (see
   [Authorization](#authorization)); without one the route answers 401, and with
-  a token of another scope 403;
+  a token of another scope 403. With protection OFF (the default) any client
+  can approve;
 - a plugin holding `manage.extensions`, through `host.localApi`. This includes
   approving its own pending update. That is the authority the user delegated
   when granting the permission, and it is why the permission carries a warning:
@@ -1847,8 +1863,11 @@ to plugins hosted in their own repository.
 ## Plugin Lifecycle Management (REST API)
 
 Plugins can be managed via REST API. Routes marked **yes** in the Token column
-change what is installed or how it runs and need a bearer token with the
-`extensions:manage` scope; the rest stay open:
+change what is installed or how it runs; the rest stay open. Every **yes** route
+is open in compatibility mode and needs a bearer token with the
+`extensions:manage` scope only while the native **Settings → Security →
+"Require authorization for extension management"** option is ON (it ships
+OFF):
 
 | Method | Path | Token | Description |
 |--------|------|-------|-------------|
@@ -1860,7 +1879,7 @@ change what is installed or how it runs and need a bearer token with the
 | POST | `/api/v1/plugins/install` | yes | Not supported (501); use the GitHub endpoints below |
 | POST | `/api/v1/plugins/install/github-release` | yes | Install from a GitHub release asset |
 | POST | `/api/v1/plugins/install/github-branch` | yes | Install from a GitHub branch |
-| POST | `/api/v1/plugins/update` | yes* | Check every GitHub-backed plugin for updates |
+| POST | `/api/v1/plugins/update` | yes | Check every GitHub-backed plugin for updates |
 | POST | `/api/v1/plugins/:id/update/approve` | yes | Install an update that requests new permissions |
 | GET | `/api/v1/plugins/:id/settings` | no | Get plugin settings |
 | POST | `/api/v1/plugins/:id/settings` | yes | Update plugin settings; reloads the plugin if it is loaded so the change applies immediately |
@@ -1870,11 +1889,13 @@ gated the same way; see `doc/Skins.md`. So are `POST /api/v1/settings` when its
 body contains `webUiPath`, changes `defaultSkinId` or turns `automaticUpdateCheck`
 on (automatic checks install plugin updates), and the same `defaultSkinId` and
 `automaticUpdateCheck` changes in a backup import or a pulling sync, which are
-skipped with a warning when the request is not authorized.
+skipped with a warning when the request is not authorized. All of these apply
+only while protection is ON.
 
 ### Authorization
 
-Send the token as `Authorization: Bearer <token>`. Decaid answers:
+While protection is ON, send the token as `Authorization: Bearer <token>`.
+Decaid answers:
 
 | Status | Body | When |
 |--------|------|------|
@@ -1882,21 +1903,33 @@ Send the token as `Authorization: Bearer <token>`. Decaid answers:
 | 401 | `{"error":"Invalid token"}` | The token is unknown or was revoked |
 | 403 | `{"error":"Token is not scoped for extensions:manage"}` | The token is valid but has another scope, such as an account-proxy token |
 
-**Tokenless loopback update checks.** `yes*` marks the one route that, while
-`automaticUpdateCheck` is on, also admits a tokenless caller on the same
-device: an IPv4/IPv6 loopback peer address (IPv4-mapped IPv6 included), a
-loopback `Host` on the API port, and, when present, a loopback skin/API
-`Origin`. Any `Authorization` header keeps the normal token decision; invalid
-or unscoped tokens are not laundered into the exception. A LAN or other
-non-loopback peer, spoofed `Host`/`Origin`/forwarding headers, and
-cross-origin requests are never admitted. Tokenless checks are throttled to
-one per 30 seconds per route (HTTP 429 with `Retry-After`). The exception
-never bypasses permission escalation: an update that adds a permission is
-still only recorded as `pendingUpdate` until approved. When automatic updates
-are off, tokenless checks are refused with 401 and cause no network fetch,
-install, or pending approval.
+With protection OFF, those routes ignore the header entirely, so a client that
+still sends an expired or revoked token keeps working like any other legacy
+client. A malformed or wrong-scope credential is not an error while OFF either.
 
-Getting a token:
+A browser page is also refused with 403 when its `Origin` is not the device's
+own, before any handler work, in both modes and whatever credential it carries:
+`{"error":"Extension management is not allowed from this browser origin"}`.
+The routes it covers, the ports and addresses it trusts, the preflights it
+refuses and the requests without an `Origin` that are unaffected are described
+in
+[Browser origins](Api.md#browser-origins).
+A plugin page served on the API port and a skin page served on the live skin
+port are trusted; `null`, `https`, a hostname, another device's address and a
+retired skin port are not. A `localhost` origin is trusted only from a request
+whose socket peer is the device itself (loopback or one of its current
+addresses), so a page on another machine cannot borrow the name. The refusal is
+not the authorization decision: while protection is OFF an admitted request
+still needs no credential, and while it is ON a trusted origin still needs the
+token.
+
+There is no tokenless loopback or update-check exception in either mode. The
+`automaticUpdateCheck` setting governs only the app's scheduled checks; manual
+`POST /api/v1/plugins/update` and `POST /api/v1/webui/skins/update` calls answer
+without it (and, while protection is ON, need a credential like the rest).
+
+Getting a token, which is needed only while extension management protection is
+ON:
 
 - In the app: **Decent Account** page, **API access tokens**, **Create**, turn on
   **Manage plugins and skins**. The token is shown once; copy it then. It is kept
@@ -1977,9 +2010,10 @@ Rules:
   `source`.
 
 The endpoint accepts arbitrary JavaScript that Decaid then runs in-process, so
-it requires an `extensions:manage` token like the other management routes. An
-account-proxy token is refused with 403. Because the token travels in clear text
-over HTTP, run the API server only on networks you trust.
+while extension management protection is ON it requires an `extensions:manage`
+token like the other management routes. An account-proxy token is refused with
+403. Because the token travels in clear text over HTTP, run the API server only
+on networks you trust.
 
 Settings updates are patches for every field: an omitted field preserves the
 existing value, `null` clears it, and for secure fields a `{ "isSet":
@@ -1988,9 +2022,10 @@ contain only the marker for secure fields, never the submitted or stored
 value. Existing cleartext secure fields are moved out of SharedPreferences on
 first read.
 
-The bundled **settings plugin** (`settings.reaplugin`) provides a web settings page at `/api/v1/plugins/settings.reaplugin/ui`. Its plugin section lists each plugin with an enable/disable toggle and a remove button, which no longer take effect. The page is a web
-page like any other and has no authority: its management buttons now report that
-the action needs the app's own settings or an API token. It does not ask for a
+The bundled **settings plugin** (`settings.reaplugin`) provides a web settings page at `/api/v1/plugins/settings.reaplugin/ui`. Its plugin section lists each plugin with an enable/disable toggle and a remove button. Those controls work while extension management protection is OFF and report that the action needs a token while it is ON. The page is a web
+page like any other and has no authority: in protected mode its management
+buttons return the 401 the browser gets, which the page turns into a message
+pointing at the app's own settings or an API token. It does not ask for a
 token, because every plugin's pages share the API origin and one plugin's page
 can script another's.
 
@@ -2024,18 +2059,22 @@ UI.
 
 ### Compatibility
 
-Before decaid#1031 the management routes were open to any client. They now
-answer 401 without an `extensions:manage` bearer token, while the rest of the API
-stays unauthenticated. A plugin whose served pages called them (enable, disable,
-settings, install, update, approve, source, remove, or the skin routes) has two
-options:
+Before decaid#1031 the management routes were open to any client. PR #1142 made
+them require an `extensions:manage` bearer token for everybody; decaid#1191
+restores that open default and puts the #1031 policy behind the native
+**Settings → Security** toggle, which ships OFF for new installations and
+upgrades. With the toggle ON the routes answer 401 without an `extensions:manage`
+bearer token, while the rest of the API stays unauthenticated in both modes. A
+plugin whose served pages call them (enable, disable, settings, install, update,
+approve, source, remove, or the skin routes) has three options:
 
+- do nothing while the device runs in compatibility mode, which is the default;
 - move the call into the plugin's own JavaScript, declare `manage.extensions`
   (which users approve with a warning), and call
-  [`host.localApi`](#hostlocalapipath-options). A plugin endpoint is open to
-  every client on the network, so an endpoint that performs management for
-  whoever calls it reopens the hole this gate closes: let the plugin decide
-  what it does, not the caller;
+  [`host.localApi`](#hostlocalapipath-options), which works in both modes. A
+  plugin endpoint is open to every client on the network, so an endpoint that
+  performs management for whoever calls it reopens the hole the gate closes: let
+  the plugin decide what it does, not the caller;
 - send the user to the native Plugins and Skins settings screens.
 
 A page served by a plugin must not ask for or hold a management token. All
@@ -2043,8 +2082,10 @@ plugin pages are served from the API origin, so a page from one plugin can
 open, script and read a page from another.
 
 Calls from plugin JavaScript to these routes through `fetch` or `host.transport`
-no longer work; switch them to `host.localApi`. Reading routes such as
-`GET /api/v1/plugins` and `GET /api/v1/plugins/:id/settings` are unchanged.
+work in compatibility mode. With protection ON they need a token the page must
+not hold, so switch them to `host.localApi`. Reading routes such as
+`GET /api/v1/plugins` and `GET /api/v1/plugins/:id/settings` are unchanged in
+both modes.
 
 ## Next Steps
 

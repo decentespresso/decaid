@@ -10,7 +10,16 @@ import 'package:reaprime/src/services/webserver/proxy_auth_middleware.dart';
 
 const extensionManagementGrantContextKey = 'decaid.extensionManagementGrant';
 
+const untrustedBrowserOriginError =
+    'Extension management is not allowed from this browser origin';
+
 const _authorizationContextKey = 'decaid.extensionManagementAuthorization';
+
+const _browserOriginContextKey = 'decaid.browserOriginVerdict';
+
+const _originRefusalContextKey = 'decaid.browserOriginRefusal';
+
+const _shelfConnectionInfoContextKey = 'shelf.io.connection_info';
 
 final _log = Logger('ExtensionManagement');
 
@@ -28,6 +37,123 @@ final class ExtensionManagementRoute {
 
   @override
   String toString() => '$method $path';
+}
+
+enum BrowserOriginVerdict { originless, trusted, untrusted }
+
+final class ExtensionManagementBrowserOrigins {
+  const ExtensionManagementBrowserOrigins({
+    required this.apiListenerPort,
+    required this.pagePorts,
+    required this.deviceAddresses,
+  });
+
+  final int? Function() apiListenerPort;
+  final Set<int> Function() pagePorts;
+  final Future<Set<String>> Function() deviceAddresses;
+
+  static const loopbackHosts = {'localhost', '127.0.0.1', '::1'};
+
+  Future<BrowserOriginVerdict> classify(
+    String? origin, {
+    Object? connectionInfo,
+  }) async {
+    if (origin == null) return BrowserOriginVerdict.originless;
+    if (origin.isEmpty || origin.contains(',') || origin.contains(' ')) {
+      return BrowserOriginVerdict.untrusted;
+    }
+    final uri = Uri.tryParse(origin);
+    if (uri == null ||
+        uri.scheme != 'http' ||
+        uri.userInfo.isNotEmpty ||
+        uri.hasQuery ||
+        uri.hasFragment ||
+        uri.path.isNotEmpty) {
+      return BrowserOriginVerdict.untrusted;
+    }
+    final listenerPort = apiListenerPort();
+    final trustedPorts = {...pagePorts(), ?listenerPort};
+    if (!trustedPorts.contains(uri.port)) return BrowserOriginVerdict.untrusted;
+    final host = _hostKey(uri.host);
+    if (host == null) return BrowserOriginVerdict.untrusted;
+    if (_loopbackHostKeys.contains(host)) {
+      return _classifyLoopbackOrigin(origin, connectionInfo);
+    }
+    final Set<String> addresses;
+    try {
+      addresses = {
+        for (final address in await deviceAddresses()) ?_hostKey(address),
+      };
+    } catch (error, stackTrace) {
+      _log.warning(
+        'Could not enumerate the device addresses; refusing origin $origin',
+        error,
+        stackTrace,
+      );
+      return BrowserOriginVerdict.untrusted;
+    }
+    return addresses.contains(host)
+        ? BrowserOriginVerdict.trusted
+        : BrowserOriginVerdict.untrusted;
+  }
+
+  Future<BrowserOriginVerdict> _classifyLoopbackOrigin(
+    String origin,
+    Object? connectionInfo,
+  ) async {
+    final peer = _socketPeer(connectionInfo);
+    if (peer == null) {
+      _log.warning(
+        'Refusing the loopback origin $origin: the request carries no reliable '
+        'socket peer',
+      );
+      return BrowserOriginVerdict.untrusted;
+    }
+    if (peer.isLoopback) return BrowserOriginVerdict.trusted;
+    final Set<String> addresses;
+    try {
+      addresses = {
+        for (final address in await deviceAddresses()) ?_hostKey(address),
+      };
+    } catch (error, stackTrace) {
+      _log.warning(
+        'Could not enumerate the device addresses; refusing the loopback '
+        'origin $origin',
+        error,
+        stackTrace,
+      );
+      return BrowserOriginVerdict.untrusted;
+    }
+    final peerKey = _hostKey(peer.address);
+    return peerKey != null && addresses.contains(peerKey)
+        ? BrowserOriginVerdict.trusted
+        : BrowserOriginVerdict.untrusted;
+  }
+
+  static InternetAddress? _socketPeer(Object? connectionInfo) {
+    if (connectionInfo is! HttpConnectionInfo) return null;
+    try {
+      return connectionInfo.remoteAddress;
+    } catch (error, stackTrace) {
+      _log.warning('The socket peer is unreadable', error, stackTrace);
+      return null;
+    }
+  }
+
+  static final Set<String> _loopbackHostKeys = {
+    for (final host in loopbackHosts) ?_hostKey(host),
+  };
+
+  static String? _hostKey(String host) {
+    final bare = host.startsWith('[') && host.endsWith(']')
+        ? host.substring(1, host.length - 1)
+        : host;
+    if (bare.isEmpty || bare.contains('%')) return null;
+    if (bare.toLowerCase() == 'localhost') return 'localhost';
+    final address = InternetAddress.tryParse(bare);
+    if (address == null) return null;
+    return '${address.type.name}:${address.rawAddress.join('.')}';
+  }
 }
 
 const extensionManagementRoutes = <ExtensionManagementRoute>[
@@ -73,15 +199,33 @@ const extensionManagementSettingsKeys = {
   'automaticUpdateCheck',
 };
 
+const extensionManagementBodySensitiveRoutes = <ExtensionManagementRoute>[
+  ExtensionManagementRoute('POST', '/api/v1/settings'),
+  ExtensionManagementRoute('POST', '/api/v1/data/import'),
+  ExtensionManagementRoute('POST', '/api/v1/data/sync'),
+];
+
+final class _ExtensionManagementModeSnapshot {
+  _ExtensionManagementModeSnapshot(this._readRequirement);
+
+  final Future<bool> Function()? _readRequirement;
+  Future<bool>? _resolved;
+
+  Future<bool> requireAuthorization() =>
+      _resolved ??= _resolveRequirement(_readRequirement);
+}
+
 final class ExtensionManagementAuthorization {
   final ExtensionManagementGrant? _grant;
   final ProxyCaller? _caller;
   final bool _presentedBearer;
+  final _ExtensionManagementModeSnapshot _mode;
 
   const ExtensionManagementAuthorization._({
     required this._grant,
     required this._caller,
     required this._presentedBearer,
+    required this._mode,
   });
 
   String get callerDescription {
@@ -93,13 +237,14 @@ final class ExtensionManagementAuthorization {
     return label == null ? caller.id : '${caller.id} ${jsonEncode(label)}';
   }
 
-  Response? get denial {
+  Future<Response?> denial() async {
     final grant = _grant;
     if (grant != null) {
       return grant.isActive
           ? null
           : _unauthorized('Plugin extension-management authority has ended');
     }
+    if (!await _mode.requireAuthorization()) return null;
     final caller = _caller;
     if (caller == null) {
       return _unauthorized(
@@ -118,19 +263,132 @@ final class ExtensionManagementAuthorization {
   }
 }
 
+Middleware extensionManagementBrowserOriginMiddleware(
+  ExtensionManagementBrowserOrigins origins, {
+  List<ExtensionManagementRoute> routes = extensionManagementRoutes,
+  List<ExtensionManagementRoute> bodyRoutes =
+      extensionManagementBodySensitiveRoutes,
+}) {
+  final byMethod = ExtensionManagementRouteMatcher(routes);
+  final byBody = ExtensionManagementRouteMatcher(bodyRoutes);
+  final guarded = [...routes, ...bodyRoutes];
+  final byRequestedMethod = ExtensionManagementRouteMatcher(guarded);
+  final byPreflight = ExtensionManagementRouteMatcher.paths(guarded);
+  return (Handler inner) {
+    return (Request request) async {
+      final origin = request.headers['origin'];
+      if (origin == null) {
+        return inner(
+          request.change(
+            context: {
+              _browserOriginContextKey: BrowserOriginVerdict.originless,
+            },
+          ),
+        );
+      }
+      final connectionInfo = request.context[_shelfConnectionInfoContextKey];
+      if (request.method == 'OPTIONS') {
+        if (!await _isManagementPreflight(
+          request,
+          byRequestedMethod,
+          byPreflight,
+        )) {
+          return inner(request);
+        }
+        final verdict = await origins.classify(
+          origin,
+          connectionInfo: connectionInfo,
+        );
+        if (verdict != BrowserOriginVerdict.untrusted) {
+          return inner(
+            request.change(context: {_browserOriginContextKey: verdict}),
+          );
+        }
+        _log.warning(
+          'OPTIONS /${request.url.path} refused (403) for an untrusted '
+          'browser origin',
+        );
+        return untrustedBrowserOriginRefusal();
+      }
+      if (await byMethod.matches(request)) {
+        final verdict = await origins.classify(
+          origin,
+          connectionInfo: connectionInfo,
+        );
+        if (verdict == BrowserOriginVerdict.untrusted) {
+          _log.warning(
+            '${request.method} /${request.url.path} refused (403) for an '
+            'untrusted browser origin',
+          );
+          return untrustedBrowserOriginRefusal();
+        }
+        return inner(
+          request.change(context: {_browserOriginContextKey: verdict}),
+        );
+      }
+      if (!await byBody.matches(request)) return inner(request);
+      final verdict = await origins.classify(
+        origin,
+        connectionInfo: connectionInfo,
+      );
+      final response = await inner(
+        request.change(context: {_browserOriginContextKey: verdict}),
+      );
+      if (!_isBrowserOriginRefusal(response)) return response;
+      return _withoutAffirmativeCors(response);
+    };
+  };
+}
+
+bool _isBrowserOriginRefusal(Response response) =>
+    response.context[_originRefusalContextKey] == true;
+
+final _httpMethodToken = RegExp(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$");
+
+Future<bool> _isManagementPreflight(
+  Request request,
+  ExtensionManagementRouteMatcher byMethod,
+  ExtensionManagementRouteMatcher byPath,
+) {
+  final requested = request.headers['access-control-request-method'];
+  if (requested == null || !_httpMethodToken.hasMatch(requested)) {
+    return byPath.matches(request);
+  }
+  return byMethod.matchesMethod(requested, request);
+}
+
+Response _withoutAffirmativeCors(Response response) {
+  final names = [
+    for (final name in response.headers.keys)
+      if (name.toLowerCase().startsWith('access-control-')) name,
+  ];
+  if (names.isEmpty) return response;
+  return response.change(headers: {for (final name in names) name: null});
+}
+
+Response untrustedBrowserOriginRefusal() => _json(
+  403,
+  untrustedBrowserOriginError,
+).change(context: {_originRefusalContextKey: true});
+
+bool isUntrustedBrowserOrigin(Request request) =>
+    request.context[_browserOriginContextKey] == BrowserOriginVerdict.untrusted;
+
+Response? requireTrustedBrowserOrigin(
+  Request request, {
+  required String action,
+}) {
+  if (!isUntrustedBrowserOrigin(request)) return null;
+  _log.warning('$action refused (403) for an untrusted browser origin');
+  return untrustedBrowserOriginRefusal();
+}
+
 Middleware extensionManagementAuthMiddleware(
   ProxyTokenService? tokens, {
   List<ExtensionManagementRoute> routes = extensionManagementRoutes,
-  Future<bool> Function()? automaticUpdateCheckEnabled,
-  Set<String> Function()? localOrigins,
-  DateTime Function() clock = DateTime.now,
+  Future<bool> Function()? requireExtensionManagementAuthorization,
 }) {
   final policy = ExtensionManagementRouteMatcher(routes);
-  final tokenlessUpdates = _TokenlessUpdateCheckPolicy(
-    automaticUpdateCheckEnabled: automaticUpdateCheckEnabled,
-    localOrigins: localOrigins,
-    clock: clock,
-  );
   return (Handler inner) {
     return (Request request) async {
       final grant = request.context[extensionManagementGrantContextKey];
@@ -140,46 +398,16 @@ Middleware extensionManagementAuthMiddleware(
         grant: grant is ExtensionManagementGrant ? grant : null,
         caller: caller,
         presentedBearer: bearer != null,
+        mode: _ExtensionManagementModeSnapshot(
+          requireExtensionManagementAuthorization,
+        ),
       );
 
       if (await policy.matches(request)) {
-        final action = '${request.method} /${request.url.path}';
-        final denial = authorization.denial;
-        if (denial != null &&
-            grant is! ExtensionManagementGrant &&
-            request.headers['authorization'] == null) {
-          // A request presenting any credential keeps the credential
-          // decision; only a truly tokenless loopback caller can use the
-          // narrow update-check exception (#1163).
-          final exception = await tokenlessUpdates.adjudicate(request, denial);
-          final corsOrigin = tokenlessUpdates.corsOrigin(request);
-          if (exception == null) {
-            _log.info('$action authorized for a tokenless loopback caller');
-            try {
-              return _withCors(
-                await inner(
-                  request.change(
-                    context: {_authorizationContextKey: authorization},
-                  ),
-                ),
-                corsOrigin,
-              );
-            } finally {
-              tokenlessUpdates.recordCompletion(request);
-            }
-          }
-          _log.warning(
-            '$action refused (${exception.statusCode}) for a tokenless caller',
-          );
-          // Only a response produced after the policy admitted the caller (the
-          // throttle) is made browser-readable. A pre-admission denial, such as
-          // a LAN peer or a disallowed Origin, keeps its exact headers.
-          return _withCors(
-            exception,
-            exception.statusCode == 429 ? corsOrigin : null,
-          );
-        }
-        final refusal = _authorize(authorization, action);
+        final refusal = await _authorize(
+          authorization,
+          '${request.method} /${request.url.path}',
+        );
         if (refusal != null) return refusal;
       }
 
@@ -195,10 +423,10 @@ Middleware extensionManagementAuthMiddleware(
   };
 }
 
-Response? requireExtensionManagement(
+Future<Response?> requireExtensionManagement(
   Request request, {
   required String action,
-}) {
+}) async {
   final authorization = request.context[_authorizationContextKey];
   if (authorization is! ExtensionManagementAuthorization) {
     return _unauthorized('Missing or malformed bearer token');
@@ -206,17 +434,17 @@ Response? requireExtensionManagement(
   return _authorize(authorization, action);
 }
 
-bool mayManageExtensions(Request request) {
+Future<bool> mayManageExtensions(Request request) async {
   final authorization = request.context[_authorizationContextKey];
-  return authorization is ExtensionManagementAuthorization &&
-      authorization.denial == null;
+  if (authorization is! ExtensionManagementAuthorization) return false;
+  return await authorization.denial() == null;
 }
 
-Response? _authorize(
+Future<Response?> _authorize(
   ExtensionManagementAuthorization authorization,
   String action,
-) {
-  final denial = authorization.denial;
+) async {
+  final denial = await authorization.denial();
   if (denial == null) {
     _log.info('$action authorized for ${authorization.callerDescription}');
   } else {
@@ -241,6 +469,23 @@ Map<String, Object?> _withoutAuthorization(Request request) => {
     if (name.toLowerCase() == 'authorization') name: null,
 };
 
+Future<bool> _resolveRequirement(
+  Future<bool> Function()? readRequirement,
+) async {
+  if (readRequirement == null) return true;
+  try {
+    return await readRequirement();
+  } catch (error, stackTrace) {
+    _log.warning(
+      'The extension management security setting is unreadable; keeping the '
+      'management routes protected',
+      error,
+      stackTrace,
+    );
+    return true;
+  }
+}
+
 final class ExtensionManagementRouteMatcher {
   static final _matched = Response(204);
   static final _unmatched = Response(204);
@@ -253,8 +498,21 @@ final class ExtensionManagementRouteMatcher {
     }
   }
 
+  ExtensionManagementRouteMatcher.paths(
+    Iterable<ExtensionManagementRoute> routes,
+  ) {
+    for (final route in routes) {
+      _router.all(route.path, (Request _) => _matched);
+    }
+  }
+
   Future<bool> matches(Request request) async =>
       identical(await _router.call(request), _matched);
+
+  Future<bool> matchesMethod(String method, Request request) async => identical(
+    await _router.call(Request(method, request.requestedUri, url: request.url)),
+    _matched,
+  );
 }
 
 Response _unauthorized(String error) => Response(
@@ -268,184 +526,3 @@ Response _json(int status, String error) => Response(
   body: jsonEncode({'error': error}),
   headers: {'content-type': 'application/json'},
 );
-
-/// Adds `Access-Control-Allow-Origin` for an already-authorized tokenless
-/// update check so a browser can read the response. It never authorizes:
-/// [origin] is only non-null after the policy accepted that same Origin, and
-/// no wildcard or credentials header is ever added.
-Response _withCors(Response response, String? origin) {
-  if (origin == null) return response;
-  final headers = Map<String, String>.from(response.headers);
-  headers['access-control-allow-origin'] = origin;
-  headers['vary'] = _appendVary(headers['vary'], 'Origin');
-  return response.change(headers: headers);
-}
-
-String _appendVary(String? existing, String value) {
-  if (existing == null || existing.trim().isEmpty) return value;
-  final tokens = existing
-      .split(',')
-      .map((token) => token.trim())
-      .where((token) => token.isNotEmpty)
-      .toList();
-  if (tokens.any((token) => token.toLowerCase() == value.toLowerCase())) {
-    return existing;
-  }
-  return [...tokens, value].join(', ');
-}
-
-Response _tooManyRequests(Duration remaining) {
-  final seconds = (remaining.inMilliseconds + 999) ~/ 1000;
-  return Response(
-    429,
-    body: jsonEncode({
-      'error': 'An update check just ran; retry in $seconds seconds',
-    }),
-    headers: {'content-type': 'application/json', 'retry-after': '$seconds'},
-  );
-}
-
-/// The narrow tokenless exception of #1163: same-device loopback callers may
-/// run the two existing-source update checks while automatic update checks
-/// are enabled. This is only an authorization decision for those two
-/// dispatches; it never turns into a general management grant, so an admitted
-/// request keeps its unauthenticated [ExtensionManagementAuthorization].
-final class _TokenlessUpdateCheckPolicy {
-  static const _interval = Duration(seconds: 30);
-
-  final _matcher = ExtensionManagementRouteMatcher(const [
-    ExtensionManagementRoute('POST', '/api/v1/plugins/update'),
-    ExtensionManagementRoute('POST', '/api/v1/webui/skins/update'),
-  ]);
-
-  final Future<bool> Function()? _automaticUpdateCheckEnabled;
-  final Set<String> Function()? _localOrigins;
-  final DateTime Function() _clock;
-
-  /// Completion times of admitted tokenless checks, keyed by the two fixed
-  /// route keys. Recorded only when a dispatch finishes, so overlapping
-  /// checks can still coalesce in the update services.
-  final Map<String, DateTime> _completedAt = {};
-
-  _TokenlessUpdateCheckPolicy({
-    required this._automaticUpdateCheckEnabled,
-    required this._localOrigins,
-    required this._clock,
-  });
-
-  /// Returns null when [request] is admitted, otherwise the response to
-  /// send: [denied] for every failed check (the original credential denial)
-  /// or 429 when a later tokenless retry is throttled.
-  Future<Response?> adjudicate(Request request, Response denied) async {
-    if (!await _matcher.matches(request)) return denied;
-
-    // The current setting value is read before every tokenless dispatch and
-    // any lookup failure closes the exception.
-    final readSetting = _automaticUpdateCheckEnabled;
-    if (readSetting == null) return denied;
-    final bool enabled;
-    try {
-      enabled = await readSetting();
-    } catch (error, stackTrace) {
-      _log.warning(
-        'automaticUpdateCheck lookup failed; refusing a tokenless update check',
-        error,
-        stackTrace,
-      );
-      return denied;
-    }
-    if (!enabled) return denied;
-
-    // The actual peer address is the only network qualifier; forwarding
-    // headers are never consulted.
-    final info = request.context['shelf.io.connection_info'];
-    if (info is! HttpConnectionInfo || !_isLoopbackPeer(info.remoteAddress)) {
-      return denied;
-    }
-
-    if (!_isLoopbackAuthority(request.headers['host'], info.localPort)) {
-      return denied;
-    }
-
-    final origin = request.headers['origin'];
-    if (origin != null && !_isAllowedOrigin(origin)) return denied;
-
-    final key = _keyFor(request);
-    final completedAt = _completedAt[key];
-    if (completedAt != null) {
-      final elapsed = _clock().difference(completedAt);
-      if (elapsed < _interval) return _tooManyRequests(_interval - elapsed);
-    }
-    return null;
-  }
-
-  void recordCompletion(Request request) {
-    _completedAt[_keyFor(request)] = _clock();
-  }
-
-  /// The request Origin when it may be echoed back in
-  /// `Access-Control-Allow-Origin`: present, and an allowed loopback origin.
-  /// An absent or disallowed Origin yields null, so no CORS header is added
-  /// and a wildcard is never produced.
-  String? corsOrigin(Request request) {
-    final origin = request.headers['origin'];
-    return origin != null && _isAllowedOrigin(origin) ? origin : null;
-  }
-
-  static String _keyFor(Request request) =>
-      '${request.method.toUpperCase()} /${request.url.path}';
-
-  bool _isAllowedOrigin(String origin) {
-    for (final candidate in _localOrigins?.call() ?? const <String>{}) {
-      // A configured LAN origin is never sufficient for this exception.
-      if (candidate == origin && _isLoopbackOrigin(candidate)) return true;
-    }
-    return false;
-  }
-}
-
-bool _isLoopbackPeer(InternetAddress address) {
-  if (address.type == InternetAddressType.IPv4) return address.isLoopback;
-  if (address.type != InternetAddressType.IPv6) return false;
-  if (address.isLoopback) return true;
-  // IPv4-mapped IPv6 (::ffff:a.b.c.d) with a loopback tail.
-  final raw = address.rawAddress;
-  if (raw.length != 16) return false;
-  for (var i = 0; i < 10; i++) {
-    if (raw[i] != 0) return false;
-  }
-  return raw[10] == 0xff && raw[11] == 0xff && raw[12] == 127;
-}
-
-bool _isLoopbackAuthority(String? header, int localPort) {
-  if (header == null) return false;
-  final trimmed = header.trim();
-  if (trimmed.isEmpty) return false;
-  try {
-    final uri = Uri.parse('http://$trimmed');
-    if (uri.userInfo.isNotEmpty ||
-        uri.path.isNotEmpty ||
-        uri.query.isNotEmpty ||
-        uri.fragment.isNotEmpty) {
-      return false;
-    }
-    if (uri.host.isEmpty || uri.port != localPort) return false;
-    return _isLoopbackHost(uri.host);
-  } on FormatException {
-    return false;
-  }
-}
-
-bool _isLoopbackOrigin(String origin) {
-  final uri = Uri.tryParse(origin);
-  if (uri == null) return false;
-  if (uri.scheme != 'http' && uri.scheme != 'https') return false;
-  if (uri.host.isEmpty) return false;
-  return _isLoopbackHost(uri.host);
-}
-
-bool _isLoopbackHost(String host) {
-  if (host.toLowerCase() == 'localhost') return true;
-  final address = InternetAddress.tryParse(host);
-  return address != null && _isLoopbackPeer(address);
-}

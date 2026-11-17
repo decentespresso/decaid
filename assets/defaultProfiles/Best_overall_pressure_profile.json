@@ -1,0 +1,93 @@
+{
+  "version": "2",
+  "title": "Best overall pressure profile",
+  "author": "Decent",
+  "notes": "We recommend this pressure profile as the most likely to produce a good espresso in the most varied number of cases.  The decreasing pressure will help reduce acidity.",
+  "beverage_type": "espresso",
+  "steps": [
+    {
+      "name": "preinfusion temp boost",
+      "pump": "flow",
+      "transition": "fast",
+      "temperature": "88.0",
+      "sensor": "coffee",
+      "seconds": "2.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "flow": "8.0",
+      "pressure": "1.0",
+      "exit": {
+        "type": "pressure",
+        "condition": "over",
+        "value": "4.0"
+      }
+    },
+    {
+      "name": "preinfusion",
+      "pump": "flow",
+      "transition": "fast",
+      "temperature": "88.0",
+      "sensor": "coffee",
+      "seconds": "18.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "flow": "8.0",
+      "pressure": "1.0",
+      "exit": {
+        "type": "pressure",
+        "condition": "over",
+        "value": "4.0"
+      }
+    },
+    {
+      "name": "forced rise without limit",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "88.0",
+      "sensor": "coffee",
+      "seconds": "3.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "flow": "0.0",
+      "pressure": "8.4"
+    },
+    {
+      "name": "rise and hold",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "88.0",
+      "sensor": "coffee",
+      "seconds": "7.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "flow": "0.0",
+      "pressure": "8.4",
+      "limiter": {
+        "value": "3.5",
+        "range": "1.0"
+      }
+    },
+    {
+      "name": "decline",
+      "pump": "pressure",
+      "transition": "smooth",
+      "temperature": "88.0",
+      "sensor": "coffee",
+      "seconds": "30.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "flow": "0.0",
+      "pressure": "6.0",
+      "limiter": {
+        "value": "3.5",
+        "range": "1.0"
+      }
+    }
+  ],
+  "tank_temperature": "0.0",
+  "target_weight": "36.0",
+  "target_volume": "36.0",
+  "target_volume_count_start": "2",
+  "type": "pressure",
+  "hidden": "0"
+}

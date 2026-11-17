@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/util/remote_update_exception.dart';
+import 'package:reaprime/src/util/remote_update_report.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
 
 import 'helpers/mock_settings_service.dart';
@@ -126,6 +127,42 @@ void main() {
   });
 
   test(
+    'update check joins an in-flight background bundled-skin download',
+    () async {
+      await storage.initialize(downloadRemote: false);
+      final release = Completer<void>();
+      var requests = 0;
+      await http.runWithClient(
+        () async {
+          final background = storage.downloadRemoteSkins();
+          final check = storage.checkForSkinUpdates();
+          release.complete();
+          await expectLater(background, throwsA(isA<RemoteUpdateException>()));
+          final report = await check;
+          expect(requests, 2);
+          expect(report.hasFailures, isTrue);
+          expect(report.results, hasLength(2));
+          expect(storage.updateCheck.value, isNull);
+        },
+        () => MockClient((_) async {
+          requests++;
+          await release.future;
+          throw const SocketException('offline');
+        }),
+      );
+      final requestsAfterFirst = requests;
+      await http.runWithClient(
+        () => storage.checkForSkinUpdates(),
+        () => MockClient((_) async {
+          requests++;
+          throw const SocketException('offline');
+        }),
+      );
+      expect(requests, requestsAfterFirst * 2);
+    },
+  );
+
+  test(
     'offline update attempts every remote source and retains installed skins',
     () async {
       await storage.initialize(downloadRemote: false);
@@ -157,4 +194,86 @@ void main() {
       expect(storage.updateCheck.value, isNull);
     },
   );
+
+  test(
+    'checkForSkinUpdates reports per-item failures without throwing',
+    () async {
+      await storage.initialize(downloadRemote: false);
+      final archive = Archive()
+        ..addFile(ArchiveFile.string('index.html', '<title>Fixture</title>'))
+        ..addFile(
+          ArchiveFile.string(
+            'skin-manifest.json',
+            jsonEncode({'id': 'fixture-second', 'name': 'Fixture second'}),
+          ),
+        );
+      final zipBytes = Uint8List.fromList(ZipEncoder().encode(archive));
+
+      final report = await http.runWithClient(
+        () => storage.checkForSkinUpdates(),
+        () => MockClient((request) async {
+          final url = request.url.toString();
+          if (url.contains('/fixture/first/')) {
+            throw const SocketException('offline');
+          }
+          if (url.contains('/fixture/second/releases')) {
+            return http.Response(
+              jsonEncode({
+                'tag_name': 'v1.0.0',
+                'name': 'v1.0.0',
+                'published_at': '2026-01-01T00:00:00Z',
+                'assets': [
+                  {
+                    'name': 'skin.zip',
+                    'browser_download_url':
+                        'https://example.test/fixture-second.zip',
+                    'size': zipBytes.length,
+                  },
+                ],
+              }),
+              200,
+            );
+          }
+          if (url.endsWith('/fixture-second.zip')) {
+            return http.Response.bytes(zipBytes, 200);
+          }
+          return http.Response('not found: $url', 404);
+        }),
+      );
+
+      expect(report.hasFailures, isTrue);
+      expect(report.results, hasLength(2));
+      expect(report.results.map((r) => r.status), [
+        RemoteUpdateStatus.failed,
+        RemoteUpdateStatus.updated,
+      ]);
+      expect(report.results.first.item, 'fixture/first');
+      expect(report.results.first.error, isA<SocketException>());
+      expect(report.results.last.item, 'fixture/second');
+    },
+  );
+
+  test('concurrent skin update checks share one in-flight report', () async {
+    await storage.initialize(downloadRemote: false);
+    final release = Completer<http.Response>();
+    await http.runWithClient(() async {
+      final first = storage.checkForSkinUpdates();
+      final second = storage.checkForSkinUpdates();
+      expect(second, same(first));
+      expect(storage.updateCheck.value, isNotNull);
+      release.complete(
+        http.Response(
+          jsonEncode({
+            'tag_name': 'v1.0.0',
+            'name': 'v1.0.0',
+            'published_at': '2026-01-01T00:00:00Z',
+            'assets': <Object>[],
+          }),
+          200,
+        ),
+      );
+      await Future.wait([first, second]);
+      expect(storage.updateCheck.value, isNull);
+    }, () => MockClient((_) async => release.future));
+  });
 }

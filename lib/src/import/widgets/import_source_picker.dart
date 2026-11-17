@@ -77,7 +77,7 @@ class ImportSourcePicker extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                'Bring your data from De1App or restore a Bridge backup.',
+                'Bring your data from De1App or restore a Decaid backup.',
                 style: theme.textTheme.muted,
                 textAlign: TextAlign.center,
               ),
@@ -91,7 +91,7 @@ class ImportSourcePicker extends StatelessWidget {
               const SizedBox(height: 12),
               _SourceCard(
                 icon: LucideIcons.archiveRestore,
-                title: 'Import Bridge backup',
+                title: 'Import Decaid backup',
                 subtitle: 'Select a .zip backup file',
                 onTap: () => _pickZipFile(context),
               ),

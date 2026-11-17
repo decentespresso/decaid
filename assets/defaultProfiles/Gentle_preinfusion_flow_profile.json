@@ -1,0 +1,73 @@
+{
+  "version": "2",
+  "title": "Gentle preinfusion flow profile",
+  "author": "Decent",
+  "notes": "Created by a famously innovative Seattle-based espresso machine manufacturer, this technique works well with aromatic, lightly roasted coffee beans.",
+  "beverage_type": "espresso",
+  "steps": [
+    {
+      "name": "preinfusion boost",
+      "pump": "flow",
+      "transition": "fast",
+      "temperature": "92.0",
+      "sensor": "coffee",
+      "seconds": "2.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "flow": "3.5",
+      "pressure": "1.0",
+      "exit": {
+        "type": "pressure",
+        "condition": "over",
+        "value": "4.0"
+      }
+    },
+    {
+      "name": "preinfusion",
+      "pump": "flow",
+      "transition": "fast",
+      "temperature": "92.0",
+      "sensor": "coffee",
+      "seconds": "28.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "flow": "3.5",
+      "pressure": "1.0",
+      "exit": {
+        "type": "pressure",
+        "condition": "over",
+        "value": "4.0"
+      }
+    },
+    {
+      "name": "hold",
+      "pump": "flow",
+      "transition": "fast",
+      "temperature": "92.0",
+      "sensor": "coffee",
+      "seconds": "21.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "flow": "2.2",
+      "pressure": "0.0"
+    },
+    {
+      "name": "decline",
+      "pump": "flow",
+      "transition": "smooth",
+      "temperature": "92.0",
+      "sensor": "coffee",
+      "seconds": "0.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "flow": "1.8",
+      "pressure": "0.0"
+    }
+  ],
+  "tank_temperature": "0.0",
+  "target_weight": "36.0",
+  "target_volume": "37.0",
+  "target_volume_count_start": "2",
+  "type": "flow",
+  "hidden": "0"
+}

@@ -6,11 +6,42 @@ import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/device/device.dart' as device;
 import 'package:reaprime/src/models/device/firmware_update_state.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
+import 'package:reaprime/src/models/device/transport/ble_timeout_exception.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
 import 'package:reaprime/src/models/errors.dart';
 
 import '../../../../../../helpers/barrier_ble_transport.dart';
 import '../../../../../../helpers/fake_ble_transport.dart';
+
+class _TimeoutAfterDispatchFakeTransport extends FakeBleTransport {
+  final Map<String, int> _timeoutsRemaining = {};
+
+  void timeoutAfterDispatch(Endpoint endpoint, {required int count}) {
+    _timeoutsRemaining[endpoint.uuid] = count;
+  }
+
+  @override
+  Future<void> write(
+    String serviceUUID,
+    String characteristicUUID,
+    Uint8List data, {
+    bool withResponse = true,
+    Duration? timeout,
+  }) async {
+    await super.write(
+      serviceUUID,
+      characteristicUUID,
+      data,
+      withResponse: withResponse,
+      timeout: timeout,
+    );
+    final remaining = _timeoutsRemaining[characteristicUUID] ?? 0;
+    if (remaining > 0) {
+      _timeoutsRemaining[characteristicUUID] = remaining - 1;
+      throw BleTimeoutException('write after dispatch');
+    }
+  }
+}
 
 void main() {
   late FakeBleTransport transport;
@@ -54,6 +85,27 @@ void main() {
     expect(de1.firmwareUpdateState, FirmwareUpdateState.idle);
   });
 
+  test('settings caller uses an ordinary MMR address payload', () async {
+    transport.writes.clear();
+
+    await de1.setFanThreshhold(42);
+
+    final writes = transport.writes
+        .where((write) => write.characteristicUUID == Endpoint.writeToMMR.uuid)
+        .toList();
+    expect(writes, hasLength(1));
+    expect(writes.single.data.sublist(0, 8), [
+      0x04,
+      0x80,
+      0x38,
+      0x08,
+      0x2a,
+      0x00,
+      0x00,
+      0x00,
+    ]);
+  });
+
   test('erase timeout prevents upload', () async {
     final writesBeforeUpdate = transport.writes.length;
     await expectLater(
@@ -67,6 +119,69 @@ void main() {
             (write) => write.characteristicUUID == Endpoint.writeToMMR.uuid,
           ),
       isEmpty,
+    );
+  });
+
+  test(
+    'dispatched erase timeout does not replay firmware-map request',
+    () async {
+      final faultTransport = _TimeoutAfterDispatchFakeTransport();
+      addTearDown(faultTransport.dispose);
+      faultTransport.queueOnConnectResponses(v13Model: 3, calFlowEst: 0);
+      final faultDe1 = UnifiedDe1(
+        transport: faultTransport,
+        firmwareEraseTimeout: const Duration(milliseconds: 25),
+        firmwareVerificationTimeout: const Duration(milliseconds: 25),
+      );
+      await faultDe1.onConnect();
+      faultTransport.writes.clear();
+      faultTransport.timeoutAfterDispatch(Endpoint.fwMapRequest, count: 1);
+
+      Object? failure;
+      try {
+        await faultDe1.updateFirmware(Uint8List(16), onProgress: (_) {});
+      } catch (error) {
+        failure = error;
+      }
+
+      expect(
+        faultTransport.writes
+            .where(
+              (write) => write.characteristicUUID == Endpoint.fwMapRequest.uuid,
+            )
+            .length,
+        1,
+      );
+      expect(failure, isA<BleTimeoutException>());
+    },
+  );
+
+  test('dispatched image timeout does not replay image chunk', () async {
+    final faultTransport = _TimeoutAfterDispatchFakeTransport();
+    addTearDown(faultTransport.dispose);
+    faultTransport.queueOnConnectResponses(v13Model: 3, calFlowEst: 0);
+    faultTransport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
+    final faultDe1 = UnifiedDe1(
+      transport: faultTransport,
+      firmwareEraseTimeout: const Duration(milliseconds: 100),
+      firmwareVerificationTimeout: const Duration(milliseconds: 25),
+    );
+    await faultDe1.onConnect();
+    faultTransport.writes.clear();
+    faultTransport.timeoutAfterDispatch(Endpoint.writeToMMR, count: 1);
+    final update = faultDe1.updateFirmware(Uint8List(16), onProgress: (_) {});
+    final failure = expectLater(update, throwsA(isA<BleTimeoutException>()));
+
+    await _waitForWrite(faultTransport, Endpoint.writeToMMR);
+    await failure;
+
+    expect(
+      faultTransport.writes
+          .where(
+            (write) => write.characteristicUUID == Endpoint.writeToMMR.uuid,
+          )
+          .length,
+      1,
     );
   });
 
@@ -377,6 +492,21 @@ void main() {
       orderedEquals([16, 0, 0, 0, ...subsequentImage]),
     );
   });
+}
+
+Future<void> _waitForWrite(
+  FakeBleTransport transport,
+  Endpoint endpoint,
+) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 1));
+  while (!transport.writes.any(
+    (write) => write.characteristicUUID == endpoint.uuid,
+  )) {
+    if (DateTime.now().isAfter(deadline)) {
+      throw TimeoutException('Write did not occur for ${endpoint.name}');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 1));
+  }
 }
 
 Future<void> _waitForState(UnifiedDe1 de1, FirmwareUpdateState state) async {

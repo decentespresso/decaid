@@ -9,6 +9,44 @@ import 'package:reaprime/src/models/device/transport/ble_timeout_exception.dart'
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:rxdart/rxdart.dart';
 
+import '../../helpers/fake_ble_transport.dart';
+
+Uint8List _settingsMmrWritePayload() {
+  final payload = Uint8List(20);
+  payload.setAll(0, [0x04, 0x80, 0x38, 0x08, 0x2a, 0x00, 0x00, 0x00]);
+  return payload;
+}
+
+class _TimeoutAfterDispatchFakeTransport extends FakeBleTransport {
+  final Map<String, int> _timeoutsRemaining = {};
+
+  void timeoutAfterDispatch(Endpoint endpoint, {required int count}) {
+    _timeoutsRemaining[endpoint.uuid] = count;
+  }
+
+  @override
+  Future<void> write(
+    String serviceUUID,
+    String characteristicUUID,
+    Uint8List data, {
+    bool withResponse = true,
+    Duration? timeout,
+  }) async {
+    await super.write(
+      serviceUUID,
+      characteristicUUID,
+      data,
+      withResponse: withResponse,
+      timeout: timeout,
+    );
+    final remaining = _timeoutsRemaining[characteristicUUID] ?? 0;
+    if (remaining > 0) {
+      _timeoutsRemaining[characteristicUUID] = remaining - 1;
+      throw BleTimeoutException('write after dispatch');
+    }
+  }
+}
+
 class _RecoveryFakeTransport extends BLETransport {
   _RecoveryFakeTransport({required this.reconnectSucceeds});
 
@@ -105,6 +143,152 @@ void main() {
       expect(fake.writeCount, 2);
 
       expect(seen, isNot(contains(ConnectionState.disconnected)));
+    });
+
+    test('ordinary write recovers once after a dispatched timeout', () async {
+      final fake = _TimeoutAfterDispatchFakeTransport();
+      addTearDown(fake.dispose);
+      fake.timeoutAfterDispatch(Endpoint.writeToMMR, count: 1);
+      final unified = UnifiedDe1Transport(transport: fake);
+
+      await unified.write(Endpoint.writeToMMR, _settingsMmrWritePayload());
+
+      expect(
+        fake.writes
+            .where(
+              (write) => write.characteristicUUID == Endpoint.writeToMMR.uuid,
+            )
+            .length,
+        2,
+      );
+      expect(fake.connectCalls, 1);
+    });
+
+    test(
+      'ordinary write with response recovers once after a dispatched timeout',
+      () async {
+        final fake = _TimeoutAfterDispatchFakeTransport();
+        addTearDown(fake.dispose);
+        fake.timeoutAfterDispatch(Endpoint.writeToMMR, count: 1);
+        final unified = UnifiedDe1Transport(transport: fake);
+
+        await unified.writeWithResponse(
+          Endpoint.writeToMMR,
+          _settingsMmrWritePayload(),
+        );
+
+        expect(
+          fake.writes
+              .where(
+                (write) => write.characteristicUUID == Endpoint.writeToMMR.uuid,
+              )
+              .length,
+          2,
+        );
+        expect(fake.connectCalls, 1);
+      },
+    );
+
+    test(
+      'write opt-out surfaces a dispatched timeout without replay',
+      () async {
+        final fake = _TimeoutAfterDispatchFakeTransport();
+        addTearDown(fake.dispose);
+        fake.timeoutAfterDispatch(Endpoint.writeToMMR, count: 1);
+        final unified = UnifiedDe1Transport(transport: fake);
+
+        await expectLater(
+          unified.write(
+            Endpoint.writeToMMR,
+            _settingsMmrWritePayload(),
+            retryOnTimeout: false,
+          ),
+          throwsA(isA<BleTimeoutException>()),
+        );
+
+        expect(
+          fake.writes
+              .where(
+                (write) => write.characteristicUUID == Endpoint.writeToMMR.uuid,
+              )
+              .length,
+          1,
+        );
+        expect(fake.connectCalls, 0);
+      },
+    );
+
+    test('write with response opt-out surfaces a dispatched timeout without replay', () async {
+      final fake = _TimeoutAfterDispatchFakeTransport();
+      addTearDown(fake.dispose);
+      fake.timeoutAfterDispatch(Endpoint.writeToMMR, count: 1);
+      final unified = UnifiedDe1Transport(transport: fake);
+
+      await expectLater(
+        unified.writeWithResponse(
+          Endpoint.writeToMMR,
+          _settingsMmrWritePayload(),
+          retryOnTimeout: false,
+        ),
+        throwsA(isA<BleTimeoutException>()),
+      );
+
+      expect(
+        fake.writes
+            .where(
+              (write) => write.characteristicUUID == Endpoint.writeToMMR.uuid,
+            )
+            .length,
+        1,
+      );
+      expect(fake.connectCalls, 0);
+    });
+
+    test('ordinary write surfaces its second timeout', () async {
+      final fake = _TimeoutAfterDispatchFakeTransport();
+      addTearDown(fake.dispose);
+      fake.timeoutAfterDispatch(Endpoint.writeToMMR, count: 2);
+      final unified = UnifiedDe1Transport(transport: fake);
+
+      await expectLater(
+        unified.write(Endpoint.writeToMMR, _settingsMmrWritePayload()),
+        throwsA(isA<BleTimeoutException>()),
+      );
+
+      expect(
+        fake.writes
+            .where(
+              (write) => write.characteristicUUID == Endpoint.writeToMMR.uuid,
+            )
+            .length,
+        2,
+      );
+      expect(fake.connectCalls, 1);
+    });
+
+    test('ordinary write with response surfaces its second timeout', () async {
+      final fake = _TimeoutAfterDispatchFakeTransport();
+      addTearDown(fake.dispose);
+      fake.timeoutAfterDispatch(Endpoint.writeToMMR, count: 2);
+      final unified = UnifiedDe1Transport(transport: fake);
+
+      await expectLater(
+        unified.writeWithResponse(
+          Endpoint.writeToMMR,
+          _settingsMmrWritePayload(),
+        ),
+        throwsA(isA<BleTimeoutException>()),
+      );
+
+      expect(
+        fake.writes
+            .where(
+              (write) => write.characteristicUUID == Endpoint.writeToMMR.uuid,
+            )
+            .length,
+        2,
+      );
+      expect(fake.connectCalls, 1);
     });
 
     test(
