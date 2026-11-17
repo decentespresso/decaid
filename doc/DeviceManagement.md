@@ -41,8 +41,10 @@ Startup sequence and recovery limits:
 
 1. OS permission UI resolves before the boundary can start the device controller. Omitted welcome, account, consent, or initialization stages do not move this boundary into `shouldShow` evaluation.
 2. Core device/WebUI work completes before the scan step is allowed to proceed. A missing or unreadable configured skin can fall back to the default skin; core failures remain observable and the initialization view offers explicit retry.
-3. Android foreground start/watch belongs only to the coordinator. Desktop has no foreground-task branch. Optional plugin and remote-skin work starts after core readiness and may remain pending or fail without delaying scans.
-4. `AppRoot` owns the coordinator across keyed `MyApp` recreation. Disposal fences new side effects and removes only that coordinator's foreground watcher; native operations already dispatched cannot be cancelled. Retry re-attempts only failed core subsystems, not successful storage initialization or skin serving. Successful fallback remains degraded with its diagnostic reason, but is not replayed. Optional failures cannot mask a failed core or disable explicit recovery. Post-onboarding navigation also rechecks its owner and navigator after asynchronous serving.
+3. Device discovery startup is classified from actual service outcomes and platform applicability, not from the configured service list. `DeviceController.startupOutcome` reports the failures of startup-relevant services and whether scanning is blocked. `main.dart` supplies the pure applicability predicate `isStartupRelevantDiscoveryService`: no-op serial placeholders, simulation with no enabled devices, and plugin device services with no registered adapters are not startup-relevant, while real serial/BLE, initialized Wi-Fi capability (even without current endpoints), enabled simulation, registered plugin adapters, and unknown/custom services are. A platform serial placeholder that initialized successfully therefore cannot rescue a failed real scanner. Only actual relevant failures with no relevant successful service block startup; a platform with zero relevant configured services is not a failure by itself.
+4. Blocking discovery failure keeps the pre-scan loading/error/Retry presentation and does not mount the scan step. Partial discovery failure advances with useful scanning available and keeps a persistent device recovery notice, with Retry, above the guarded import/scan presentation and above the native Launcher route. Both placements use the shared `StartupDiscoveryRecovery` presentation, so normal auto-completion through the scan stage into the launcher cannot drop the recovery action; the notice is presented beside the launcher content instead of gating it, and no notice is repeated inside the skin or Settings screens. The notice observes coordinator state and disables recovery while an attempt is pending, so a pending retry is shared rather than duplicated. Recovery re-initializes only failed services; successfully initialized services keep their single initialization, device stream, and attach subscriptions, and recovery never starts a scan or remounts the guarded step. Recovery clears only the device reason and retains optional plugin/remote-skin diagnostics.
+5. Android foreground start/watch belongs only to the coordinator. Desktop has no foreground-task branch. Optional plugin and remote-skin work starts after core readiness and may remain pending or fail without delaying scans.
+6. `AppRoot` owns the coordinator across keyed `MyApp` recreation. Disposal fences new side effects and removes only that coordinator's foreground watcher; native operations already dispatched cannot be cancelled. Retry re-attempts only failed core subsystems, not successful storage initialization or skin serving. Successful fallback remains degraded with its diagnostic reason, but is not replayed. Optional failures cannot mask a failed core or disable explicit recovery. Post-onboarding navigation also rechecks its owner, navigator and a route lease captured after the launcher push, so a Settings screen opened while serving was pending (including a notification View into the updater) is never replaced by the automatic skin. `StartupNavigationGuard` increments a navigation generation only on a genuine top-route change, so removing the onboarding route below the launcher during the launcher transition does not invalidate the lease, while an unchanged launcher still opens the skin once.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -349,6 +351,12 @@ The DeviceController is the central coordinator for all device discovery service
    - Exposes `scanningStream` for scan lifecycle tracking
    - Coordinates parallel scans across all discovery services
    - Suppresses disconnect/reconnect detection during active scans — intermediate device list changes are transient noise. Genuine disconnects outside of scans are still detected.
+
+4. **Startup Outcome:**
+   - Records each service's initialization success or failure
+   - `startupOutcome` reports startup-relevant failures and whether no relevant
+     service initialized, using the injected applicability predicate
+   - Recovery re-attempts only services that did not initialize
 
 **Note:** DeviceController does **not** handle connection policy. All connection decisions (which device to connect, when to connect) are handled by `ConnectionManager`.
 
@@ -1034,8 +1042,10 @@ never retain the disconnected instance beside its connected replacement.
    ownership follows core setup. Plugins and remote skins run in the background.
    ↓
 9. Initialization observes the shared Future; import/scan retain a readiness
-   guard if the initialization stage is omitted. Core failure offers explicit
-   retry without mounting the scan. ScanFlowView calls connectionManager.connect()
+   guard if the initialization stage is omitted. Blocking discovery failure
+   offers explicit retry without mounting the scan; partial discovery failure
+   advances with a persistent recovery notice in that guard.
+   ScanFlowView calls connectionManager.connect()
    ↓
 10. ConnectionManager: machine-only quick-connect (preferred machine)
      -> publish connectingMachine -> BLE/serial tryQuickConnect ->
@@ -1048,7 +1058,8 @@ never retain the disconnected instance beside its connected replacement.
      ↓
 12. On `ready`, onboarding completes -> navigates to LauncherView, then pushes
     SkinView on top when the platform supports an in-app WebView, the device
-    isn't a degraded Android (SDK < 31), and the skin server is serving.
+    isn't a degraded Android (SDK < 31), the skin server is serving, and the
+    launcher route captured at navigation is still the visible route.
     Degraded/unsupported devices stay on the launcher (browser hero card).
 ```
 

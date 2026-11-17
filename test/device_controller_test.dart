@@ -9,11 +9,18 @@ class _FlakyAttachService extends DeviceDiscoveryService
     implements DeviceAttachNotifier {
   final StreamController<DeviceAttachedEvent> _attachments =
       StreamController<DeviceAttachedEvent>.broadcast();
+  late final StreamController<List<Device>> _devices =
+      StreamController<List<Device>>.broadcast(
+        onListen: () => deviceListens++,
+        onCancel: () => deviceCancels++,
+      );
   int initializeCalls = 0;
+  int deviceListens = 0;
+  int deviceCancels = 0;
   bool failNextInitialization = true;
 
   @override
-  Stream<List<Device>> get devices => const Stream.empty();
+  Stream<List<Device>> get devices => _devices.stream;
 
   @override
   Stream<DeviceAttachedEvent> get deviceAttached => _attachments.stream;
@@ -30,7 +37,10 @@ class _FlakyAttachService extends DeviceDiscoveryService
   void emitAttach() =>
       _attachments.add(const DeviceAttachedEvent(name: 'test'));
 
-  Future<void> dispose() => _attachments.close();
+  Future<void> dispose() async {
+    await _attachments.close();
+    await _devices.close();
+  }
 }
 
 void main() {
@@ -54,6 +64,25 @@ void main() {
 
     await subscription.cancel();
     controller.dispose();
+    await service.dispose();
+  });
+
+  test('startup outcome blocks until the only scanner recovers', () async {
+    final service = _FlakyAttachService();
+    final controller = DeviceController([service]);
+
+    await controller.initialize();
+    expect(controller.startupOutcome.recoveryRequired, isTrue);
+    expect(controller.startupOutcome.blocking, isTrue);
+
+    await controller.initialize();
+    expect(controller.startupOutcome.recoveryRequired, isFalse);
+    expect(controller.startupOutcome.blocking, isFalse);
+    expect(service.deviceListens, 1);
+    expect(service.deviceCancels, 0);
+
+    controller.dispose();
+    expect(service.deviceCancels, 1);
     await service.dispose();
   });
 }

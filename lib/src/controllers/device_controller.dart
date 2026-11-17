@@ -17,6 +17,16 @@ import 'package:reaprime/src/services/ble/ble_discovery_service.dart';
 import 'package:reaprime/src/services/telemetry/telemetry_service.dart';
 import 'package:rxdart/rxdart.dart';
 
+class DeviceStartupOutcome {
+  const DeviceStartupOutcome({this.failures = const [], this.blocking = false});
+
+  final List<Object> failures;
+
+  final bool blocking;
+
+  bool get recoveryRequired => failures.isNotEmpty;
+}
+
 class DeviceController
     implements DeviceScanner, DeviceAttachNotifier, UsbAttachProbe {
   final List<DeviceDiscoveryService> _services;
@@ -105,18 +115,44 @@ class DeviceController
     _flatDevicesCache = null;
   }
 
-  DeviceController(this._services) {
+  DeviceController(
+    this._services, {
+    bool Function(DeviceDiscoveryService service)? startupRelevance,
+  }) : _startupRelevant = startupRelevance ?? _everyServiceIsRelevant {
     _devices = {};
   }
+
+  final bool Function(DeviceDiscoveryService service) _startupRelevant;
+
+  static bool _everyServiceIsRelevant(DeviceDiscoveryService service) => true;
 
   bool _initialized = false;
   bool _disposed = false;
   Future<void>? _initializationFuture;
   final Set<DeviceDiscoveryService> _initializedServices = {};
-  final List<Object> _initializationFailures = [];
+  final Map<DeviceDiscoveryService, Object> _initializationFailuresByService =
+      {};
 
   List<Object> get initializationFailures =>
-      List.unmodifiable(_initializationFailures);
+      List.unmodifiable(_initializationFailuresByService.values);
+
+  DeviceStartupOutcome get startupOutcome {
+    final relevantFailures = <Object>[];
+    var relevantServiceReady = false;
+    for (final service in _services) {
+      final relevant = _startupRelevant(service);
+      if (_initializedServices.contains(service)) {
+        relevantServiceReady = relevantServiceReady || relevant;
+        continue;
+      }
+      final failure = _initializationFailuresByService[service];
+      if (relevant && failure != null) relevantFailures.add(failure);
+    }
+    return DeviceStartupOutcome(
+      failures: List.unmodifiable(relevantFailures),
+      blocking: relevantFailures.isNotEmpty && !relevantServiceReady,
+    );
+  }
 
   Future<void> initialize() {
     if (_disposed) return Future<void>.value();
@@ -131,7 +167,7 @@ class DeviceController
   }
 
   Future<void> _initializeServices() async {
-    _initializationFailures.clear();
+    _initializationFailuresByService.clear();
     for (var service in _services) {
       if (_initializedServices.contains(service)) continue;
       StreamSubscription? attachSubscription;
@@ -173,7 +209,7 @@ class DeviceController
         _initializedServices.add(service);
       } catch (e, st) {
         await attachSubscription?.cancel();
-        _initializationFailures.add(e);
+        _initializationFailuresByService[service] = e;
         _log.warning("Service $service failed to init:", e, st);
       }
     }

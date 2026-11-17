@@ -165,6 +165,15 @@ Set<SimulatedDevicesTypes> _parseSimulateFlag(String value) {
       .toSet();
 }
 
+bool isStartupRelevantDiscoveryService(DeviceDiscoveryService service) {
+  if (service is NoOpSerialService) return false;
+  if (service is SimulatedDeviceService) {
+    return service.enabledDevices.isNotEmpty;
+  }
+  if (service is PluginDeviceService) return service.hasRegistrations;
+  return true;
+}
+
 Future<List<domain.ShotRecord>> pageShotsForExport(
   AppDatabase appDatabase,
   int limit, {
@@ -436,7 +445,10 @@ void main(List<String> args) async {
   final profileController = ProfileController(storage: profileStorage);
   await profileController.initialize();
 
-  final deviceController = DeviceController(services);
+  final deviceController = DeviceController(
+    services,
+    startupRelevance: isStartupRelevantDiscoveryService,
+  );
   deviceController.telemetryService = telemetryService;
   final machineSettings = SharedPreferencesMachineSettingsStore();
   final de1Controller = De1Controller(

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/services/app_startup_coordinator.dart';
 
 void main() {
@@ -146,6 +147,95 @@ void main() {
     expect(coordinator.state.status, AppStartupStatus.degraded);
     expect(coordinator.state.reasons, contains(contains('plugin')));
     expect(coordinator.state.reasons, contains(contains('remote')));
+    expect(coordinator.state.discoveryRecoveryRequired, isFalse);
+    coordinator.dispose();
+  });
+
+  test('blocking discovery failure keeps explicit recovery', () async {
+    var blocked = true;
+    var deviceCalls = 0;
+    final coordinator = AppStartupCoordinator(
+      initializeDevices: () async => deviceCalls++,
+      deviceStartupOutcome: () => blocked
+          ? DeviceStartupOutcome(
+              failures: [StateError('serial unavailable')],
+              blocking: true,
+            )
+          : const DeviceStartupOutcome(),
+      initializeWebUI: () async {},
+      isAndroid: false,
+    );
+
+    await expectLater(
+      coordinator.ensureInitialized(),
+      throwsA(isA<DeviceDiscoveryStartupFailed>()),
+    );
+    expect(coordinator.status, AppStartupStatus.failed);
+    expect(coordinator.reasons, contains(contains('serial unavailable')));
+
+    blocked = false;
+    await coordinator.retry();
+
+    expect(deviceCalls, 2);
+    expect(coordinator.status, AppStartupStatus.ready);
+    expect(coordinator.state.discoveryRecoveryRequired, isFalse);
+    coordinator.dispose();
+  });
+
+  test('partial discovery failure stays recoverable and keeps optional diagnostics', () async {
+    var failDiscovery = true;
+    var deviceCalls = 0;
+    final plugin = Completer<void>();
+    final coordinator = AppStartupCoordinator(
+      initializeDevices: () async => deviceCalls++,
+      deviceStartupOutcome: () => failDiscovery
+          ? DeviceStartupOutcome(failures: [StateError('serial unavailable')])
+          : const DeviceStartupOutcome(),
+      initializeWebUI: () async {},
+      initializePlugins: () => plugin.future,
+      isAndroid: false,
+    );
+    addTearDown(coordinator.dispose);
+
+    await coordinator.ensureInitialized();
+    expect(coordinator.status, AppStartupStatus.degraded);
+    expect(coordinator.state.discoveryRecoveryRequired, isTrue);
+    expect(coordinator.state.discoveryRecovery, contains('serial unavailable'));
+
+    plugin.completeError(StateError('plugin offline'));
+    await coordinator.stateStream.firstWhere(
+      (state) => state.optionalTasks['plugins'] == AppStartupTaskStatus.failed,
+    );
+
+    failDiscovery = false;
+    await coordinator.retry();
+
+    expect(deviceCalls, 2);
+    expect(coordinator.status, AppStartupStatus.degraded);
+    expect(coordinator.state.discoveryRecoveryRequired, isFalse);
+    expect(coordinator.reasons, contains(contains('plugin offline')));
+  });
+
+  test('retry while initialization is pending shares the attempt', () async {
+    final devices = Completer<void>();
+    var deviceCalls = 0;
+    final coordinator = AppStartupCoordinator(
+      initializeDevices: () {
+        deviceCalls++;
+        return devices.future;
+      },
+      initializeWebUI: () async {},
+      isAndroid: false,
+    );
+
+    final first = coordinator.ensureInitialized();
+    final retried = coordinator.retry();
+
+    expect(identical(first, retried), isTrue);
+    expect(deviceCalls, 1);
+    devices.complete();
+    await first;
+    expect(coordinator.status, AppStartupStatus.ready);
     coordinator.dispose();
   });
 }

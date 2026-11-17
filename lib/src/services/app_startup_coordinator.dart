@@ -21,13 +21,17 @@ class AppStartupState {
   final AppStartupStatus status;
   final List<String> reasons;
   final Map<String, AppStartupTaskStatus> optionalTasks;
+  final String? discoveryRecovery;
 
   AppStartupState({
     required this.status,
     List<String> reasons = const [],
     Map<String, AppStartupTaskStatus> optionalTasks = const {},
+    this.discoveryRecovery,
   }) : reasons = List.unmodifiable(reasons),
        optionalTasks = Map.unmodifiable(optionalTasks);
+
+  bool get discoveryRecoveryRequired => discoveryRecovery != null;
 }
 
 class AppStartupCoordinator {
@@ -35,7 +39,7 @@ class AppStartupCoordinator {
 
   final Future<void> Function() _initializeDevices;
   late final Future<void> Function() _initializeWebUI;
-  final Iterable<Object> Function() _deviceInitializationFailures;
+  final DeviceStartupOutcome Function() _deviceStartupOutcome;
   final Future<bool> Function()? _startForeground;
   final FutureOr<Object?> Function()? _watchForeground;
   final FutureOr<void> Function(Object token)? _unwatchForeground;
@@ -59,6 +63,7 @@ class AppStartupCoordinator {
   bool _skinServed = false;
   bool _optionalWorkStarted = false;
   bool _coreRetryNeeded = false;
+  String? _discoveryRecovery;
   Object? _foregroundWatchToken;
 
   AppStartupCoordinator({
@@ -69,7 +74,7 @@ class AppStartupCoordinator {
     PluginLoaderService? pluginLoaderService,
     Future<void> Function()? initializeDevices,
     Future<void> Function()? initializeWebUI,
-    Iterable<Object> Function()? deviceInitializationFailures,
+    DeviceStartupOutcome Function()? deviceStartupOutcome,
     Future<bool> Function()? startForeground,
     FutureOr<Object?> Function()? watchForeground,
     FutureOr<void> Function(Object token)? unwatchForeground,
@@ -86,9 +91,11 @@ class AppStartupCoordinator {
          'Provide WebUI services or initializeWebUI',
        ),
        _initializeDevices = initializeDevices ?? deviceController!.initialize,
-       _deviceInitializationFailures =
-           deviceInitializationFailures ??
-           (() => deviceController?.initializationFailures ?? const []),
+       _deviceStartupOutcome =
+           deviceStartupOutcome ??
+           (() =>
+               deviceController?.startupOutcome ??
+               const DeviceStartupOutcome()),
        _startForeground =
            startForeground ??
            (isAndroid == false ? null : ForegroundTaskService.start),
@@ -139,29 +146,35 @@ class AppStartupCoordinator {
         optionalTasks: _state.optionalTasks.isEmpty
             ? _optionalTaskStates(AppStartupTaskStatus.idle)
             : _state.optionalTasks,
+        discoveryRecovery: _discoveryRecovery,
       ),
     );
     BootTiming.mark('init_start');
     _coreRetryNeeded = false;
     Object? deviceError;
     StackTrace? deviceStack;
+    var discoveryBlocked = false;
     final devices = () async {
       if (_devicesReady) return;
       try {
         await _initializeDevices();
         if (_disposed) return;
-        final failures = _deviceInitializationFailures().toList();
-        _devicesReady = failures.isEmpty;
-        if (failures.isEmpty) {
+        final outcome = _deviceStartupOutcome();
+        _devicesReady = outcome.failures.isEmpty;
+        if (outcome.failures.isEmpty) {
           _coreReasons.remove('devices');
+          _discoveryRecovery = null;
         } else {
-          _coreReasons['devices'] =
-              'Device service initialization failed: ${failures.join('; ')}';
+          _discoveryRecovery =
+              'Device service initialization failed: ${outcome.failures.join('; ')}';
+          _coreReasons['devices'] = _discoveryRecovery!;
+          discoveryBlocked = outcome.blocking;
         }
       } catch (error, st) {
         deviceError = error;
         deviceStack = st;
-        _coreReasons['devices'] = 'Device initialization failed: $error';
+        _discoveryRecovery = 'Device initialization failed: $error';
+        _coreReasons['devices'] = _discoveryRecovery!;
         _log.severe('Device initialization failed', error, st);
       }
     }();
@@ -183,6 +196,10 @@ class AppStartupCoordinator {
     if (deviceError != null) {
       _publishCoreResult(AppStartupStatus.failed);
       Error.throwWithStackTrace(deviceError!, deviceStack!);
+    }
+    if (discoveryBlocked) {
+      _publishCoreResult(AppStartupStatus.failed);
+      throw DeviceDiscoveryStartupFailed(_discoveryRecovery!);
     }
 
     if (_isAndroid && _startForeground != null) {
@@ -241,6 +258,7 @@ class AppStartupCoordinator {
           ...optionalReasons,
         ]),
         optionalTasks: _state.optionalTasks,
+        discoveryRecovery: _discoveryRecovery,
       ),
     );
   }
@@ -275,6 +293,7 @@ class AppStartupCoordinator {
               : AppStartupStatus.degraded,
           reasons: [..._state.reasons, '$name startup failed: $error'],
           optionalTasks: _state.optionalTasks,
+          discoveryRecovery: _discoveryRecovery,
         ),
       );
     }
@@ -289,6 +308,7 @@ class AppStartupCoordinator {
         status: _state.status,
         reasons: _state.reasons,
         optionalTasks: tasks,
+        discoveryRecovery: _discoveryRecovery,
       ),
     );
   }
@@ -399,6 +419,15 @@ class _WebUIStartupDegraded implements Exception {
   final String message;
 
   const _WebUIStartupDegraded(this.message);
+
+  @override
+  String toString() => message;
+}
+
+class DeviceDiscoveryStartupFailed implements Exception {
+  final String message;
+
+  const DeviceDiscoveryStartupFailed(this.message);
 
   @override
   String toString() => message;

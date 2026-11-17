@@ -1,9 +1,15 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reaprime/main.dart' as app;
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/models/adapter_state.dart';
+import 'package:reaprime/src/plugins/plugin_device_service.dart';
+import 'package:reaprime/src/plugins/plugin_device_surface_authority.dart';
 import 'package:reaprime/src/services/ble/ble_discovery_service.dart';
+import 'package:reaprime/src/services/serial/serial_service.dart';
+import 'package:reaprime/src/services/simulated_device_service.dart';
+import 'package:reaprime/src/settings/settings_service.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/device_attach_notifier.dart';
@@ -657,6 +663,180 @@ void main() {
       controller.dispose();
     });
   });
+
+  group('startup relevance and recovery', () {
+    test('production applicability ignores platform placeholders', () async {
+      final plugin = PluginDeviceService();
+      final simulation = SimulatedDeviceService();
+      addTearDown(() async {
+        await plugin.dispose();
+        simulation.dispose();
+      });
+
+      expect(
+        app.isStartupRelevantDiscoveryService(NoOpSerialService()),
+        isFalse,
+      );
+      expect(app.isStartupRelevantDiscoveryService(simulation), isFalse);
+      expect(app.isStartupRelevantDiscoveryService(plugin), isFalse);
+      expect(
+        app.isStartupRelevantDiscoveryService(
+          _InitializationRecordingService('custom'),
+        ),
+        isTrue,
+      );
+
+      simulation.enabledDevices = {SimulatedDevicesTypes.machine};
+      expect(app.isStartupRelevantDiscoveryService(simulation), isTrue);
+
+      plugin.registerAdapter(
+        pluginId: 'plugin',
+        generation: 1,
+        registrationHandle: 'handle',
+        adapter: _FakePluginDeviceAdapter(),
+      );
+      expect(app.isStartupRelevantDiscoveryService(plugin), isTrue);
+    });
+
+    test('mixed failure recovers while a successfully initialized service runs once', () async {
+      final failing = _InitializationRecordingService(
+        'serial',
+        failuresBeforeSuccess: 1,
+      );
+      final healthy = _InitializationRecordingService('ble');
+      final controller = DeviceController([
+        failing,
+        healthy,
+      ], startupRelevance: app.isStartupRelevantDiscoveryService);
+      addTearDown(controller.dispose);
+
+      await controller.initialize();
+      expect(controller.startupOutcome.recoveryRequired, isTrue);
+      expect(controller.startupOutcome.blocking, isFalse);
+      expect(controller.initializationFailures, hasLength(1));
+
+      await controller.initialize();
+      expect(failing.initializeCalls, 2);
+      expect(healthy.initializeCalls, 1);
+      expect(controller.startupOutcome.recoveryRequired, isFalse);
+      expect(controller.startupOutcome.blocking, isFalse);
+    });
+
+    test('placeholders cannot rescue a failed platform scanner', () async {
+      final broken = _InitializationRecordingService(
+        'serial',
+        failuresBeforeSuccess: 1,
+      );
+      final simulation = SimulatedDeviceService();
+      final controller = DeviceController([
+        broken,
+        NoOpSerialService(),
+        simulation,
+        PluginDeviceService(),
+      ], startupRelevance: app.isStartupRelevantDiscoveryService);
+      addTearDown(controller.dispose);
+
+      await controller.initialize();
+
+      expect(controller.startupOutcome.failures, hasLength(1));
+      expect(controller.startupOutcome.blocking, isTrue);
+    });
+
+    test(
+      'no relevant discovered service configured is not a failure',
+      () async {
+        final irrelevant = _InitializationRecordingService(
+          'simulated',
+          failuresBeforeSuccess: 1,
+        );
+        final controller = DeviceController([
+          irrelevant,
+        ], startupRelevance: (_) => false);
+        addTearDown(controller.dispose);
+
+        await controller.initialize();
+
+        expect(controller.startupOutcome.recoveryRequired, isFalse);
+        expect(controller.startupOutcome.blocking, isFalse);
+        expect(controller.initializationFailures, hasLength(1));
+      },
+    );
+  });
+}
+
+class _InitializationRecordingService extends DeviceDiscoveryService {
+  _InitializationRecordingService(this.name, {this.failuresBeforeSuccess = 0});
+
+  final String name;
+  int failuresBeforeSuccess;
+  int initializeCalls = 0;
+  int scanCalls = 0;
+
+  final _controller = BehaviorSubject<List<Device>>.seeded(const []);
+
+  @override
+  Stream<List<Device>> get devices => _controller.stream;
+
+  @override
+  Future<void> initialize() async {
+    initializeCalls++;
+    if (failuresBeforeSuccess > 0) {
+      failuresBeforeSuccess--;
+      throw StateError('$name unavailable');
+    }
+  }
+
+  @override
+  Future<void> scanForDevices({ScanFilter? filter}) async {
+    scanCalls++;
+  }
+
+  @override
+  void stopScan() {}
+
+  @override
+  Future<Device?> tryQuickConnect(RememberedDevice remembered) async => null;
+}
+
+class _FakePluginDeviceAdapter implements PluginDeviceAdapter {
+  @override
+  String get deviceId => 'plugin:plugin:driver:1';
+
+  @override
+  String get name => 'Plugin device';
+
+  @override
+  DeviceType get type => DeviceType.scale;
+
+  @override
+  DeviceImplementation get implementation => DeviceImplementation.plugin;
+
+  @override
+  TransportType get transportType => TransportType.unknown;
+
+  @override
+  PluginDeviceSurfaceAuthority? get surfaceAuthority => null;
+
+  @override
+  Stream<ConnectionState> get connectionState => const Stream.empty();
+
+  @override
+  Future<void> onConnect() async {}
+
+  @override
+  Future<void> disconnect() async {}
+
+  @override
+  Future<void> dispose() async {}
+
+  @override
+  void publish(Map<String, dynamic> snapshot, {String? session}) {}
+
+  @override
+  void publishInfo(Map<String, dynamic> info, {String? session}) {}
+
+  @override
+  void reportDisconnected({String? session}) {}
 }
 
 class _QuickConnectService extends _ManualDiscoveryService {

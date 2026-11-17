@@ -21,6 +21,7 @@ import 'package:reaprime/src/models/data/workflow.dart';
 import 'package:reaprime/src/controllers/scan_state_guardian.dart';
 import 'package:reaprime/src/onboarding_feature/onboarding_controller.dart';
 import 'package:reaprime/src/onboarding_feature/onboarding_view.dart';
+import 'package:reaprime/src/onboarding_feature/startup_navigation_guard.dart';
 import 'package:reaprime/src/onboarding_feature/steps/android_warning_step.dart';
 import 'package:reaprime/src/onboarding_feature/steps/import_step.dart';
 import 'package:reaprime/src/onboarding_feature/steps/initialization_step.dart';
@@ -29,6 +30,7 @@ import 'package:reaprime/src/onboarding_feature/steps/scan_step.dart';
 import 'package:reaprime/src/onboarding_feature/steps/welcome_step.dart';
 import 'package:reaprime/src/onboarding_feature/steps/login_step.dart';
 import 'package:reaprime/src/onboarding_feature/steps/shot_upload_step.dart';
+import 'package:reaprime/src/onboarding_feature/widgets/startup_discovery_recovery.dart';
 import 'package:reaprime/src/services/account/account_consent_store.dart';
 import 'package:reaprime/src/realtime_shot_feature/realtime_shot_feature.dart';
 import 'package:reaprime/src/realtime_steam_feature/realtime_steam_feature.dart';
@@ -86,10 +88,13 @@ Future<void> openStartupSkin({
   required WebUIService service,
   required WebUIStorage storage,
   required bool Function() isCurrent,
+  required StartupNavigationGuard navigationGuard,
   required VoidCallback openSkin,
 }) async {
   final log = Logger('MyApp');
   if (!isCurrent()) return;
+  final lease = navigationGuard.lease();
+  bool owned() => isCurrent() && navigationGuard.owns(lease);
   if (!service.isServing) {
     log.info('WebUI not serving, attempting to start...');
     final defaultSkin = storage.defaultSkin;
@@ -107,7 +112,7 @@ Future<void> openStartupSkin({
       return;
     }
   }
-  if (!isCurrent()) return;
+  if (!owned()) return;
   log.info('Navigating to SkinView');
   openSkin();
 }
@@ -195,6 +200,8 @@ class _MyAppState extends State<MyApp> {
   UpdateNotifications? _updateNotifications;
 
   bool _degradedAndroid = false;
+
+  final _startupNavigationGuard = StartupNavigationGuard();
 
   @override
   void initState() {
@@ -376,6 +383,7 @@ class _MyAppState extends State<MyApp> {
           mounted &&
           navigator.mounted &&
           identical(navigator, NavigationService.navigatorKey.currentState),
+      navigationGuard: _startupNavigationGuard,
       openSkin: () => SkinView.open(navigator),
     );
   }
@@ -425,6 +433,7 @@ class _MyAppState extends State<MyApp> {
               PresenceNavigatorObserver(
                 presenceController: widget.presenceController,
               ),
+              _startupNavigationGuard,
             ],
             onGenerateRoute: (RouteSettings routeSettings) {
               return MaterialPageRoute<void>(
@@ -538,22 +547,25 @@ class _MyAppState extends State<MyApp> {
                         gatewayMode: widget.settingsController.gatewayMode,
                       );
                     case LauncherView.routeName:
-                      return LauncherView(
-                        notificationCenter: widget
-                            .pluginLoaderService
-                            .pluginManager
-                            .notifications,
-                        notificationActions: _notificationActions,
-                        de1Controller: widget.de1Controller,
-                        scaleController: widget.scaleController,
-                        webUIService: widget.webUIService,
-                        batteryController: widget.batteryController,
-                        decentAccountService: widget.decentAccountService,
-                        isDegradedAndroid: _degradedAndroid,
-                        connectionManager: widget.connectionManager,
-                        deviceController: widget.deviceController,
-                        settingsController: widget.settingsController,
-                        scanStateGuardian: widget.scanStateGuardian,
+                      return StartupDiscoveryRecovery(
+                        startupCoordinator: widget.startupCoordinator,
+                        child: LauncherView(
+                          notificationCenter: widget
+                              .pluginLoaderService
+                              .pluginManager
+                              .notifications,
+                          notificationActions: _notificationActions,
+                          de1Controller: widget.de1Controller,
+                          scaleController: widget.scaleController,
+                          webUIService: widget.webUIService,
+                          batteryController: widget.batteryController,
+                          decentAccountService: widget.decentAccountService,
+                          isDegradedAndroid: _degradedAndroid,
+                          connectionManager: widget.connectionManager,
+                          deviceController: widget.deviceController,
+                          settingsController: widget.settingsController,
+                          scanStateGuardian: widget.scanStateGuardian,
+                        ),
                       );
                     case HistoryFeature.routeName:
                       final possibleShot = routeSettings.arguments as String;

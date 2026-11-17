@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/onboarding_feature/widgets/onboarding_scaffold.dart';
+import 'package:reaprime/src/onboarding_feature/widgets/startup_discovery_recovery.dart';
 import 'package:reaprime/src/services/app_startup_coordinator.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
@@ -128,7 +129,12 @@ class _InitializationStepViewState extends State<_InitializationStepView> {
 
   @override
   Widget build(BuildContext context) {
-    if (_ready) return widget.readyBuilder!(context);
+    if (_ready) {
+      return StartupDiscoveryRecovery(
+        startupCoordinator: widget.startupCoordinator,
+        child: widget.readyBuilder!(context),
+      );
+    }
     return OnboardingScaffold(
       semanticsLabel: 'Starting Decaid',
       body: [

@@ -1,6 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reaprime/main.dart' as app;
+import 'package:reaprime/src/controllers/device_controller.dart';
+import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/models/device/remembered_device.dart';
+import 'package:reaprime/src/models/device/scan_filter.dart';
 import 'package:reaprime/src/services/app_startup_coordinator.dart';
 import 'package:reaprime/src/services/foreground_service.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
@@ -40,7 +45,72 @@ class _Server extends WebUIService {
   }
 }
 
+class _Discovery extends DeviceDiscoveryService {
+  _Discovery(this.name, {this.failuresBeforeSuccess = 0});
+
+  final String name;
+  int failuresBeforeSuccess;
+  int initializeCalls = 0;
+
+  @override
+  Stream<List<Device>> get devices => const Stream.empty();
+
+  @override
+  Future<void> initialize() async {
+    initializeCalls++;
+    if (failuresBeforeSuccess > 0) {
+      failuresBeforeSuccess--;
+      throw StateError('$name unavailable');
+    }
+  }
+
+  @override
+  Future<void> scanForDevices({ScanFilter? filter}) async {}
+
+  @override
+  void stopScan() {}
+
+  @override
+  Future<Device?> tryQuickConnect(RememberedDevice remembered) async => null;
+}
+
 void main() {
+  test(
+    'real controller recovery reinitializes only the failed discovery service',
+    () async {
+      final flaky = _Discovery('serial', failuresBeforeSuccess: 1);
+      final healthy = _Discovery('ble');
+      final controller = DeviceController([
+        flaky,
+        healthy,
+      ], startupRelevance: app.isStartupRelevantDiscoveryService);
+      final coordinator = AppStartupCoordinator(
+        deviceController: controller,
+        initializeWebUI: () async {},
+        isAndroid: false,
+      );
+      addTearDown(() {
+        coordinator.dispose();
+        controller.dispose();
+      });
+
+      await coordinator.ensureInitialized();
+      expect(coordinator.status, AppStartupStatus.degraded);
+      expect(coordinator.state.discoveryRecoveryRequired, isTrue);
+      expect(
+        coordinator.state.discoveryRecovery,
+        contains('serial unavailable'),
+      );
+
+      await coordinator.retry();
+
+      expect(flaky.initializeCalls, 2);
+      expect(healthy.initializeCalls, 1);
+      expect(coordinator.status, AppStartupStatus.ready);
+      expect(coordinator.state.discoveryRecoveryRequired, isFalse);
+    },
+  );
+
   test(
     'late optional failure cannot mask failed core or disable retry',
     () async {
@@ -50,8 +120,9 @@ void main() {
         initializeDevices: () async {
           if (mode == 1) throw StateError('adapter');
         },
-        deviceInitializationFailures: () =>
-            mode == 0 ? [StateError('scanner')] : [],
+        deviceStartupOutcome: () => mode == 0
+            ? DeviceStartupOutcome(failures: [StateError('scanner')])
+            : const DeviceStartupOutcome(),
         initializeWebUI: () async {},
         initializePlugins: () => plugin.future,
         isAndroid: false,

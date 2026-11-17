@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/onboarding_feature/onboarding_controller.dart';
 import 'package:reaprime/src/onboarding_feature/steps/initialization_step.dart';
 import 'package:reaprime/src/services/app_startup_coordinator.dart';
@@ -141,6 +142,33 @@ void main() {
     ready.complete();
     await tester.pump();
     expect(onboarding.advanceCallCount, 0);
+    onboarding.dispose();
+    coordinator.dispose();
+  });
+
+  testWidgets('partial discovery failure advances once and stays recoverable', (
+    tester,
+  ) async {
+    final onboarding = _TrackingOnboardingController();
+    await onboarding.initialize();
+    final coordinator = AppStartupCoordinator(
+      initializeDevices: () async {},
+      deviceStartupOutcome: () =>
+          DeviceStartupOutcome(failures: [StateError('serial unavailable')]),
+      initializeWebUI: () async {},
+      isAndroid: false,
+    );
+    final step = createInitializationStep(startupCoordinator: coordinator);
+
+    await tester.pumpWidget(
+      ShadApp(home: Scaffold(body: step.builder(onboarding))),
+    );
+    await tester.pump();
+
+    expect(onboarding.advanceCallCount, 1);
+    expect(coordinator.status, AppStartupStatus.degraded);
+    expect(coordinator.state.discoveryRecoveryRequired, isTrue);
+    await tester.pumpWidget(const SizedBox());
     onboarding.dispose();
     coordinator.dispose();
   });
