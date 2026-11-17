@@ -8,6 +8,8 @@ import 'package:logging/logging.dart';
 import 'package:reaprime/src/services/webserver/data_export/data_export_section.dart';
 import 'package:reaprime/src/services/webserver/data_export/data_transfer_result.dart';
 import 'package:reaprime/src/services/webserver/data_export_handler.dart';
+import 'package:reaprime/src/services/webserver/bounded_request_body.dart';
+import 'package:reaprime/src/services/webserver/extension_management_auth.dart';
 import 'package:reaprime/src/services/webserver/json_response.dart';
 import 'package:reaprime/src/util/temp_archive_files.dart';
 import 'package:shelf_plus/shelf_plus.dart';
@@ -39,11 +41,7 @@ class DataSyncHandler {
   final http.Client _httpClient;
   final Logger _log = Logger('DataSyncHandler');
 
-  DataSyncHandler({
-    required DataExportHandler exportHandler,
-    required http.Client httpClient,
-  }) : _exportHandler = exportHandler,
-       _httpClient = httpClient;
+  DataSyncHandler({required this._exportHandler, required this._httpClient});
 
   void addRoutes(RouterPlus app) {
     app.post('/api/v1/data/sync', _handleSync);
@@ -52,13 +50,23 @@ class DataSyncHandler {
   Future<Response> _handleSync(Request request) async {
     final dynamic decoded;
     try {
-      final body = await _readRequestBody(request);
+      final limits = _exportHandler.limits;
+      final body = await readBoundedRequestBodyString(
+        request,
+        maxBytes: limits.maxSyncRequestBytes,
+        timeout: limits.syncIdleTimeout,
+      );
       decoded = jsonDecode(body);
-    } on SyncBodyTooLarge {
-      return jsonPayloadTooLarge({
-        'error': 'Request body too large',
-        'message': 'The sync request body exceeds the size limit.',
-      });
+    } on RequestBodyReadException catch (error) {
+      return error.statusCode == 413
+          ? jsonPayloadTooLarge({
+              'error': 'Request body too large',
+              'message': 'The sync request body exceeds the size limit.',
+            })
+          : jsonRequestTimeout({
+              'error': 'Request body timed out',
+              'message': 'The sync request body was not received in time.',
+            });
     } catch (_) {
       return jsonBadRequest({'error': 'Invalid JSON'});
     }
@@ -144,7 +152,12 @@ class DataSyncHandler {
 
     if (mode == SyncMode.pull || mode == SyncMode.twoWay) {
       try {
-        pull = await _pull(targetUri, strategy, expectedSections);
+        pull = await _pull(
+          targetUri,
+          strategy,
+          expectedSections,
+          extensionsAuthorized: mayManageExtensions(request),
+        );
       } catch (error) {
         pull = _failure(error);
       }
@@ -179,8 +192,9 @@ class DataSyncHandler {
   Future<DataTransferPhaseOutcome> _pull(
     Uri targetUri,
     ConflictStrategy strategy,
-    List<String> expectedSections,
-  ) async {
+    List<String> expectedSections, {
+    required bool extensionsAuthorized,
+  }) async {
     final limits = _exportHandler.limits;
     _log.info('Pulling data from $targetUri');
     final tempDir = await TempArchiveDir.create('reaprime-sync-pull-');
@@ -254,6 +268,7 @@ class DataSyncHandler {
         zipFile,
         strategy,
         sections: expectedSections,
+        extensionsAuthorized: extensionsAuthorized,
       );
       return outcome.phase;
     } finally {
@@ -489,18 +504,6 @@ class DataSyncHandler {
     );
   }
 
-  Future<String> _readRequestBody(Request request) async {
-    final limits = _exportHandler.limits;
-    final builder = BytesBuilder(copy: false);
-    await for (final chunk in request.read()) {
-      builder.add(chunk);
-      if (builder.length > limits.maxSyncRequestBytes) {
-        throw const SyncBodyTooLarge();
-      }
-    }
-    return utf8.decode(builder.takeBytes());
-  }
-
   Future<String> _readBoundedResponse(
     Stream<List<int>> stream,
     int maxBytes,
@@ -599,10 +602,6 @@ class DataSyncHandler {
     'overwrite' => ConflictStrategy.overwrite,
     _ => null,
   };
-}
-
-class SyncBodyTooLarge implements Exception {
-  const SyncBodyTooLarge();
 }
 
 class _SectionsResult {

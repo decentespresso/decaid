@@ -89,35 +89,33 @@ void main() {
     );
   }
 
-  test(
-    'Decent proxy bridge token and responses are not observable through globals',
-    () async {
-      final credentialStore = FakeCredentialStore();
-      await credentialStore.write(key: 'email', value: 'user@example.com');
-      await credentialStore.write(key: 'password', value: 'cryptpw_abc123');
+  test('Decent proxy bridge token and responses are not observable through globals', () async {
+    final credentialStore = FakeCredentialStore();
+    await credentialStore.write(key: 'email', value: 'user@example.com');
+    await credentialStore.write(key: 'password', value: 'cryptpw_abc123');
 
-      var upstreamCalls = 0;
-      final manager = PluginManager(
-        kvStore: FakeKeyValueStoreService(),
-        decentProxyService: DecentProxyService(
-          credentialStore: credentialStore,
-          requireConsent: (_) async => true,
-          httpClient: http_testing.MockClient((request) async {
-            upstreamCalls += 1;
-            return http.Response(
-              jsonEncode({'serial': 'SN001'}),
-              200,
-              headers: {'content-type': 'application/json'},
-            );
-          }),
-        ),
-      );
+    var upstreamCalls = 0;
+    final manager = PluginManager(
+      kvStore: FakeKeyValueStoreService(),
+      decentProxyService: DecentProxyService(
+        credentialStore: credentialStore,
+        requireConsent: (_) async => true,
+        httpClient: http_testing.MockClient((request) async {
+          upstreamCalls += 1;
+          return http.Response(
+            jsonEncode({'serial': 'SN001'}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      ),
+    );
 
-      await manager.loadPlugin(
-        id: 'spy.plugin',
-        manifest: manifest(id: 'spy.plugin'),
-        settings: {},
-        jsCode: r'''
+    await manager.loadPlugin(
+      id: 'spy.plugin',
+      manifest: manifest(id: 'spy.plugin'),
+      settings: {},
+      jsCode: r'''
           function createPlugin(host) {
             const spy = globalThis.__spy = {
               tokenCount: 0,
@@ -203,36 +201,33 @@ void main() {
             };
           }
         ''',
-      );
+    );
 
-      final proxyResult = expectLater(
-        manager.emitStream,
-        emits(
-          allOf(
-            containsPair('pluginId', 'privileged.plugin'),
-            containsPair('event', 'proxyResult'),
-            containsPair(
-              'payload',
-              allOf(
-                containsPair('status', 200),
-                containsPair('body', '{"serial":"SN001"}'),
-              ),
+    final proxyResult = expectLater(
+      manager.emitStream,
+      emits(
+        allOf(
+          containsPair('pluginId', 'privileged.plugin'),
+          containsPair('event', 'proxyResult'),
+          containsPair(
+            'payload',
+            allOf(
+              containsPair('status', 200),
+              containsPair('body', '{"serial":"SN001"}'),
             ),
           ),
         ),
-      );
+      ),
+    );
 
-      await manager.loadPlugin(
+    await manager.loadPlugin(
+      id: 'privileged.plugin',
+      manifest: manifest(
         id: 'privileged.plugin',
-        manifest: manifest(
-          id: 'privileged.plugin',
-          permissions: {
-            PluginPermissions.emit,
-            PluginPermissions.proxyDecentApi,
-          },
-        ),
-        settings: {},
-        jsCode: r'''
+        permissions: {PluginPermissions.emit, PluginPermissions.proxyDecentApi},
+      ),
+      settings: {},
+      jsCode: r'''
           function createPlugin(host) {
             return {
               id: "privileged.plugin",
@@ -248,33 +243,32 @@ void main() {
             };
           }
         ''',
-      );
+    );
 
-      await proxyResult.timeout(const Duration(seconds: 5));
-      expect(upstreamCalls, 1);
+    await proxyResult.timeout(const Duration(seconds: 5));
+    expect(upstreamCalls, 1);
 
-      final spyReport = expectLater(
-        manager.emitStream,
-        emits(
-          allOf(
-            containsPair('pluginId', 'spy.plugin'),
-            containsPair('event', 'spyReport'),
-            containsPair(
-              'payload',
-              allOf(
-                containsPair('tokenCount', 0),
-                containsPair('responseCount', 0),
-                containsPair('canReplaceBridgeMethod', false),
-                containsPair('hasLegacyProxyHook', false),
-                containsPair('hasLegacyResponseHook', false),
-              ),
+    final spyReport = expectLater(
+      manager.emitStream,
+      emits(
+        allOf(
+          containsPair('pluginId', 'spy.plugin'),
+          containsPair('event', 'spyReport'),
+          containsPair(
+            'payload',
+            allOf(
+              containsPair('tokenCount', 0),
+              containsPair('responseCount', 0),
+              containsPair('canReplaceBridgeMethod', false),
+              containsPair('hasLegacyProxyHook', false),
+              containsPair('hasLegacyResponseHook', false),
             ),
           ),
         ),
-      );
+      ),
+    );
 
-      manager.dispatchEvent('spy.plugin', 'report', {});
-      await spyReport.timeout(const Duration(seconds: 5));
-    },
-  );
+    manager.dispatchEvent('spy.plugin', 'report', {});
+    await spyReport.timeout(const Duration(seconds: 5));
+  });
 }

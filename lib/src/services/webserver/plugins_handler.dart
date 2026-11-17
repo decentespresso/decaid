@@ -53,11 +53,16 @@ final class PluginsHandler {
 
     app.post('/api/v1/plugins/update', (Request request) async {
       try {
-        await pluginSourceService.updateAllPlugins();
-        return jsonOk({'message': 'Plugin update check complete'});
-      } catch (e) {
-        _log.warning('Plugin update check failed', e);
-        return jsonError({'error': 'Failed to update plugins: $e'});
+        final report = await pluginSourceService.checkForPluginUpdates();
+        return jsonOk({
+          'message': 'Plugin update check complete',
+          'results': report.results.map((r) => r.toJson()).toList(),
+        });
+      } catch (e, st) {
+        _log.warning('Plugin update check failed', e, st);
+        return jsonError({
+          'error': remoteErrorMessage(e, action: 'check for plugin updates'),
+        });
       }
     });
 
@@ -110,11 +115,16 @@ final class PluginsHandler {
         });
       } on PluginApprovalRequiredException catch (e) {
         return jsonConflict({'error': e.message});
-      } on FormatException catch (e) {
-        return jsonBadRequest({'error': e.message});
-      } catch (e) {
-        _log.warning('Failed to approve update of plugin $id', e);
-        return jsonError({'error': 'Failed to approve update: $e'});
+      } on FormatException catch (e, st) {
+        _log.warning('Invalid plugin update', e, st);
+        return jsonBadRequest({
+          'error': remoteErrorMessage(e, action: 'update the plugin'),
+        });
+      } catch (e, st) {
+        _log.warning('Failed to approve update of plugin $id', e, st);
+        return jsonError({
+          'error': remoteErrorMessage(e, action: 'update the plugin'),
+        });
       }
     });
 
@@ -143,7 +153,15 @@ final class PluginsHandler {
   Future<Response> _handleInstallFromGitHubRelease(Request request) async {
     final Map<String, dynamic> json;
     try {
-      json = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+      json = jsonDecode(
+        await readBoundedRequestBodyString(
+          request,
+          maxBytes: smallRequestBodyBytes,
+          timeout: smallRequestBodyTimeout,
+        ),
+      ) as Map<String, dynamic>;
+    } on RequestBodyReadException {
+      rethrow;
     } catch (e) {
       return jsonBadRequest({'error': 'Invalid JSON body: $e'});
     }
@@ -173,7 +191,15 @@ final class PluginsHandler {
   Future<Response> _handleInstallFromGitHubBranch(Request request) async {
     final Map<String, dynamic> json;
     try {
-      json = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+      json = jsonDecode(
+        await readBoundedRequestBodyString(
+          request,
+          maxBytes: smallRequestBodyBytes,
+          timeout: smallRequestBodyTimeout,
+        ),
+      ) as Map<String, dynamic>;
+    } on RequestBodyReadException {
+      rethrow;
     } catch (e) {
       return jsonBadRequest({'error': 'Invalid JSON body: $e'});
     }
@@ -206,18 +232,31 @@ final class PluginsHandler {
       });
     } on PluginDowngradeException catch (e) {
       return jsonConflict({'error': e.message});
-    } on FormatException catch (e) {
-      return jsonBadRequest({'error': e.message});
-    } catch (e) {
-      _log.warning('Plugin installation failed', e);
-      return jsonError({'error': 'Failed to install plugin: $e'});
+    } on FormatException catch (e, st) {
+      _log.warning('Invalid plugin installation', e, st);
+      return jsonBadRequest({
+        'error': remoteErrorMessage(e, action: 'install the plugin'),
+      });
+    } catch (e, st) {
+      _log.warning('Plugin installation failed', e, st);
+      return jsonError({
+        'error': remoteErrorMessage(e, action: 'install the plugin'),
+      });
     }
   }
 
   Future<Response> _handlePluginSourceWrite(Request request, String id) async {
     final Map<String, dynamic> json;
     try {
-      json = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+      json = jsonDecode(
+        await readBoundedRequestBodyString(
+          request,
+          maxBytes: largeRequestBodyBytes,
+          timeout: largeRequestBodyTimeout,
+        ),
+      ) as Map<String, dynamic>;
+    } on RequestBodyReadException {
+      rethrow;
     } catch (e) {
       return jsonBadRequest({'error': 'Invalid JSON body: $e'});
     }
@@ -259,8 +298,8 @@ final class PluginsHandler {
 
   Future<Response> _handlePluginSocketEndpoint(Request req) async {
     _log.info("handling $req");
-    final id = req.params['id'];
-    final endpoint = req.params['endpoint'];
+    final id = decodeOpaquePathComponent(req.params['id']!);
+    final endpoint = decodeOpaquePathComponent(req.params['endpoint']!);
     final manifest = pluginManager.loadedPlugins
         .firstWhereOrNull((e) => e.pluginId == id)
         ?.manifest;
@@ -279,7 +318,10 @@ final class PluginsHandler {
       });
     }
 
-    return sws.webSocketHandler((WebSocketChannel socket, String? protocol) {
+    return admittedWebSocketHandler((
+      WebSocketChannel socket,
+      String? protocol,
+    ) {
       StreamSubscription<Map<String, dynamic>>? sub;
       sub = pluginManager.emitStream
           .where((e) {
@@ -314,12 +356,14 @@ final class PluginsHandler {
   Future<Response> _handlePluginApiEndpoint(Request req) async {
     _log.info("handling ${req.toString()}");
 
-    final id = req.params['id'];
-    final endpoint = req.params['endpoint'];
+    final rawId = req.params['id'];
+    final rawEndpoint = req.params['endpoint'];
 
-    if (id == null || endpoint == null) {
+    if (rawId == null || rawEndpoint == null) {
       return jsonBadRequest({'error': 'id and endpoint required'});
     }
+    final id = decodeOpaquePathComponent(rawId);
+    final endpoint = decodeOpaquePathComponent(rawEndpoint);
 
     final manifest = pluginManager.loadedPlugins
         .firstWhereOrNull((e) => e.pluginId == id)
@@ -354,7 +398,10 @@ final class PluginsHandler {
       headers[name] = values;
     });
 
-    final body = await req.readAsString();
+    final body = await readBoundedRequestBodyString(
+      req,
+      maxBytes: largeRequestBodyBytes,
+    );
 
     final requestId =
         '${id}_${endpoint}_${DateTime.now().millisecondsSinceEpoch}_${_random.nextInt(100000)}';
@@ -412,7 +459,11 @@ final class PluginsHandler {
 
   Future<Response> _handlePluginSettingsPost(Request req) async {
     return _extractPluginId(req, (req, id) async {
-      final body = await req.readAsString();
+      final body = await readBoundedRequestBodyString(
+        req,
+        maxBytes: largeRequestBodyBytes,
+        timeout: largeRequestBodyTimeout,
+      );
       final json = await jsonDecode(body);
       try {
         await pluginService.savePluginSettings(id, json);

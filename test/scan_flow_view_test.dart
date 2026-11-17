@@ -18,12 +18,25 @@ import 'helpers/mock_scale_controller.dart';
 import 'helpers/mock_settings_service.dart';
 import 'helpers/test_scale.dart';
 
+class _TrackingDeviceController extends DeviceController {
+  int stopScanCalls = 0;
+
+  _TrackingDeviceController(super.services);
+
+  @override
+  void stopScan() {
+    stopScanCalls++;
+    super.stopScan();
+  }
+}
+
 void main() {
   late MockConnectionManager mockCm;
   late MockDeviceScanner mockScanner;
-  late DeviceController deviceController;
+  late _TrackingDeviceController deviceController;
   late SettingsController settingsController;
   late ScanStateGuardian scanStateGuardian;
+  late MockBleDiscoveryService discovery;
 
   setUp(() async {
     mockScanner = MockDeviceScanner();
@@ -39,14 +52,19 @@ void main() {
       settingsController: settings,
     );
 
-    final discovery = MockBleDiscoveryService();
-    deviceController = DeviceController([discovery]);
+    discovery = MockBleDiscoveryService();
+    deviceController = _TrackingDeviceController([discovery]);
     await deviceController.initialize();
     settingsController = settings;
     scanStateGuardian = ScanStateGuardian(bleService: discovery);
   });
 
-  Widget buildView({VoidCallback? initialConnectionIntent}) {
+  Widget buildView({
+    VoidCallback? initialConnectionIntent,
+    VoidCallback? onExit,
+    VoidCallback? onConnected,
+    String exitLabel = 'Dashboard',
+  }) {
     return ShadApp(
       home: ScanFlowView(
         connectionManager: mockCm,
@@ -54,11 +72,113 @@ void main() {
         settingsController: settingsController,
         scanStateGuardian: scanStateGuardian,
         initialConnectionIntent: initialConnectionIntent,
-        onConnected: () {},
-        onExit: () {},
+        onConnected: onConnected ?? () {},
+        onExit: onExit ?? () {},
+        exitLabel: exitLabel,
       ),
     );
   }
+
+  group('scan exit ownership', () {
+    testWidgets(
+      'immediate exit cancels before navigation and ignores late work',
+      (tester) async {
+        var exits = 0;
+        var connections = 0;
+        await tester.pumpWidget(
+          buildView(
+            onConnected: () => connections++,
+            onExit: () {
+              expect(mockCm.cancelActiveScanCallCount, 1);
+              expect(deviceController.stopScanCalls, 1);
+              exits++;
+            },
+          ),
+        );
+        await tester.pump();
+
+        await tester.tap(find.text('Continue to Dashboard'));
+        await tester.pump();
+        expect(exits, 1);
+
+        mockCm.emitStatus(const ConnectionStatus(phase: ConnectionPhase.ready));
+        scanStateGuardian.onAppResumed();
+        discovery.addDevice(FakeDe1());
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 5)),
+        );
+        await tester.pump();
+        expect(deviceController.devices, hasLength(1));
+        expect(find.textContaining('Found 1 device'), findsNothing);
+        await tester.pump(ScanFlowView.scanTooLongThreshold);
+        await tester.pump(const Duration(milliseconds: 500));
+
+        expect(connections, 0);
+        expect(mockCm.scanAndConnectCallCount, 0);
+        expect(
+          tester.widget<AnimatedOpacity>(find.byType(AnimatedOpacity)).opacity,
+          0,
+        );
+        expect(tester.takeException(), isNull);
+        await tester.tap(find.text('Continue to Dashboard'));
+        expect(exits, 1);
+      },
+    );
+
+    testWidgets('picker exit ignores late ready while still mounted', (
+      tester,
+    ) async {
+      var connections = 0;
+      mockCm.emitStatus(
+        const ConnectionStatus(
+          phase: ConnectionPhase.idle,
+          pendingAmbiguity: AmbiguityReason.machinePicker,
+        ),
+      );
+      await tester.pumpWidget(buildView(onConnected: () => connections++));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Dashboard'));
+      mockCm.emitStatus(const ConnectionStatus(phase: ConnectionPhase.ready));
+      await tester.pump();
+      expect(connections, 0);
+      expect(mockCm.cancelActiveScanCallCount, 1);
+      expect(deviceController.stopScanCalls, 1);
+    });
+
+    testWidgets('disposal cancels unfinished scan and ignores late ready', (
+      tester,
+    ) async {
+      var connections = 0;
+      await tester.pumpWidget(buildView(onConnected: () => connections++));
+      await tester.pump();
+      await tester.pumpWidget(const SizedBox());
+      mockCm.emitStatus(const ConnectionStatus(phase: ConnectionPhase.ready));
+      scanStateGuardian.onAppResumed();
+      await tester.pump();
+      expect(mockCm.cancelActiveScanCallCount, 1);
+      expect(deviceController.stopScanCalls, 1);
+      expect(connections, 0);
+      expect(mockCm.scanAndConnectCallCount, 0);
+    });
+
+    testWidgets('successful ready advances once without cancellation', (
+      tester,
+    ) async {
+      var connections = 0;
+      await tester.pumpWidget(buildView(onConnected: () => connections++));
+      await tester.pump();
+      mockCm.emitStatus(const ConnectionStatus(phase: ConnectionPhase.ready));
+      await tester.pump();
+      mockCm.emitStatus(const ConnectionStatus(phase: ConnectionPhase.ready));
+      scanStateGuardian.onAppResumed();
+      await tester.pump();
+      expect(connections, 1);
+      expect(mockCm.scanAndConnectCallCount, 0);
+      await tester.pumpWidget(const SizedBox());
+      expect(mockCm.cancelActiveScanCallCount, 0);
+      expect(deviceController.stopScanCalls, 0);
+    });
+  });
 
   group('initial connection intent', () {
     testWidgets('uses scanAndConnect when intent is provided', (tester) async {
@@ -433,6 +553,236 @@ void main() {
 
       expect(find.text('Bluetooth Unavailable'), findsOneWidget);
       expect(find.text('BLE Machine'), findsNothing);
+    });
+  });
+
+  group('connect-failure error view', () {
+    ConnectionError connectError() => ConnectionError(
+      kind: ConnectionErrorKind.machineConnectFailed,
+      severity: ConnectionErrorSeverity.error,
+      timestamp: DateTime.now().toUtc(),
+      message: 'Machine My DE1 failed to connect.',
+      suggestion: 'Make sure the DE1 is powered on and in range, then retry.',
+    );
+
+    testWidgets('offers exit label action when nothing was found', (
+      tester,
+    ) async {
+      var exited = false;
+      mockCm.emitStatus(
+        ConnectionStatus(phase: ConnectionPhase.idle, error: connectError()),
+      );
+
+      await tester.pumpWidget(
+        buildView(
+          initialConnectionIntent: () => mockCm.scanAndConnect(),
+          onExit: () => exited = true,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Retry'), findsOneWidget);
+      expect(find.text('Dashboard'), findsOneWidget);
+      expect(find.text('View found devices'), findsNothing);
+
+      await tester.tap(find.text('Dashboard'));
+      await tester.pump();
+      expect(exited, isTrue);
+    });
+
+    testWidgets('machine list is reachable after a connect failure', (
+      tester,
+    ) async {
+      final machine = FakeDe1(deviceId: 'm1', name: 'DE1 #1');
+      discovery.addDevice(machine);
+      mockCm.emitStatus(
+        ConnectionStatus(
+          phase: ConnectionPhase.idle,
+          foundMachines: [machine],
+          error: connectError(),
+        ),
+      );
+
+      await tester.pumpWidget(
+        buildView(initialConnectionIntent: () => mockCm.scanAndConnect()),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Connection Error'), findsOneWidget);
+
+      await tester.tap(find.text('View found devices'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Connection Error'), findsNothing);
+      expect(find.text('DE1 #1'), findsOneWidget);
+      expect(find.text('ReScan'), findsOneWidget);
+    });
+
+    testWidgets('uses the caller-provided exit label', (tester) async {
+      var exited = false;
+      mockCm.emitStatus(
+        ConnectionStatus(phase: ConnectionPhase.idle, error: connectError()),
+      );
+
+      await tester.pumpWidget(
+        buildView(
+          initialConnectionIntent: () => mockCm.scanAndConnect(),
+          onExit: () => exited = true,
+          exitLabel: 'Cancel',
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Cancel'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pump();
+      expect(exited, isTrue);
+    });
+
+    testWidgets(
+      'session-only selection remains connectable without changing preference',
+      (tester) async {
+        final machine = FakeDe1(
+          deviceId: 'usb-2e8a-a-unknown-7',
+          name: 'Session DE1',
+        );
+        final other = FakeDe1(deviceId: 'usb-2e8a-a-OTHER', name: 'Other DE1');
+        discovery.addDevice(machine);
+        discovery.addDevice(other);
+        await settingsController.setPreferredMachineId('usb-2e8a-a-KNOWN');
+        mockCm.emitStatus(
+          ConnectionStatus(
+            phase: ConnectionPhase.idle,
+            foundMachines: [machine, other],
+            error: connectError(),
+          ),
+        );
+        await tester.pumpWidget(
+          buildView(initialConnectionIntent: () => mockCm.scanAndConnect()),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('View found devices'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Session DE1'));
+        await tester.pumpAndSettle();
+        expect(settingsController.preferredMachineId, 'usb-2e8a-a-KNOWN');
+        final button = tester.widget<ShadButton>(
+          find.widgetWithText(ShadButton, 'Connect'),
+        );
+        expect(button.onPressed, isNotNull);
+        await tester.tap(find.text('Connect'));
+        await tester.pump();
+        expect(mockCm.connectMachineCallCount, 1);
+      },
+    );
+
+    testWidgets('escaped picker can connect the listed machine', (
+      tester,
+    ) async {
+      final machine = FakeDe1(deviceId: 'm1', name: 'DE1 #1');
+      discovery.addDevice(machine);
+      mockCm.emitStatus(
+        ConnectionStatus(
+          phase: ConnectionPhase.idle,
+          foundMachines: [machine],
+          error: connectError(),
+        ),
+      );
+
+      await tester.pumpWidget(
+        buildView(initialConnectionIntent: () => mockCm.scanAndConnect()),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('View found devices'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('DE1 #1'), findsOneWidget);
+      expect(find.text('Connect'), findsOneWidget);
+
+      await tester.tap(find.text('Connect'));
+      await tester.pump();
+      expect(mockCm.connectMachineCallCount, 1);
+    });
+
+    testWidgets('device-list override resets when a new scan starts', (
+      tester,
+    ) async {
+      final machine = FakeDe1(deviceId: 'm1', name: 'DE1 #1');
+      discovery.addDevice(machine);
+      mockCm.emitStatus(
+        ConnectionStatus(
+          phase: ConnectionPhase.idle,
+          foundMachines: [machine],
+          error: connectError(),
+        ),
+      );
+
+      await tester.pumpWidget(
+        buildView(initialConnectionIntent: () => mockCm.scanAndConnect()),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('View found devices'));
+      await tester.pumpAndSettle();
+      expect(find.text('Connection Error'), findsNothing);
+
+      mockCm.emitStatus(
+        const ConnectionStatus(phase: ConnectionPhase.scanning),
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(
+        find.textContaining('Scanning for your Decent machine'),
+        findsOneWidget,
+      );
+
+      mockCm.emitStatus(
+        ConnectionStatus(phase: ConnectionPhase.idle, error: connectError()),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Connection Error'), findsOneWidget);
+      expect(find.text('Retry'), findsOneWidget);
+
+      await tester.tap(find.text('Retry'));
+      await tester.pump();
+      expect(mockCm.scanAndConnectCallCount, 2);
+    });
+
+    testWidgets('scanning view reports real progress copy', (tester) async {
+      mockCm.emitStatus(
+        const ConnectionStatus(phase: ConnectionPhase.scanning),
+      );
+
+      await tester.pumpWidget(
+        buildView(initialConnectionIntent: () => mockCm.scanAndConnect()),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(
+        find.textContaining('Scanning for your Decent machine'),
+        findsOneWidget,
+      );
+
+      discovery.addDevice(FakeDe1(deviceId: 'm1', name: 'DE1 #1'));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(
+        find.textContaining('Found 1 device. Still scanning'),
+        findsOneWidget,
+      );
+
+      await tester.pump(
+        ScanFlowView.scanTooLongThreshold + const Duration(seconds: 1),
+      );
+      expect(
+        find.textContaining('Scanning is taking longer than usual'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('devices are powered on and in range'),
+        findsOneWidget,
+      );
     });
   });
 

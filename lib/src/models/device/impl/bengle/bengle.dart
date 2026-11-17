@@ -111,9 +111,8 @@ class Bengle extends UnifiedDe1
       );
     }
     await enableBengleShotSample();
-    _probeSub = notificationsFor(
-      Endpoint.bengleShotSample,
-    ).listen(_handleProbeSample);
+    _probeSub = notificationsFor(Endpoint.bengleShotSample)
+        .listen(_handleProbeSample);
     await initIntegratedScale();
     await initLedStrip();
   }

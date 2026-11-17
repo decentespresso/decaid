@@ -39,6 +39,10 @@ class _StubDe1Controller extends De1Controller {
 
   @override
   Stream<De1Interface?> get de1 => _subj.stream;
+  @override
+  Future<void> requestMachineState(MachineState state) {
+    return _subj.value!.requestState(state);
+  }
 
   void emit(De1Interface? device) => _subj.add(device);
 }
@@ -109,12 +113,22 @@ class _BengleTestMachine extends _TestMachine implements BengleInterface {
 }
 
 class _TestSensor implements Sensor {
-  _TestSensor() : id = 'test-sensor';
+  _TestSensor({
+    this.id = 'test-sensor',
+    this.sensorName = 'TestSensor',
+    this.vendor = 'test',
+    List<DataChannel>? dataChannels,
+  }) : dataChannels =
+           dataChannels ??
+           [DataChannel(key: 'temperature', type: 'number', unit: '°C')];
   final String id;
+  final String sensorName;
+  final String vendor;
+  final List<DataChannel> dataChannels;
   @override
   String get deviceId => id;
   @override
-  String get name => 'TestSensor';
+  String get name => sensorName;
   @override
   DeviceType get type => DeviceType.sensor;
 
@@ -132,8 +146,8 @@ class _TestSensor implements Sensor {
   @override
   SensorInfo get info => SensorInfo(
     name: name,
-    vendor: 'test',
-    dataChannels: const [],
+    vendor: vendor,
+    dataChannels: dataChannels,
     commands: const [],
   );
   @override
@@ -149,6 +163,8 @@ class _TestSensor implements Sensor {
     'timestamp': DateTime.now().toIso8601String(),
     'temperature': celsius,
   });
+
+  void emitPayload(Map<String, dynamic> payload) => _data.add(payload);
 }
 
 class _RecordingStorage implements StorageService {
@@ -199,6 +215,7 @@ class _RecordingStorage implements StorageService {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
     bool ascending = false,
   }) async => [];
   @override
@@ -211,6 +228,7 @@ class _RecordingStorage implements StorageService {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
   }) async => 0;
   @override
   Future<ShotRecord?> getLatestShot() async => null;
@@ -424,25 +442,173 @@ void main() {
       m.dispose();
     });
 
-    test('milkTemperature picks up first registered sensor', () async {
-      final probe = _TestSensor();
-      await sensors.register(probe);
+    test(
+      'milkTemperature uses the declared numeric temperature channel',
+      () async {
+        final sensor = _TestSensor();
+        await sensors.register(sensor);
 
+        final m = _TestMachine();
+        de1.emit(m);
+        await settle();
+        m.emit(_snap(state: MachineState.steam));
+        await settle();
+        sensor.emit(55.0);
+        await settle();
+        m.emit(_snap(state: MachineState.steam));
+        await settle();
+        m.emit(_snap(state: MachineState.idle));
+        await settle();
+
+        expect(storage.persisted, hasLength(1));
+        final last = storage.persisted.first.measurements.last;
+        expect(last.milkTemperature, equals(55.0));
+      },
+    );
+
+    test(
+      'Bengle milk probe wins over an E64-like object sensor in either order',
+      () async {
+        final objectSensor = _TestSensor(
+          id: 'e64',
+          sensorName: 'E64',
+          vendor: 'Eureka',
+          dataChannels: [DataChannel(key: 'temperature', type: 'object')],
+        );
+        final probe = _TestSensor(
+          id: 'milk-probe',
+          sensorName: 'Bengle Milk Probe',
+          vendor: 'DecentEspresso',
+        );
+
+        for (final sensorsInOrder in [
+          [objectSensor, probe],
+          [probe, objectSensor],
+        ]) {
+          for (final sensor in sensorsInOrder) {
+            await sensors.register(sensor);
+          }
+          final m = _TestMachine();
+          de1.emit(m);
+          await settle();
+          m.emit(_snap(state: MachineState.steam));
+          await settle();
+          objectSensor.emitPayload({
+            'temperature': {'value': 11.0},
+          });
+          probe.emit(55.0);
+          await settle();
+          m.emit(_snap(state: MachineState.steam));
+          await settle();
+          m.emit(_snap(state: MachineState.idle));
+          await settle();
+
+          expect(
+            storage.persisted.last.measurements.last.milkTemperature,
+            55.0,
+          );
+          storage.persisted.clear();
+          de1.emit(null);
+          await settle();
+          m.dispose();
+          await sensors.unregister(objectSensor.deviceId);
+          await sensors.unregister(probe.deviceId);
+        }
+      },
+    );
+
+    test('selects a probe attached during a steam record', () async {
+      final objectSensor = _TestSensor(
+        id: 'e64',
+        sensorName: 'E64',
+        vendor: 'Eureka',
+        dataChannels: [DataChannel(key: 'temperature', type: 'object')],
+      );
+      await sensors.register(objectSensor);
       final m = _TestMachine();
       de1.emit(m);
       await settle();
       m.emit(_snap(state: MachineState.steam));
       await settle();
-      probe.emit(55.0);
+
+      final probe = _TestSensor(
+        id: 'milk-probe',
+        sensorName: 'Bengle Milk Probe',
+        vendor: 'DecentEspresso',
+      );
+      await sensors.register(probe);
       await settle();
+      probe.emit(57.0);
       m.emit(_snap(state: MachineState.steam));
       await settle();
       m.emit(_snap(state: MachineState.idle));
       await settle();
 
-      expect(storage.persisted, hasLength(1));
-      final last = storage.persisted.first.measurements.last;
-      expect(last.milkTemperature, equals(55.0));
+      expect(storage.persisted.single.measurements.last.milkTemperature, 57.0);
+      m.dispose();
+    });
+
+    test('clears a removed probe and uses its replacement', () async {
+      final first = _TestSensor(
+        id: 'milk-probe',
+        sensorName: 'Bengle Milk Probe',
+        vendor: 'DecentEspresso',
+      );
+      await sensors.register(first);
+      final m = _TestMachine();
+      de1.emit(m);
+      await settle();
+      m.emit(_snap(state: MachineState.steam));
+      await settle();
+      first.emit(51.0);
+      m.emit(_snap(state: MachineState.steam));
+      await settle();
+
+      await sensors.unregister(first.deviceId);
+      m.emit(_snap(state: MachineState.steam));
+      await settle();
+      expect(storage.persisted, isEmpty);
+
+      final replacement = _TestSensor(
+        id: 'milk-probe-replacement',
+        sensorName: 'Bengle Milk Probe',
+        vendor: 'DecentEspresso',
+      );
+      await sensors.register(replacement);
+      replacement.emit(63.0);
+      m.emit(_snap(state: MachineState.steam));
+      await settle();
+      m.emit(_snap(state: MachineState.idle));
+      await settle();
+
+      expect(storage.persisted.single.measurements.last.milkTemperature, 63.0);
+      m.dispose();
+    });
+
+    test('ignores unrelated payload values and unsuitable channels', () async {
+      final sensor = _TestSensor(
+        dataChannels: [DataChannel(key: 'pressure', type: 'number')],
+      );
+      await sensors.register(sensor);
+      final m = _TestMachine();
+      de1.emit(m);
+      await settle();
+      m.emit(_snap(state: MachineState.steam));
+      await settle();
+      sensor.emitPayload({
+        'pressure': 9.0,
+        'temperature': {'value': 70.0},
+      });
+      m.emit(_snap(state: MachineState.steam));
+      await settle();
+      m.emit(_snap(state: MachineState.idle));
+      await settle();
+
+      expect(
+        storage.persisted.single.measurements.last.milkTemperature,
+        isNull,
+      );
+      m.dispose();
     });
   });
 
@@ -490,6 +656,42 @@ void main() {
       expect(m.requested, contains(MachineState.idle));
       m.dispose();
     });
+
+    test(
+      'ignores non-finite temperatures before a finite stop reading',
+      () async {
+        workflow.updateWorkflow(
+          steamSettings: workflow.currentWorkflow.steamSettings.copyWith(
+            stopAtTemperature: 60.0,
+          ),
+        );
+        final probe = _TestSensor();
+        await sensors.register(probe);
+
+        final m = _TestMachine();
+        de1.emit(m);
+        await settle();
+        m.emit(_snap(state: MachineState.steam));
+        await settle();
+
+        for (final temperature in [
+          double.nan,
+          double.infinity,
+          double.negativeInfinity,
+        ]) {
+          probe.emit(temperature);
+          m.emit(_snap(state: MachineState.steam));
+          await settle();
+          expect(m.requested, isEmpty);
+        }
+
+        probe.emit(65.0);
+        m.emit(_snap(state: MachineState.steam));
+        await settle();
+        expect(m.requested, contains(MachineState.idle));
+        m.dispose();
+      },
+    );
 
     test('Bengle with internal probe lets firmware own the stop', () async {
       workflow.updateWorkflow(

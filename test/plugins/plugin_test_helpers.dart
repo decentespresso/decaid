@@ -54,6 +54,7 @@ PluginManifest testManifest(
     PluginPermissions.emit,
     PluginPermissions.pluginStorage,
   },
+  List<PluginDriverDeclaration> drivers = const [],
   PluginApi? api,
 }) {
   return PluginManifest(
@@ -64,6 +65,7 @@ PluginManifest testManifest(
     version: '1.0.0',
     apiVersion: 1,
     permissions: permissions,
+    drivers: drivers,
     settings: {},
     api: api ?? PluginApi(endpoints: []),
   );

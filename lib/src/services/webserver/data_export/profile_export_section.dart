@@ -6,8 +6,7 @@ import 'package:reaprime/src/util/incremental_json_parser.dart';
 class ProfileExportSection implements DataExportSection {
   final ProfileController _controller;
 
-  ProfileExportSection({required ProfileController controller})
-    : _controller = controller;
+  ProfileExportSection({required this._controller});
 
   @override
   String get filename => 'profiles.json';

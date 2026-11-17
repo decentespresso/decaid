@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
+import 'package:reaprime/src/models/adapter_state.dart';
+import 'package:reaprime/src/services/ble/ble_discovery_service.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/device_attach_notifier.dart';
@@ -38,6 +40,23 @@ class _FailingDiscoveryService implements DeviceDiscoveryService {
 
   @override
   Future<Device?> tryQuickConnect(RememberedDevice remembered) async => null;
+}
+
+class _FailingBleDiscoveryService extends BleDiscoveryService {
+  @override
+  Stream<List<Device>> get devices => Stream.value(const []);
+
+  @override
+  Stream<AdapterState> get adapterStateStream =>
+      Stream.value(AdapterState.poweredOn);
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Future<void> scanForDevices({ScanFilter? filter}) async {
+    throw StateError('BLE teardown failed');
+  }
 }
 
 class _QuietDiscoveryService implements DeviceDiscoveryService {
@@ -123,8 +142,12 @@ class _AttachNotifyingDiscoveryService
   final _controller = BehaviorSubject<List<Device>>.seeded(const []);
   final _attached = PublishSubject<DeviceAttachedEvent>();
   final Future<void>? initialization;
+  final bool emitAttachInInitialize;
 
-  _AttachNotifyingDiscoveryService({this.initialization});
+  _AttachNotifyingDiscoveryService({
+    this.initialization,
+    this.emitAttachInInitialize = false,
+  });
 
   bool get hasAttachListener => _attached.hasListener;
 
@@ -137,6 +160,11 @@ class _AttachNotifyingDiscoveryService
   @override
   Future<void> initialize() async {
     await initialization;
+    if (emitAttachInInitialize) {
+      _attached.add(
+        const DeviceAttachedEvent(deviceId: 'startup-usb', name: 'DE1'),
+      );
+    }
   }
 
   @override
@@ -223,6 +251,31 @@ void main() {
         );
         expect(result.terminationReason, ScanTerminationReason.completed);
       });
+
+      test(
+        'scan failures identify BLE ownership by service capability',
+        () async {
+          final controller = DeviceController([
+            _FailingBleDiscoveryService(),
+            _FailingDiscoveryService(StateError('serial scan failed')),
+          ]);
+          await controller.initialize();
+          addTearDown(controller.dispose);
+
+          final result = await controller.scanForDevices();
+
+          expect(result.failedServices, hasLength(2));
+          expect(
+            result.failedServices.map((failure) => failure.transportType),
+            unorderedEquals([TransportType.ble, TransportType.unknown]),
+          );
+          final bleFailure = result.failedServices.singleWhere(
+            (failure) => failure.transportType == TransportType.ble,
+          );
+          expect(bleFailure.error.toString(), contains('BLE teardown failed'));
+          expect(controller.isScanning, isFalse);
+        },
+      );
 
       test('all services failing yields a ScanResult with empty matched + '
           'populated failedServices (no top-level throw)', () async {
@@ -378,82 +431,92 @@ void main() {
         expect(notifier.hasAttachListener, isFalse);
       },
     );
+
+    test('an attach emitted during a service initialize is not lost', () async {
+      final notifier = _AttachNotifyingDiscoveryService(
+        emitAttachInInitialize: true,
+      );
+      final controller = DeviceController([notifier]);
+      final seen = <DeviceAttachedEvent>[];
+      final sub = controller.deviceAttached.listen(seen.add);
+
+      await controller.initialize();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(seen, hasLength(1));
+      expect(seen.single.deviceId, 'startup-usb');
+      await sub.cancel();
+    });
   });
 
   group('disconnect tracking keys (comms-harden #20)', () {
-    test(
-      'two devices with same name but different IDs do not collide on disconnect',
-      () async {
-        final service = _ManualDiscoveryService();
-        final telemetry = _RecordingTelemetry();
-        final controller = DeviceController([service])
-          ..telemetryService = telemetry;
-        await controller.initialize();
+    test('two devices with same name but different IDs do not collide on disconnect', () async {
+      final service = _ManualDiscoveryService();
+      final telemetry = _RecordingTelemetry();
+      final controller = DeviceController([service])
+        ..telemetryService = telemetry;
+      await controller.initialize();
 
-        final a = _FakeDevice(
-          deviceId: 'AA:11:11:11:11:11',
-          name: 'DE1',
-          type: DeviceType.machine,
-        );
-        final b = _FakeDevice(
-          deviceId: 'BB:22:22:22:22:22',
-          name: 'DE1',
-          type: DeviceType.machine,
-        );
+      final a = _FakeDevice(
+        deviceId: 'AA:11:11:11:11:11',
+        name: 'DE1',
+        type: DeviceType.machine,
+      );
+      final b = _FakeDevice(
+        deviceId: 'BB:22:22:22:22:22',
+        name: 'DE1',
+        type: DeviceType.machine,
+      );
 
-        service.emit([a, b]);
-        await Future<void>.delayed(Duration.zero);
+      service.emit([a, b]);
+      await Future<void>.delayed(Duration.zero);
 
-        service.emit([a]);
-        await Future<void>.delayed(Duration.zero);
+      service.emit([a]);
+      await Future<void>.delayed(Duration.zero);
 
-        service.emit([a, b]);
-        await Future<void>.delayed(Duration.zero);
+      service.emit([a, b]);
+      await Future<void>.delayed(Duration.zero);
 
-        expect(
-          telemetry.customKeys,
-          contains('reconnection_duration_${b.deviceId}'),
-        );
-        expect(
-          telemetry.customKeys,
-          isNot(contains('reconnection_duration_${a.deviceId}')),
-        );
-      },
-    );
+      expect(
+        telemetry.customKeys,
+        contains('reconnection_duration_${b.deviceId}'),
+      );
+      expect(
+        telemetry.customKeys,
+        isNot(contains('reconnection_duration_${a.deviceId}')),
+      );
+    });
 
-    test(
-      'device returning with a different advertised name is still matched by id',
-      () async {
-        final service = _ManualDiscoveryService();
-        final telemetry = _RecordingTelemetry();
-        final controller = DeviceController([service])
-          ..telemetryService = telemetry;
-        await controller.initialize();
+    test('device returning with a different advertised name is still matched by id', () async {
+      final service = _ManualDiscoveryService();
+      final telemetry = _RecordingTelemetry();
+      final controller = DeviceController([service])
+        ..telemetryService = telemetry;
+      await controller.initialize();
 
-        final before = _FakeDevice(
-          deviceId: 'CC:33:33:33:33:33',
-          name: 'DE1',
-          type: DeviceType.machine,
-        );
-        final afterFirmware = _FakeDevice(
-          deviceId: 'CC:33:33:33:33:33',
-          name: 'DE1Pro',
-          type: DeviceType.machine,
-        );
+      final before = _FakeDevice(
+        deviceId: 'CC:33:33:33:33:33',
+        name: 'DE1',
+        type: DeviceType.machine,
+      );
+      final afterFirmware = _FakeDevice(
+        deviceId: 'CC:33:33:33:33:33',
+        name: 'DE1Pro',
+        type: DeviceType.machine,
+      );
 
-        service.emit([before]);
-        await Future<void>.delayed(Duration.zero);
-        service.emit(const []);
-        await Future<void>.delayed(Duration.zero);
-        service.emit([afterFirmware]);
-        await Future<void>.delayed(Duration.zero);
+      service.emit([before]);
+      await Future<void>.delayed(Duration.zero);
+      service.emit(const []);
+      await Future<void>.delayed(Duration.zero);
+      service.emit([afterFirmware]);
+      await Future<void>.delayed(Duration.zero);
 
-        expect(
-          telemetry.customKeys,
-          contains('reconnection_duration_${before.deviceId}'),
-        );
-      },
-    );
+      expect(
+        telemetry.customKeys,
+        contains('reconnection_duration_${before.deviceId}'),
+      );
+    });
 
     test('telemetry device_<id>_type key uses deviceId, not name', () async {
       final service = _ManualDiscoveryService();

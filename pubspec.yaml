@@ -11,7 +11,7 @@ publish_to: "none"
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.10.0
+  sdk: ^3.13.0
 
 dependencies:
   flutter:
@@ -22,7 +22,12 @@ dependencies:
   logging_appenders: ^2.0.0
   # Injectable clock (fake_async-aware) for the stop-intent attribution window.
   clock: ^1.1.1
-  flutter_foreground_task: ^9.2.2
+  # Forked for the iOS BGTaskScheduler launch crash (decaid#1073): registration is opt-in only.
+  # Immutable pin: tag fft-fork-11.0.3.2 / commit fba972b2.
+  flutter_foreground_task:
+    git:
+      url: https://github.com/tadelv/flutter_foreground_task.git
+      ref: fba972b2b9e085cc85ded39fd344dfc7570ed1f8
   permission_handler: ^12.0.0+1
   rxdart: ^0.28.0
   shelf: ^1.0.0
@@ -45,8 +50,12 @@ dependencies:
   universal_ble:
     git:
       url: https://github.com/tadelv/universal_ble.git
-      ref: 2.2.6
+      # Held on this unreleased revision for Android GATT lifecycle hardening:
+      # failed-connect validation, exact ownership until close succeeds, and a
+      # bounded explicit-disconnect fallback. Re-pin once it is released.
+      ref: 7c8b6f86937d039bdec1037be6b627c52fa36845
   shared_preferences: ^2.5.3
+  shared_preferences_platform_interface: ^2.4.2
   # share_plus HELD at 12.x — 13.x requires win32 ^6, which conflicts with
   # file_picker 11's win32 ^5.9 pin. 13.x is only SDK-floor bumps, no API gain.
   share_plus: ^12.0.2
@@ -85,12 +94,12 @@ dependencies:
     # path: ../dart_js
     git:
       url: https://github.com/tadelv/dart_js
-      ref: 6348eae
+      ref: d6e8849
   firebase_core: ^4.3.0
   firebase_crashlytics: ^5.0.6
   firebase_performance: ^0.11.1+3
   firebase_analytics: ^12.1.0
-  http: ^1.2.2
+  http: ^1.5.0
   html: ^0.15.6
   flutter_secure_storage: ^10.3.1
   # network_info_plus HELD at 7.x — 8.x needs win32 ^6, blocked by file_picker
@@ -115,7 +124,7 @@ dependencies:
   # every platform: NsdManager (Android), Bonjour (Apple), Avahi (Linux),
   # dns_sd (Windows) — so no app-managed MulticastLock is needed on Android.
   bonsoir: ^7.1.1
-  pub_semver: ^2.2.0
+  pub_semver: ^2.2.1
   # path: ../flutter_libserialport
   # git:
   #   url: https://github.com/tadelv/flutter_libserialport.git
@@ -152,6 +161,8 @@ dependency_overrides:
   lucide_icons_flutter: ^3.1.14
 
 dev_dependencies:
+  shared_preferences_windows: ^2.4.1
+  path_provider_windows: ^2.3.0
   flutter_test:
     sdk: flutter
 
@@ -166,6 +177,9 @@ dev_dependencies:
   drift_dev: ^2.24.0
   build_runner: ^2.4.0
   yaml: ^3.1.3
+  # Test-only: raw sqlite access for schema-migration fixtures. Already
+  # present transitively via drift's native implementation.
+  sqlite3: ^3.3.3
 
 flutter:
   uses-material-design: true
@@ -176,6 +190,7 @@ flutter:
   assets:
     - assets/images/
     - assets/web/
+    - assets/ble-reconnect-diagnostics/
     - assets/api/
     - assets/plugins/time-to-ready.reaplugin/
     - assets/plugins/visualizer.reaplugin/
@@ -183,6 +198,7 @@ flutter:
     - assets/plugins/dye2.reaplugin/
     - assets/plugins/decent-profile.reaplugin/
     - assets/plugins/shot-upload.reaplugin/
+    - assets/plugins/dcamp.reaplugin/
     - assets/defaultProfiles/
     - assets/simulations/
     - assets/bundled_skins/

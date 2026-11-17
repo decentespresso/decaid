@@ -80,14 +80,12 @@ class WifiScaleDiscoveryService implements DeviceDiscoveryService {
     WifiIpCache? cache,
     WifiManualEndpointStore? manualStore,
     WifiReachabilityProbe? reachabilityProbe,
-    Duration livenessInterval = const Duration(seconds: 10),
-    int failureThreshold = 2,
+    this._livenessInterval = const Duration(seconds: 10),
+    this._failureThreshold = 2,
   }) : _browser = browser ?? BonsoirWifiScaleBrowser(),
        _cache = cache ?? WifiIpCache(),
        _manualStore = manualStore ?? SharedPrefsWifiManualEndpointStore(),
-       _probe = reachabilityProbe ?? _defaultReachabilityProbe,
-       _livenessInterval = livenessInterval,
-       _failureThreshold = failureThreshold;
+       _probe = reachabilityProbe ?? _defaultReachabilityProbe;
 
   @override
   Stream<List<Device>> get devices => _devices.stream;

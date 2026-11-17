@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
 import 'package:reaprime/src/controllers/connection_error.dart';
@@ -7,15 +8,18 @@ import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/remembered_devices_controller.dart';
 import 'package:reaprime/src/models/adapter_state.dart';
+import 'package:reaprime/src/models/device/bengle_interface.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/device_attach_notifier.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
+import 'package:reaprime/src/models/device/impl/bengle/bengle_virtual_scale.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/remembered_device.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:reaprime/src/models/device/usb_attach_probe.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
+import 'package:rxdart/subjects.dart';
 
 import '../helpers/mock_de1_controller.dart';
 import '../helpers/mock_device_discovery_service.dart';
@@ -42,11 +46,15 @@ class _AttachScanner extends MockDeviceScanner implements DeviceAttachNotifier {
 
 class _ProbeScanner extends _AttachScanner implements UsbAttachProbe {
   AttachProbeResult probeResult = const AttachProbeUnsupported();
+  List<AttachProbeResult> probeResults = const [];
   int probeCallCount = 0;
   final List<DeviceAttachedEvent> probeEvents = [];
 
   Completer<void>? probeGate;
   final Completer<void> probeStarted = Completer<void>();
+
+  Object? probeError;
+  Completer<void>? quickConnectGate;
 
   @override
   Future<AttachProbeResult> connectAttachedMachine(
@@ -54,15 +62,31 @@ class _ProbeScanner extends _AttachScanner implements UsbAttachProbe {
   ) async {
     probeCallCount++;
     probeEvents.add(event);
+    final result = probeCallCount <= probeResults.length
+        ? probeResults[probeCallCount - 1]
+        : probeResult;
     if (!probeStarted.isCompleted) probeStarted.complete();
     final gate = probeGate;
     if (gate != null) await gate.future;
-    return probeResult;
+    final error = probeError;
+    if (error != null) throw error;
+    return result;
+  }
+
+  @override
+  Future<Device?> tryQuickConnect(RememberedDevice remembered) async {
+    quickConnectCallCount++;
+    final gate = quickConnectGate;
+    if (gate != null) await gate.future;
+    return quickConnectResult;
   }
 }
 
 class _FakeDe1 implements De1Interface {
   final _snapshots = StreamController<MachineSnapshot>.broadcast();
+  final _connectionState = BehaviorSubject<ConnectionState>.seeded(
+    ConnectionState.connected,
+  );
 
   @override
   final String deviceId;
@@ -81,9 +105,14 @@ class _FakeDe1 implements De1Interface {
 
   _FakeDe1({this.deviceId = 'pref-de1'});
 
+  Completer<void>? connectGate;
+  Completer<void>? disconnectGate;
+  bool failConnect = false;
+  int disconnectCalls = 0;
+  int onConnectCalls = 0;
+
   @override
-  Stream<ConnectionState> get connectionState =>
-      Stream.value(ConnectionState.connected);
+  Stream<ConnectionState> get connectionState => _connectionState.stream;
 
   @override
   Stream<MachineSnapshot> get currentSnapshot => _snapshots.stream;
@@ -92,19 +121,32 @@ class _FakeDe1 implements De1Interface {
   Stream<bool> get ready => const Stream.empty();
 
   @override
-  Future<void> onConnect() async {}
+  Future<void> onConnect() async {
+    onConnectCalls++;
+    final gate = connectGate;
+    if (gate != null) await gate.future;
+    if (failConnect) throw Exception('simulated connect failure');
+  }
 
   @override
-  Future<void> disconnect() async {}
+  Future<void> disconnect() async {
+    disconnectCalls++;
+    final gate = disconnectGate;
+    if (gate != null) await gate.future;
+    _connectionState.add(ConnectionState.disconnected);
+  }
 
   @override
   Future<void> dispose() async {
     await _snapshots.close();
+    await _connectionState.close();
   }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
 }
+
+class _FakeBengle extends _FakeDe1 implements BengleInterface {}
 
 void main() {
   late _AttachScanner scanner;
@@ -367,6 +409,77 @@ void main() {
       await Future<void>.delayed(Duration.zero);
     }
 
+    for (final bengle in [false, true]) {
+      test(
+        bengle
+            ? 'attached Bengle without a preferred scale never arms a burst'
+            : 'attached machine without a preferred scale defers discovery',
+        () async {
+          await manager.dispose();
+          probeScanner.dispose();
+          final time = FakeAsync();
+          Future<void> settle() async {
+            for (var i = 0; i < 6; i++) {
+              time.flushMicrotasks();
+              await Future<void>.delayed(Duration.zero);
+            }
+          }
+
+          final machine = bengle ? _FakeBengle() : _FakeDe1();
+          time.run((_) {
+            probeScanner = _ProbeScanner()..supportsWatch = true;
+            realDe1Controller = De1Controller(
+              controller: DeviceController([discovery]),
+            );
+            scaleController = MockScaleController();
+            manager = ConnectionManager(
+              deviceScanner: probeScanner,
+              de1Controller: realDe1Controller,
+              scaleController: scaleController,
+              settingsController: settings,
+              deviceAttachSettleDelay: Duration.zero,
+            );
+            probeScanner.probeResult = AttachProbeConnected(machine);
+            probeScanner.attach();
+          });
+          try {
+            expect(settings.preferredScaleId, isNull);
+            time.elapse(Duration.zero);
+            await settle();
+            expect(probeScanner.probeCallCount, 1);
+            expect(settings.preferredMachineId, machine.deviceId);
+            expect(manager.currentStatus.phase, ConnectionPhase.ready);
+            expect(probeScanner.scanCallCount, 0);
+            expect(probeScanner.startWatchCallCount, 0);
+
+            final delay = manager.deferredScaleScanDelay;
+            time.elapse(delay - const Duration(milliseconds: 1));
+            await settle();
+            expect(probeScanner.scanCallCount, 0);
+            time.elapse(const Duration(milliseconds: 1));
+            await settle();
+            expect(probeScanner.scanCallCount, bengle ? 0 : 1);
+            expect(probeScanner.startWatchCallCount, 0);
+            if (bengle) {
+              expect(
+                scaleController.connectCalls.single,
+                isA<BengleVirtualScale>(),
+              );
+              time.elapse(delay * 2);
+              await settle();
+              expect(probeScanner.scanCallCount, 0);
+              expect(probeScanner.startWatchCallCount, 0);
+            }
+          } finally {
+            final disposal = manager.dispose();
+            await settle();
+            await disposal;
+            await machine.dispose();
+          }
+        },
+      );
+    }
+
     test(
       'no preferred machine adopts a supported attached USB machine',
       () async {
@@ -384,6 +497,23 @@ void main() {
         expect(manager.currentStatus.phase, ConnectionPhase.ready);
       },
     );
+
+    for (final id in ['usb-2e8a-a-unknown-7', 'usb-2e8a-a-unknown']) {
+      test('attached session $id preserves canonical preference', () async {
+        await settings.setPreferredMachineId('usb-2e8a-a-KNOWN');
+        probeScanner.probeResult = AttachProbeConnected(_FakeDe1(deviceId: id));
+        await attachAndSettle();
+        expect(realDe1Controller.connectedDe1OrNull?.deviceId, id);
+        expect(settings.preferredMachineId, 'usb-2e8a-a-KNOWN');
+        expect(manager.currentStatus.phase, ConnectionPhase.ready);
+      });
+      test('explicit session $id preserves canonical preference', () async {
+        await settings.setPreferredMachineId('usb-2e8a-a-KNOWN');
+        final result = await manager.connectMachine(_FakeDe1(deviceId: id));
+        expect(result.success, isTrue);
+        expect(settings.preferredMachineId, 'usb-2e8a-a-KNOWN');
+      });
+    }
 
     test('BLE preference loses to a supported attached USB machine', () async {
       await settings.setPreferredMachineId('ble-machine-id');
@@ -578,6 +708,99 @@ void main() {
       },
     );
 
+    test('attach probe reports connectingMachine while the USB connection '
+        'is in progress', () async {
+      probeScanner.probeResult = AttachProbeConnected(
+        _FakeDe1(deviceId: 'usb-machine-id'),
+      );
+      probeScanner.probeGate = Completer<void>();
+      // Seed a retryable machine error so the stale-Retry symptom is
+      // reproducible: entering connectingMachine must clear it.
+      manager.reportError(
+        ConnectionError(
+          kind: ConnectionErrorKind.machineConnectFailed,
+          severity: ConnectionErrorSeverity.error,
+          timestamp: DateTime.now().toUtc(),
+          deviceId: 'usb-machine-id',
+          deviceName: 'DE1',
+          message: 'Attached machine DE1 failed to connect.',
+        ),
+      );
+      expect(manager.currentStatus.error, isNotNull);
+
+      probeScanner.attach();
+      await probeScanner.probeStarted.future;
+
+      // The USB probe is still inside connectAttachedMachine() (the gate
+      // is unresolved); the public status must already say a machine
+      // connection is in progress and the stale Retry error must be gone.
+      expect(manager.currentStatus.phase, ConnectionPhase.connectingMachine);
+      expect(manager.currentStatus.error, isNull);
+
+      probeScanner.probeGate!.complete();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(probeScanner.probeCallCount, 1);
+      expect(probeScanner.scanCallCount, 0);
+      expect(probeScanner.quickConnectCallCount, 0);
+      expect(settings.preferredMachineId, 'usb-machine-id');
+      expect(manager.currentStatus.phase, ConnectionPhase.ready);
+    });
+
+    test('unsupported probe restores an interrupted machine picker', () async {
+      probeScanner.addDevice(_FakeDe1(deviceId: 'de1-a'));
+      probeScanner.addDevice(_FakeDe1(deviceId: 'de1-b'));
+      probeScanner.probeResult = const AttachProbeUnsupported();
+
+      await manager.connect();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        manager.currentStatus.pendingAmbiguity,
+        AmbiguityReason.machinePicker,
+      );
+
+      probeScanner.attach();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(probeScanner.probeCallCount, 1);
+      expect(manager.currentStatus.phase, ConnectionPhase.idle);
+      expect(
+        manager.currentStatus.pendingAmbiguity,
+        AmbiguityReason.machinePicker,
+      );
+    });
+
+    test('adoption failure after the machine connected settles to ready, '
+        'not idle', () async {
+      probeScanner.probeResult = AttachProbeConnected(
+        _FakeDe1(deviceId: 'usb-machine-id'),
+      );
+      settingsService.failSetPreferredMachineId = true;
+
+      final phases = <ConnectionPhase>[];
+      var seenConnecting = false;
+      final sub = manager.status.listen((s) {
+        if (s.phase == ConnectionPhase.connectingMachine) {
+          seenConnecting = true;
+        }
+        if (seenConnecting) phases.add(s.phase);
+      });
+
+      await attachAndSettle();
+      // The failed adoption falls back to the preferred-machine attempt
+      // (see 'an adoption failure still completes the latch lifecycle');
+      // neither that nor the probe's own cleanup may drop a genuinely
+      // connected machine back to idle.
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+
+      expect(probeScanner.probeCallCount, 1);
+      expect(phases, isNot(contains(ConnectionPhase.idle)));
+      expect(manager.currentStatus.phase, ConnectionPhase.ready);
+      expect(manager.currentStatus.pendingAmbiguity, isNull);
+    });
+
     test('unavailable probe falls back to preferred-machine policy', () async {
       await settings.setPreferredMachineId('ble-machine-id');
       probeScanner.probeResult = const AttachProbeUnavailable();
@@ -599,5 +822,620 @@ void main() {
       expect(settings.preferredMachineId, isNull);
       expect(manager.currentStatus.pendingAmbiguity, isNull);
     });
+
+    test('a throwing attach probe completes the latch lifecycle and leaves '
+        'recovery armed', () async {
+      await settings.setPreferredMachineId('ble-machine-id');
+      probeScanner.probeError = Exception('usb transport failure');
+
+      await attachAndSettle();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(probeScanner.probeCallCount, 1);
+      // The probe exception falls back to the preferred-machine attempt;
+      // the latch must not gate recovery scheduling afterwards.
+      expect(manager.machineRecoveryActive, isTrue);
+      expect(manager.machineReconnectFailures, 1);
+    });
+
+    test('a USB latch during quick-connect defers the fallback scan until '
+        'the probe runs', () async {
+      await manager.dispose();
+      await settings.setPreferredMachineId('pref-de1');
+      settingsService.setRememberedDevices(
+        RememberedDevice.encodeList([
+          const RememberedDevice(
+            id: 'pref-de1',
+            name: 'DE1',
+            type: DeviceType.machine,
+            implementation: DeviceImplementation.unifiedDe1,
+            transportType: TransportType.serial,
+          ),
+        ]),
+      );
+      final remembered = RememberedDevicesController(
+        machineConnections: const Stream.empty(),
+        scaleConnections: const Stream.empty(),
+        settings: settingsService,
+      );
+      await remembered.initialize();
+      final actualDe1Controller = De1Controller(
+        controller: DeviceController([discovery]),
+      );
+      probeScanner.probeResult = AttachProbeConnected(
+        _FakeDe1(deviceId: 'usb-machine-id'),
+      );
+      probeScanner.quickConnectResult = null;
+      probeScanner.quickConnectGate = Completer<void>();
+      manager = ConnectionManager(
+        deviceScanner: probeScanner,
+        de1Controller: actualDe1Controller,
+        scaleController: scaleController,
+        settingsController: settings,
+        rememberedDevices: remembered,
+        deviceAttachSettleDelay: Duration.zero,
+      );
+      manager.machineReconnectBaseDelay = const Duration(days: 1);
+
+      // Remembered quick-connect is in flight...
+      final connecting = manager.connect();
+      await Future<void>.delayed(Duration.zero);
+      expect(probeScanner.quickConnectCallCount, 1);
+      expect(probeScanner.scanCallCount, 0);
+
+      // ...when USB intent latches and settles while it is still
+      // pending; the queued attach stops a scan that does not exist yet.
+      probeScanner.attach();
+      await Future<void>.delayed(Duration.zero);
+
+      // Quick-connect misses; the fallback automatic scan must not
+      // start while the latch is active.
+      probeScanner.quickConnectGate!.complete();
+      await connecting;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(probeScanner.scanCallCount, 0);
+      expect(probeScanner.probeCallCount, 1);
+      expect(settings.preferredMachineId, 'usb-machine-id');
+      expect(manager.currentStatus.phase, ConnectionPhase.ready);
+      remembered.dispose();
+    });
+
+    test(
+      'attach during an automatic preferred-BLE scan supersedes the scan',
+      () async {
+        await settings.setPreferredMachineId('ble-machine-id');
+        probeScanner.probeResult = AttachProbeConnected(
+          _FakeDe1(deviceId: 'usb-machine-id'),
+        );
+        probeScanner.scanCompleter = Completer<void>();
+
+        final connecting = manager.connect();
+        await probeScanner.scanningStream.firstWhere((scanning) => scanning);
+        probeScanner.attach();
+        await Future<void>.delayed(Duration.zero);
+
+        // Preferred BLE machine appears mid-scan; the latch must block it.
+        probeScanner.addDevice(_FakeDe1(deviceId: 'ble-machine-id'));
+        await Future<void>.delayed(Duration.zero);
+        probeScanner.completeScan();
+        await connecting;
+
+        expect(probeScanner.probeCallCount, 1);
+        expect(probeScanner.stopScanCallCount, greaterThan(0));
+        expect(settings.preferredMachineId, 'usb-machine-id');
+        expect(manager.currentStatus.phase, ConnectionPhase.ready);
+      },
+    );
+
+    test('attach while a preferred-BLE connect is in flight releases BLE '
+        'and adopts USB', () async {
+      await settings.setPreferredMachineId('ble-machine-id');
+      final bleMachine = _FakeDe1(deviceId: 'ble-machine-id')
+        ..connectGate = Completer<void>();
+      probeScanner.addDevice(bleMachine);
+      probeScanner.probeResult = AttachProbeConnected(
+        _FakeDe1(deviceId: 'usb-machine-id'),
+      );
+
+      final connecting = manager.connect();
+      await probeScanner.scanningStream.firstWhere((scanning) => scanning);
+      await Future<void>.delayed(Duration.zero);
+      probeScanner.attach();
+      await Future<void>.delayed(Duration.zero);
+
+      // BLE connect completes inside the settle window.
+      bleMachine.connectGate!.complete();
+      await connecting;
+
+      expect(probeScanner.probeCallCount, 1);
+      expect(bleMachine.disconnectCalls, 1);
+      expect(settings.preferredMachineId, 'usb-machine-id');
+      expect(manager.currentStatus.phase, ConnectionPhase.ready);
+    });
+
+    test('settle expiry during the superseded connect window still queues '
+        'the attach', () async {
+      await manager.dispose();
+      await settings.setPreferredMachineId('ble-machine-id');
+      final bleMachine = _FakeDe1(deviceId: 'ble-machine-id')
+        ..connectGate = Completer<void>()
+        ..disconnectGate = Completer<void>();
+      probeScanner.addDevice(bleMachine);
+      probeScanner.probeResult = AttachProbeConnected(
+        _FakeDe1(deviceId: 'usb-machine-id'),
+      );
+      final actualDe1Controller = De1Controller(
+        controller: DeviceController([discovery]),
+      );
+      manager = ConnectionManager(
+        deviceScanner: probeScanner,
+        de1Controller: actualDe1Controller,
+        scaleController: scaleController,
+        settingsController: settings,
+        deviceAttachSettleDelay: const Duration(milliseconds: 50),
+      );
+      manager.machineReconnectBaseDelay = const Duration(days: 1);
+
+      final connecting = manager.connect();
+      await probeScanner.scanningStream.firstWhere((scanning) => scanning);
+      await Future<void>.delayed(Duration.zero);
+      probeScanner.attach();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(probeScanner.probeCallCount, 0);
+
+      // BLE connect completes: machine now connected, but the intentional
+      // release is still pending on the disconnect gate. Settle expiry
+      // must queue the attach rather than treat the transient machine as
+      // an established connection.
+      bleMachine.connectGate!.complete();
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      expect(probeScanner.probeCallCount, 0);
+
+      bleMachine.disconnectGate!.complete();
+      await connecting;
+
+      expect(probeScanner.probeCallCount, 1);
+      expect(bleMachine.disconnectCalls, 1);
+      expect(settings.preferredMachineId, 'usb-machine-id');
+      expect(manager.currentStatus.phase, ConnectionPhase.ready);
+    });
+
+    test('attach while remembered BLE quick-connect is in flight releases '
+        'BLE and adopts USB', () async {
+      await manager.dispose();
+      await settings.setPreferredMachineId('pref-de1');
+      settingsService.setRememberedDevices(
+        RememberedDevice.encodeList([
+          const RememberedDevice(
+            id: 'pref-de1',
+            name: 'DE1',
+            type: DeviceType.machine,
+            implementation: DeviceImplementation.unifiedDe1,
+            transportType: TransportType.serial,
+          ),
+        ]),
+      );
+      final remembered = RememberedDevicesController(
+        machineConnections: const Stream.empty(),
+        scaleConnections: const Stream.empty(),
+        settings: settingsService,
+      );
+      await remembered.initialize();
+      final actualDe1Controller = De1Controller(
+        controller: DeviceController([discovery]),
+      );
+      probeScanner.quickConnectGate = Completer<void>();
+      probeScanner.quickConnectResult = _FakeDe1(deviceId: 'pref-de1');
+      probeScanner.probeResult = AttachProbeConnected(
+        _FakeDe1(deviceId: 'usb-machine-id'),
+      );
+      manager = ConnectionManager(
+        deviceScanner: probeScanner,
+        de1Controller: actualDe1Controller,
+        scaleController: scaleController,
+        settingsController: settings,
+        rememberedDevices: remembered,
+        deviceAttachSettleDelay: Duration.zero,
+      );
+      manager.machineReconnectBaseDelay = const Duration(days: 1);
+
+      final connecting = manager.connect();
+      await Future<void>.delayed(Duration.zero);
+      expect(probeScanner.quickConnectCallCount, 1);
+      probeScanner.attach();
+      await Future<void>.delayed(Duration.zero);
+
+      probeScanner.quickConnectGate!.complete();
+      await connecting;
+
+      expect(probeScanner.probeCallCount, 1);
+      expect(settings.preferredMachineId, 'usb-machine-id');
+      expect(manager.currentStatus.phase, ConnectionPhase.ready);
+      probeScanner.quickConnectGate = null;
+      remembered.dispose();
+    });
+
+    test('startup attach hint before connect() prevents remembered '
+        'quick-connect and adopts USB first', () async {
+      await manager.dispose();
+      await settings.setPreferredMachineId('pref-de1');
+      settingsService.setRememberedDevices(
+        RememberedDevice.encodeList([
+          const RememberedDevice(
+            id: 'pref-de1',
+            name: 'DE1',
+            type: DeviceType.machine,
+            implementation: DeviceImplementation.unifiedDe1,
+            transportType: TransportType.serial,
+          ),
+        ]),
+      );
+      final remembered = RememberedDevicesController(
+        machineConnections: const Stream.empty(),
+        scaleConnections: const Stream.empty(),
+        settings: settingsService,
+      );
+      await remembered.initialize();
+      final actualDe1Controller = De1Controller(
+        controller: DeviceController([discovery]),
+      );
+      probeScanner.quickConnectResult = _FakeDe1(deviceId: 'pref-de1');
+      probeScanner.probeResult = AttachProbeConnected(
+        _FakeDe1(deviceId: 'usb-machine-id'),
+      );
+      manager = ConnectionManager(
+        deviceScanner: probeScanner,
+        de1Controller: actualDe1Controller,
+        scaleController: scaleController,
+        settingsController: settings,
+        rememberedDevices: remembered,
+        deviceAttachSettleDelay: const Duration(milliseconds: 50),
+      );
+      manager.machineReconnectBaseDelay = const Duration(days: 1);
+
+      probeScanner.attach();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      await manager.connect();
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+
+      expect(probeScanner.quickConnectCallCount, 0);
+      expect(probeScanner.scanCallCount, 0);
+      expect(probeScanner.probeCallCount, 1);
+      expect(settings.preferredMachineId, 'usb-machine-id');
+      expect(manager.currentStatus.phase, ConnectionPhase.ready);
+      remembered.dispose();
+    });
+
+    test(
+      'a second latch during the probe preserves the replay obligation',
+      () async {
+        probeScanner.probeResult = const AttachProbeUnsupported();
+        probeScanner.scanCompleter = Completer<void>();
+        probeScanner.probeGate = Completer<void>();
+
+        // An automatic no-preference scan is interrupted by the first
+        // attach; the queued probe runs after the scan bails.
+        final connecting = manager.connect();
+        await probeScanner.scanningStream.firstWhere((scanning) => scanning);
+        probeScanner.attach();
+        await Future<void>.delayed(Duration.zero);
+        probeScanner.completeScan();
+        await probeScanner.probeStarted.future;
+
+        // A second attach latches while the first probe is in flight; the
+        // recorded replay obligation must survive this latch.
+        probeScanner.attach();
+        await Future<void>.delayed(Duration.zero);
+
+        probeScanner.probeGate!.complete();
+        await connecting;
+
+        expect(probeScanner.probeCallCount, 2);
+        expect(probeScanner.scanCallCount, 2);
+        expect(settings.preferredMachineId, isNull);
+        expect(manager.currentStatus.phase, ConnectionPhase.idle);
+      },
+    );
+
+    test('a queued attach is probed before automatic replay', () async {
+      final usbMachine = _FakeDe1(deviceId: 'usb-machine-id');
+      final bleMachine = _FakeDe1(deviceId: 'ble-machine-id');
+      probeScanner.probeResults = [
+        const AttachProbeUnsupported(),
+        AttachProbeConnected(usbMachine),
+      ];
+      probeScanner.probeGate = Completer<void>();
+      probeScanner.scanCompleter = Completer<void>();
+
+      final connecting = manager.connect();
+      await probeScanner.scanningStream.firstWhere((scanning) => scanning);
+      probeScanner.attach();
+      await Future<void>.delayed(Duration.zero);
+      probeScanner.completeScan();
+      await probeScanner.probeStarted.future;
+
+      probeScanner.attach();
+      await Future<void>.delayed(Duration.zero);
+      probeScanner.addDevice(bleMachine);
+      probeScanner.probeGate!.complete();
+      await connecting;
+      await Future<void>.delayed(Duration.zero);
+
+      expect(probeScanner.probeCallCount, 2);
+      expect(bleMachine.onConnectCalls, 0);
+      expect(settings.preferredMachineId, 'usb-machine-id');
+    });
+
+    test('an adoption failure still completes the latch lifecycle', () async {
+      await settings.setPreferredMachineId('ble-machine-id');
+      final usbMachine = _FakeDe1(deviceId: 'usb-machine-id');
+      probeScanner.probeResult = AttachProbeConnected(usbMachine);
+      settingsService.failSetPreferredMachineId = true;
+
+      await attachAndSettle();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(probeScanner.probeCallCount, 1);
+      // The failed adoption falls back to the preferred-machine attempt;
+      // the latch must not suppress that scan or later recovery.
+      expect(probeScanner.scanCallCount, 1);
+      expect(settingsService.preferredMachineIdWrites.last, 'usb-machine-id');
+
+      // The adopted machine goes away; recovery scheduling must not be
+      // gated by the latch either.
+      await usbMachine.disconnect();
+      await Future<void>.delayed(Duration.zero);
+      expect(manager.machineReconnectFailures, 1);
+    });
+
+    test('unsupported probe clears the latch and resumes the interrupted '
+        'automatic policy', () async {
+      await settings.setPreferredMachineId('ble-machine-id');
+      final bleMachine = _FakeDe1(deviceId: 'ble-machine-id')
+        ..connectGate = Completer<void>();
+      probeScanner.addDevice(bleMachine);
+      probeScanner.probeResult = const AttachProbeUnsupported();
+
+      final connecting = manager.connect();
+      await probeScanner.scanningStream.firstWhere((scanning) => scanning);
+      await Future<void>.delayed(Duration.zero);
+      probeScanner.attach();
+      await Future<void>.delayed(Duration.zero);
+
+      bleMachine.connectGate!.complete();
+      await connecting;
+
+      expect(probeScanner.probeCallCount, 1);
+      expect(bleMachine.disconnectCalls, 1);
+      expect(bleMachine.onConnectCalls, 2);
+      expect(settings.preferredMachineId, 'ble-machine-id');
+    });
+
+    test(
+      'probe failure after releasing BLE reconnects it through recovery',
+      () async {
+        await settings.setPreferredMachineId('ble-machine-id');
+        final bleMachine = _FakeDe1(deviceId: 'ble-machine-id')
+          ..connectGate = Completer<void>();
+        probeScanner.addDevice(bleMachine);
+        probeScanner.probeResult = const AttachProbeFailed(
+          deviceId: 'usb-machine-id',
+          deviceName: 'DE1',
+        );
+
+        final connecting = manager.connect();
+        await probeScanner.scanningStream.firstWhere((scanning) => scanning);
+        await Future<void>.delayed(Duration.zero);
+        probeScanner.attach();
+        await Future<void>.delayed(Duration.zero);
+
+        bleMachine.connectGate!.complete();
+        await connecting;
+
+        expect(probeScanner.probeCallCount, 1);
+        expect(bleMachine.disconnectCalls, 1);
+        expect(settings.preferredMachineId, 'ble-machine-id');
+        expect(manager.machineRecoveryActive, isTrue);
+      },
+    );
+
+    test('a failed automatic connect consumes the supersession marker; a '
+        'later connect is not released', () async {
+      await settings.setPreferredMachineId('ble-machine-id');
+      final bleMachine = _FakeDe1(deviceId: 'ble-machine-id')
+        ..connectGate = Completer<void>();
+      probeScanner.addDevice(bleMachine);
+      probeScanner.probeResult = const AttachProbeUnsupported();
+
+      final connecting = manager.connect();
+      await probeScanner.scanningStream.firstWhere((scanning) => scanning);
+      await Future<void>.delayed(Duration.zero);
+      probeScanner.attach();
+      await Future<void>.delayed(Duration.zero);
+
+      bleMachine.failConnect = true;
+      bleMachine.connectGate!.complete();
+      await connecting;
+      expect(bleMachine.onConnectCalls, 2);
+
+      bleMachine.failConnect = false;
+      await manager.connect();
+
+      expect(bleMachine.onConnectCalls, 3);
+      expect(bleMachine.disconnectCalls, 0);
+      expect(
+        (await realDe1Controller.de1.firstWhere(
+          (machine) => machine?.deviceId == 'ble-machine-id',
+        )),
+        isNotNull,
+      );
+    });
+
+    test(
+      'a direct explicit machine connect is not superseded while latched',
+      () async {
+        probeScanner.probeResult = const AttachProbeUnsupported();
+        probeScanner.probeGate = Completer<void>();
+        probeScanner.attach();
+        await probeScanner.probeStarted.future;
+
+        final bleMachine = _FakeDe1(deviceId: 'ble-machine-id');
+        final result = await manager.connectMachine(bleMachine);
+
+        expect(result.success, isTrue);
+        expect(
+          (await realDe1Controller.de1.firstWhere(
+            (machine) => machine?.deviceId == 'ble-machine-id',
+          )),
+          isNotNull,
+        );
+
+        probeScanner.probeGate!.complete();
+        await Future<void>.delayed(Duration.zero);
+        expect(settings.preferredMachineId, 'ble-machine-id');
+      },
+    );
+
+    test('an explicit connect overlapping a latched automatic scan is not '
+        'superseded', () async {
+      probeScanner.probeResult = const AttachProbeUnsupported();
+      probeScanner.scanCompleter = Completer<void>();
+      final bleMachine = _FakeDe1(deviceId: 'ble-machine-id')
+        ..connectGate = Completer<void>();
+
+      // An automatic no-preference scan is in flight...
+      final connecting = manager.connect();
+      await probeScanner.scanningStream.firstWhere((scanning) => scanning);
+
+      // ...and a direct REST/WS connect for a BLE machine starts.
+      final direct = manager.connectMachine(bleMachine);
+      await Future<void>.delayed(Duration.zero);
+
+      // USB intent latches while the explicit connect is in flight; the
+      // ambient automatic state is still active, so the latch marks the
+      // automatic attempt superseded. The explicit connect must not be
+      // caught by that marker.
+      probeScanner.attach();
+      await Future<void>.delayed(Duration.zero);
+
+      bleMachine.connectGate!.complete();
+      final directResult = await direct;
+
+      probeScanner.completeScan();
+      await connecting;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(directResult.success, isTrue);
+      expect(
+        (await realDe1Controller.de1.firstWhere(
+          (machine) => machine?.deviceId == 'ble-machine-id',
+        )),
+        isNotNull,
+      );
+      expect(settingsService.preferredMachineIdWrites, ['ble-machine-id']);
+      expect(settings.preferredMachineId, 'ble-machine-id');
+    });
+
+    test('unsupported attach replays an interrupted no-preference '
+        'automatic scan', () async {
+      probeScanner.probeResult = const AttachProbeUnsupported();
+      probeScanner.scanCompleter = Completer<void>();
+
+      final connecting = manager.connect();
+      await probeScanner.scanningStream.firstWhere((scanning) => scanning);
+      probeScanner.attach();
+      await Future<void>.delayed(Duration.zero);
+      probeScanner.completeScan();
+      await connecting;
+
+      expect(probeScanner.probeCallCount, 1);
+      expect(probeScanner.scanCallCount, 2);
+      expect(settings.preferredMachineId, isNull);
+      expect(manager.currentStatus.phase, ConnectionPhase.idle);
+    });
+
+    test(
+      'a second USB attach during the resumed scan is not dropped',
+      () async {
+        probeScanner.probeResult = const AttachProbeUnsupported();
+        probeScanner.scanCompleter = Completer<void>();
+
+        final connecting = manager.connect();
+        await probeScanner.scanningStream.firstWhere((scanning) => scanning);
+        probeScanner.attach();
+        await Future<void>.delayed(Duration.zero);
+        probeScanner.completeScan();
+
+        // The unsupported attach interrupts the no-preference automatic
+        // scan and replays it; gate the resumed scan.
+        probeScanner.scanCompleter = Completer<void>();
+        await probeScanner.scanningStream.firstWhere((scanning) => scanning);
+
+        // A real DE1 attach during the resumed scan must latch again
+        // instead of being dropped by the coordinator's in-flight guard.
+        probeScanner.probeResult = AttachProbeConnected(
+          _FakeDe1(deviceId: 'usb-machine-id'),
+        );
+        probeScanner.attach();
+        await Future<void>.delayed(Duration.zero);
+
+        probeScanner.completeScan();
+        await connecting;
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+
+        expect(probeScanner.probeCallCount, 2);
+        expect(settings.preferredMachineId, 'usb-machine-id');
+        expect(manager.currentStatus.phase, ConnectionPhase.ready);
+      },
+    );
+
+    test(
+      'suspending recovery for a USB attach preserves the backoff tier',
+      () async {
+        await settings.setPreferredMachineId('ble-machine-id');
+        probeScanner.probeResult = const AttachProbeFailed(
+          deviceId: 'usb-machine-id',
+          deviceName: 'DE1',
+        );
+
+        await attachAndSettle();
+        expect(manager.machineRecoveryActive, isTrue);
+        expect(manager.machineReconnectFailures, 1);
+
+        // The pending reconnect timer is cancelled and re-armed; the tier
+        // must not advance because no reconnect attempt actually ran.
+        probeScanner.probeResult = const AttachProbeUnsupported();
+        await attachAndSettle();
+
+        expect(manager.machineRecoveryActive, isTrue);
+        expect(manager.machineReconnectFailures, 1);
+      },
+    );
+
+    test(
+      'a superseded in-flight connect does not persist its own preference',
+      () async {
+        final bleMachine = _FakeDe1(deviceId: 'ble-machine-id')
+          ..connectGate = Completer<void>();
+        probeScanner.addDevice(bleMachine);
+        probeScanner.probeResult = AttachProbeConnected(
+          _FakeDe1(deviceId: 'usb-machine-id'),
+        );
+
+        final connecting = manager.connect();
+        await probeScanner.scanningStream.firstWhere((scanning) => scanning);
+        await Future<void>.delayed(Duration.zero);
+        probeScanner.attach();
+        await Future<void>.delayed(Duration.zero);
+
+        bleMachine.connectGate!.complete();
+        await connecting;
+
+        expect(probeScanner.probeCallCount, 1);
+        expect(settingsService.preferredMachineIdWrites, ['usb-machine-id']);
+        expect(settings.preferredMachineId, 'usb-machine-id');
+      },
+    );
   });
 }

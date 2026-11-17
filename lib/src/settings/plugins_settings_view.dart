@@ -1,15 +1,22 @@
 import 'dart:io';
+
+import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:logging/logging.dart';
 import 'package:saf_stream/saf_stream.dart';
 import 'package:saf_util/saf_util.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
+import 'package:reaprime/src/account/account_page.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
 import 'package:reaprime/src/plugins/plugin_source.dart';
 import 'package:reaprime/src/plugins/plugin_source_service.dart';
+import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/security_scoped_file.dart';
+import 'package:reaprime/src/widgets/page_action_menu.dart';
+import 'package:reaprime/src/widgets/remote_error_snack_bar.dart';
+import 'package:reaprime/src/util/user_facing_exception.dart';
 
 const _maxPluginSafDepth = 32;
 const _maxPluginSafEntries = 10000;
@@ -98,6 +105,7 @@ class PluginsSettingsView extends StatefulWidget {
     super.key,
     required this.pluginLoaderService,
     this.pluginSourceService,
+    this.decentAccountService,
     this.allowInstall = true,
   });
 
@@ -105,6 +113,7 @@ class PluginsSettingsView extends StatefulWidget {
 
   final PluginLoaderService pluginLoaderService;
   final PluginSourceService? pluginSourceService;
+  final DecentAccountService? decentAccountService;
   final bool allowInstall;
 
   @override
@@ -115,8 +124,11 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
   List<PluginManifest> _plugins = [];
   Map<String, PluginSource> _sources = {};
   bool _isLoading = true;
-  bool _isCheckingUpdates = false;
   String? _loadError;
+  bool _isInstalling = false;
+  bool _isCheckingUpdates = false;
+  final _repoController = TextEditingController();
+  final _detailController = TextEditingController();
 
   late final PluginSourceService _sourceService =
       widget.pluginSourceService ??
@@ -128,7 +140,16 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
     _loadPlugins();
   }
 
+  @override
+  void dispose() {
+    _repoController.dispose();
+    _detailController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadPlugins() async {
+    if (!mounted) return;
+
     setState(() {
       _isLoading = true;
       _loadError = null;
@@ -152,9 +173,8 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
         _isLoading = false;
       });
     } catch (error, stackTrace) {
-      Logger(
-        'PluginsSettingsView',
-      ).warning('Failed to initialize plugins', error, stackTrace);
+      Logger('PluginsSettingsView')
+          .warning('Failed to initialize plugins', error, stackTrace);
       if (!mounted) return;
       setState(() {
         _loadError = error.toString();
@@ -173,46 +193,27 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
       appBar: AppBar(
         title: const Text('Plugins'),
         actions: [
-          IconButton(
-            icon: const Icon(LucideIcons.refreshCw),
-            onPressed: _isLoading ? null : _refreshPlugins,
-            tooltip: 'Refresh Plugins',
-          ),
-          IconButton(
-            icon: _isCheckingUpdates
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(LucideIcons.cloudDownload),
-            onPressed: _isLoading || _loadError != null || _isCheckingUpdates
-                ? null
-                : () => _checkForPluginUpdates(context),
-            tooltip: 'Check for updates',
-          ),
-          if (widget.allowInstall)
-            PopupMenuButton<String>(
-              enabled: !_isLoading && _loadError == null,
-              icon: const Icon(LucideIcons.plus),
-              tooltip: 'Install Plugin',
-              onSelected: (value) => _handleInstallAction(context, value),
-              itemBuilder: (context) => const [
-                PopupMenuItem<String>(
-                  value: 'github-release',
-                  child: Text('GitHub Release'),
-                ),
-                PopupMenuItem<String>(
-                  value: 'github-branch',
-                  child: Text('GitHub Branch'),
-                ),
-                PopupMenuItem<String>(value: 'zip', child: Text('ZIP file')),
-                PopupMenuItem<String>(
-                  value: 'folder',
-                  child: Text('Folder snapshot'),
-                ),
-              ],
+          PageActionMenu(
+            tooltip: 'Plugin actions',
+            checkingLabel: 'Checking for plugin updates',
+            enabled: !_isLoading && !_isInstalling,
+            onCheckForUpdates: _loadError == null
+                ? () => _checkForPluginUpdates(context)
+                : null,
+            updateCheck: _sourceService.updateCheck,
+            onUpdatesChecked: _refreshPlugins,
+            installLabel: 'Install plugin',
+            showInstall: widget.allowInstall,
+            includeFolder: true,
+            onInstall: _loadError == null
+                ? (action) => _handleInstallAction(context, action)
+                : null,
+            leadingAction: MenuItemButton(
+              leadingIcon: const Icon(LucideIcons.refreshCw),
+              onPressed: _isLoading ? null : _refreshPlugins,
+              child: const Text('Refresh plugins'),
             ),
+          ),
         ],
       ),
       body: _buildPluginList(),
@@ -250,11 +251,6 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
             const Icon(LucideIcons.puzzle, size: 64),
             const SizedBox(height: 16),
             const Text('No plugins installed', style: TextStyle(fontSize: 18)),
-            const SizedBox(height: 8),
-            Text(
-              'Click the + button to install a plugin',
-              style: TextStyle(color: Colors.grey[600]),
-            ),
           ],
         ),
       );
@@ -362,14 +358,19 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
                         .map(
                           (permission) => Chip(
                             label: Text(permission.wireName),
-                            backgroundColor: Theme.of(
-                              context,
-                            ).colorScheme.tertiary,
+                            backgroundColor:
+                                permission == PluginPermissions.manageExtensions
+                                ? Theme.of(context).colorScheme.errorContainer
+                                : Theme.of(context).colorScheme.tertiary,
                             labelStyle: Theme.of(context).textTheme.labelSmall,
                           ),
                         )
                         .toList(),
                   ),
+                  if (plugin.permissions.contains(
+                    PluginPermissions.manageExtensions,
+                  ))
+                    const ExtensionManagementWarning(),
                 ],
               ),
             _buildSourceLine(context, plugin),
@@ -403,9 +404,8 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
                           );
                           setState(() {});
                         } catch (e, st) {
-                          Logger(
-                            'PluginsSettingsView',
-                          ).warning('Failed to set auto-load', e, st);
+                          Logger('PluginsSettingsView')
+                              .warning('Failed to set auto-load', e, st);
                           if (mounted) {
                             _showSnackBar(
                               context,
@@ -421,26 +421,6 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
                   ],
                 );
               },
-            ),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                ShadButton.secondary(
-                  onPressed: () => _handlePluginAction(
-                    context,
-                    isLoaded ? 'unload' : 'load',
-                    plugin.id,
-                  ),
-                  child: Text(isLoaded ? 'Unload' : 'Load'),
-                ),
-                const SizedBox(width: 8),
-                ShadButton(
-                  onPressed: () =>
-                      _handlePluginAction(context, 'settings', plugin.id),
-                  child: const Text('Settings'),
-                ),
-              ],
             ),
           ],
         ),
@@ -545,9 +525,8 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
           if (source.lastError != null)
             Text(
               'Last update failed: ${source.lastError}',
-              style: Theme.of(
-                context,
-              ).textTheme.labelSmall?.copyWith(color: Colors.red),
+              style: Theme.of(context).textTheme.labelSmall
+                  ?.copyWith(color: Colors.red),
             ),
         ],
       ),
@@ -600,6 +579,10 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
             const Text('This update requests new permissions:'),
             const SizedBox(height: 8),
             ...pending.addedPermissions.map((p) => Text('• $p')),
+            if (pending.addedPermissions.contains(
+              PluginPermissions.manageExtensions.wireName,
+            ))
+              const ExtensionManagementWarning(),
             const SizedBox(height: 12),
             Text(
               'Current permissions: '
@@ -625,27 +608,68 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
 
     await _runInstall(
       context,
-      () => _sourceService.approvePendingUpdate(plugin.id),
+      () => _installReviewedUpdate(plugin.id, pending),
       successMessage: 'Plugin updated',
+      action: 'update the plugin',
+      retry: () async {
+        if (!mounted || !context.mounted) return;
+        final current = _sourceService.sourceFor(plugin.id)?.pendingUpdate;
+        final installed = widget.pluginLoaderService.getPluginManifest(
+          plugin.id,
+        );
+        if (!mounted ||
+            !context.mounted ||
+            current == null ||
+            installed == null) {
+          return;
+        }
+        await _approvePendingUpdate(context, installed, current);
+      },
     );
   }
 
   Future<void> _checkForPluginUpdates(BuildContext context) async {
-    setState(() => _isCheckingUpdates = true);
+    if (!mounted || !context.mounted || _isCheckingUpdates) return;
+    _isCheckingUpdates = true;
+    ScaffoldMessenger.of(context).clearSnackBars();
     try {
       await _sourceService.updateAllPlugins();
       if (context.mounted) _showSnackBar(context, 'Plugin update check done');
     } catch (e, st) {
-      Logger(
-        'PluginsSettingsView',
-      ).warning('Plugin update check failed', e, st);
+      Logger('PluginsSettingsView')
+          .warning('Plugin update check failed', e, st);
       if (context.mounted) {
-        _showSnackBar(context, 'Update check failed: $e', isError: true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          remoteErrorSnackBar(
+            e,
+            action: 'check for plugin updates',
+            onRetry: () => _checkForPluginUpdates(context),
+          ),
+        );
       }
     } finally {
-      if (mounted) setState(() => _isCheckingUpdates = false);
-      _refreshPlugins();
+      _isCheckingUpdates = false;
     }
+  }
+
+  Future<PluginManifest> _installReviewedUpdate(
+    String pluginId,
+    PluginPendingUpdate reviewed,
+  ) {
+    final current = _sourceService.sourceFor(pluginId)?.pendingUpdate;
+    if (current == null ||
+        current.version != reviewed.version ||
+        current.releaseTag != reviewed.releaseTag ||
+        current.commit != reviewed.commit ||
+        !setEquals(
+          current.addedPermissions.toSet(),
+          reviewed.addedPermissions.toSet(),
+        )) {
+      throw PluginApprovalRequiredException(
+        'The update changed. Review its permissions again.',
+      );
+    }
+    return _sourceService.approvePendingUpdate(pluginId);
   }
 
   Future<void> _handleInstallAction(BuildContext context, String action) async {
@@ -665,8 +689,8 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
     BuildContext context, {
     required bool release,
   }) async {
-    final repoController = TextEditingController();
-    final detailController = TextEditingController(text: release ? '' : 'main');
+    _repoController.clear();
+    _detailController.text = release ? '' : 'main';
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -680,7 +704,7 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
-              controller: repoController,
+              controller: _repoController,
               autofocus: true,
               decoration: const InputDecoration(
                 labelText: 'Repository',
@@ -688,7 +712,7 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
               ),
             ),
             TextField(
-              controller: detailController,
+              controller: _detailController,
               decoration: InputDecoration(
                 labelText: release ? 'Asset name (optional)' : 'Branch',
                 hintText: release ? 'plugin.zip' : 'main',
@@ -709,10 +733,9 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
       ),
     );
 
-    final repo = repoController.text.trim();
-    final detail = detailController.text.trim();
-    repoController.dispose();
-    detailController.dispose();
+    if (!mounted || !context.mounted) return;
+    final repo = _repoController.text.trim();
+    final detail = _detailController.text.trim();
     if (confirmed != true || repo.isEmpty) return;
     if (!context.mounted) return;
 
@@ -722,10 +745,14 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
           ? _sourceService.installFromGitHubRelease(
               repo,
               assetName: detail.isEmpty ? null : detail,
+              approveExtensionManagement: (candidate) =>
+                  _approveExtensionManagement(context, candidate),
             )
           : _sourceService.installFromGitHubBranch(
               repo,
               branch: detail.isEmpty ? 'main' : detail,
+              approveExtensionManagement: (candidate) =>
+                  _approveExtensionManagement(context, candidate),
             ),
       successMessage: 'Plugin installed',
     );
@@ -741,7 +768,11 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
 
     await _runInstall(
       context,
-      () => _sourceService.installFromZip(path),
+      () => _sourceService.installFromZip(
+        path,
+        approveExtensionManagement: (candidate) =>
+            _approveExtensionManagement(context, candidate),
+      ),
       successMessage: 'Plugin installed',
     );
   }
@@ -750,21 +781,50 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
     BuildContext context,
     Future<PluginManifest> Function() install, {
     required String successMessage,
+    String action = 'install the plugin',
+    Future<void> Function()? retry,
   }) async {
+    if (!mounted || !context.mounted || _isInstalling) return;
+    setState(() => _isInstalling = true);
+    ScaffoldMessenger.of(context).clearSnackBars();
     try {
       final manifest = await install();
       if (context.mounted) {
         _showSnackBar(context, '$successMessage: ${manifest.name}');
       }
+    } on PluginInstallDeclinedException {
+      return;
     } catch (e, st) {
-      Logger(
-        'PluginsSettingsView',
-      ).warning('Plugin installation failed', e, st);
+      Logger('PluginsSettingsView')
+          .warning('Plugin installation failed', e, st);
       if (context.mounted) {
-        _showSnackBar(context, 'Installation failed: $e', isError: true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          remoteErrorSnackBar(
+            e is PluginApprovalRequiredException
+                ? UserFacingFormatException(e.message)
+                : e,
+            action: action,
+            onRetry: () {
+              if (!mounted || !context.mounted) return;
+              if (retry != null) {
+                retry();
+              } else {
+                _runInstall(
+                  context,
+                  install,
+                  successMessage: successMessage,
+                  action: action,
+                );
+              }
+            },
+          ),
+        );
       }
     } finally {
-      _refreshPlugins();
+      if (mounted) {
+        setState(() => _isInstalling = false);
+        _refreshPlugins();
+      }
     }
   }
 
@@ -780,22 +840,29 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
         );
         if (selected == null) return;
         if (!selected.name.endsWith('.reaplugin')) {
-          throw Exception('selection is not a .reaplugin');
+          throw const UserFacingFormatException(
+            'Select a folder ending in .reaplugin.',
+          );
         }
         await copyPluginDirectoryFromSaf(selected.uri, tempDir);
       } else {
         final selected = await FilePicker.getDirectoryPath();
         if (selected == null) return;
         if (!selected.endsWith('.reaplugin')) {
-          throw Exception('selection is not a .reaplugin');
+          throw const UserFacingFormatException(
+            'Select a folder ending in .reaplugin.',
+          );
         }
         if (Platform.isIOS) {
           final accessed = await SecurityScopedFileService.startAccessing(
             selected,
           );
           if (!accessed) {
-            throw Exception(
+            logger.warning(
               'iOS denied read access to picked folder: $selected',
+            );
+            throw const UserFacingFormatException(
+              'Access to the selected folder was denied. Select it again and allow file access.',
             );
           }
         }
@@ -808,16 +875,23 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
         }
       }
 
-      await _sourceService.installFromFolder(tempDir.path);
+      await _sourceService.installFromFolder(
+        tempDir.path,
+        approveExtensionManagement: (candidate) =>
+            _approveExtensionManagement(context, candidate),
+      );
 
       if (context.mounted) {
         _showSnackBar(context, 'Plugin installed successfully');
       }
       _refreshPlugins();
+    } on PluginInstallDeclinedException {
+      return;
     } catch (e, st) {
       logger.warning('Failed to install plugin', e, st);
       if (context.mounted) {
-        _showSnackBar(context, 'Failed to install plugin: $e', isError: true);
+        ScaffoldMessenger.of(context)
+            .showSnackBar(remoteErrorSnackBar(e, action: 'install the plugin'));
       }
     } finally {
       try {
@@ -828,6 +902,32 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
         logger.warning('Failed to clean up plugin staging directory', e, st);
       }
     }
+  }
+
+  Future<bool> _approveExtensionManagement(
+    BuildContext context,
+    PluginManifest candidate,
+  ) async {
+    if (!mounted || !context.mounted) return false;
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Allow ${candidate.name} to manage plugins and skins?'),
+        content: const ExtensionManagementWarning(),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            key: const Key('approve-extension-management'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Allow and install'),
+          ),
+        ],
+      ),
+    );
+    return approved == true;
   }
 
   Future<void> _confirmRemovePlugin(
@@ -862,7 +962,9 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
       } catch (e, st) {
         Logger('PluginsSettingsView').warning('Failed to remove plugin', e, st);
         if (context.mounted) {
-          _showSnackBar(context, 'Failed to remove plugin: $e', isError: true);
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(remoteErrorSnackBar(e, action: 'remove the plugin'));
         }
       }
     }
@@ -878,7 +980,11 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
     final settings = await widget.pluginLoaderService.pluginSettings(pluginId);
     final settingsSchema = manifest.settings;
 
-    if (settingsSchema.isEmpty) {
+    final usesDecentAccount =
+        manifest.permissions.contains(PluginPermissions.proxyDecentApi) ||
+        manifest.permissions.contains(PluginPermissions.proxyDecentApiWrite);
+
+    if (settingsSchema.isEmpty && !usesDecentAccount) {
       if (context.mounted) {
         _showSnackBar(context, 'This plugin has no configurable settings');
       }
@@ -907,6 +1013,10 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
       return;
     }
 
+    final accountStatus = usesDecentAccount
+        ? widget.decentAccountService?.verifyStoredCredentialsStatus()
+        : null;
+
     final secureDrafts = <String, _SecureDraft>{
       for (final entry in settingsSchema.entries)
         if (entry.value is Map && entry.value['secure'] == true)
@@ -923,7 +1033,15 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
       builder: (context) => StatefulBuilder(
         builder: (context, setState) {
           return AlertDialog(
-            title: Text('${manifest.name} Settings'),
+            constraints: const BoxConstraints(maxWidth: 800),
+            title: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('${manifest.name} Settings'),
+                if (accountStatus != null)
+                  _buildDecentAccountStatus(accountStatus),
+              ],
+            ),
             content: SizedBox(
               width: double.maxFinite,
               child: ListView(
@@ -1103,52 +1221,128 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
             actions: [
               ShadButton.secondary(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel'),
+                child: Text(settingsSchema.isEmpty ? 'Close' : 'Cancel'),
               ),
-              ShadButton(
-                onPressed: () async {
-                  try {
-                    final outgoing = Map<String, dynamic>.from(newSettings);
-                    for (final entry in secureDrafts.entries) {
-                      final draft = entry.value;
-                      if (draft.clearRequested) {
-                        outgoing[entry.key] = null;
-                      } else if (draft.text.isEmpty) {
-                        outgoing[entry.key] = {'isSet': draft.originalIsSet};
-                      } else {
-                        outgoing[entry.key] =
-                            parseValue(draft.text, draft.type ?? 'string') ??
-                            {'isSet': draft.originalIsSet};
+              if (settingsSchema.isNotEmpty)
+                ShadButton(
+                  onPressed: () async {
+                    try {
+                      final outgoing = Map<String, dynamic>.from(newSettings);
+                      for (final entry in secureDrafts.entries) {
+                        final draft = entry.value;
+                        if (draft.clearRequested) {
+                          outgoing[entry.key] = null;
+                        } else if (draft.text.isEmpty) {
+                          outgoing[entry.key] = {'isSet': draft.originalIsSet};
+                        } else {
+                          outgoing[entry.key] =
+                              parseValue(draft.text, draft.type ?? 'string') ??
+                              {'isSet': draft.originalIsSet};
+                        }
+                      }
+                      await widget.pluginLoaderService.savePluginSettings(
+                        pluginId,
+                        outgoing,
+                      );
+                      if (context.mounted == false) {
+                        return;
+                      }
+                      _showSnackBar(context, 'Settings saved');
+                      Navigator.pop(context);
+                    } catch (e, st) {
+                      Logger('PluginsSettingsView')
+                          .warning('Failed to save settings', e, st);
+                      if (context.mounted) {
+                        _showSnackBar(
+                          context,
+                          'Failed to save settings: $e',
+                          isError: true,
+                        );
                       }
                     }
-                    await widget.pluginLoaderService.savePluginSettings(
-                      pluginId,
-                      outgoing,
-                    );
-                    if (context.mounted == false) {
-                      return;
-                    }
-                    _showSnackBar(context, 'Settings saved');
-                    Navigator.pop(context);
-                  } catch (e, st) {
-                    Logger(
-                      'PluginsSettingsView',
-                    ).warning('Failed to save settings', e, st);
-                    if (context.mounted) {
-                      _showSnackBar(
-                        context,
-                        'Failed to save settings: $e',
-                        isError: true,
-                      );
-                    }
-                  }
-                },
-                child: const Text('Save'),
-              ),
+                  },
+                  child: const Text('Save'),
+                ),
             ],
           );
         },
       ),
+    );
+  }
+
+  Widget _buildDecentAccountStatus(Future<DecentAccountStatus> status) {
+    return FutureBuilder<DecentAccountStatus>(
+      future: status,
+      builder: (context, snapshot) {
+        final checking = snapshot.connectionState != ConnectionState.done;
+        final unavailable =
+            snapshot.hasError ||
+            snapshot.data == DecentAccountStatus.indeterminate;
+        final loggedIn = snapshot.data == DecentAccountStatus.authenticated;
+        final label = checking
+            ? 'Checking account status'
+            : unavailable
+            ? 'Account status unavailable'
+            : loggedIn
+            ? 'Logged In'
+            : 'Not Logged In';
+
+        return Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Decent account',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  if (checking)
+                    const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  else
+                    Icon(
+                      unavailable
+                          ? LucideIcons.circleX
+                          : loggedIn
+                          ? LucideIcons.circleCheck
+                          : LucideIcons.circleX,
+                      size: 18,
+                      color: loggedIn ? Colors.green : Colors.red,
+                    ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ),
+                ],
+              ),
+              if (!checking && !unavailable && !loggedIn) ...[
+                const SizedBox(height: 8),
+                ShadButton.outline(
+                  onPressed: () =>
+                      Navigator.of(context)
+                          .popAndPushNamed(AccountPage.routeName),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(LucideIcons.settings, size: 16),
+                      SizedBox(width: 6),
+                      Text('Account settings'),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -1161,6 +1355,34 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
       SnackBar(
         content: Text(message),
         backgroundColor: isError ? Colors.red : null,
+      ),
+    );
+  }
+}
+
+class ExtensionManagementWarning extends StatelessWidget {
+  const ExtensionManagementWarning({super.key});
+
+  static const message =
+      'manage.extensions lets this plugin install, replace, configure and '
+      'remove plugins and skins on this device, including on instruction '
+      'from a remote server, and approve new permissions for any plugin, '
+      'itself included. Allow it only for a plugin you trust completely.';
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.error;
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.warning_amber_rounded, color: color, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(message, style: TextStyle(color: color)),
+          ),
+        ],
       ),
     );
   }

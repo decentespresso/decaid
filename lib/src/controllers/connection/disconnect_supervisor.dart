@@ -29,37 +29,37 @@ class DisconnectSupervisor {
   De1Interface? _latestDe1;
   device.ConnectionState _latestScaleState = device.ConnectionState.discovered;
   String? _lastKnownMachineId;
+  bool _scaleHadConnection = false;
+
+  Completer<void>? _machineSeenCompleter;
+  String? _awaitedMachineId;
+
+  Future<void> waitForMachine(String deviceId) {
+    if (_latestDe1?.deviceId == deviceId) return Future<void>.value();
+    final completer = Completer<void>();
+    _awaitedMachineId = deviceId;
+    _machineSeenCompleter = completer;
+    return completer.future;
+  }
 
   StreamSubscription<De1Interface?>? _machineSub;
   StreamSubscription<device.ConnectionState>? _scaleSub;
 
   DisconnectSupervisor({
-    required Stream<De1Interface?> machineStream,
-    required Stream<device.ConnectionState> scaleStream,
-    required StatusPublisher statusPublisher,
-    required DisconnectExpectations expectations,
-    required bool Function() isConnectingMachine,
-    required bool Function() isConnectingScale,
-    required String? Function() scaleLastConnectedId,
-    required String? Function() preferredScaleId,
-    void Function()? onMachineConnected,
-    void Function()? onMachineDisconnected,
-    void Function()? onUnexpectedMachineDisconnect,
-    void Function()? onScaleConnected,
-    void Function()? onScaleDisconnected,
-  }) : _machineStream = machineStream,
-       _scaleStream = scaleStream,
-       _statusPublisher = statusPublisher,
-       _expectations = expectations,
-       _isConnectingMachine = isConnectingMachine,
-       _isConnectingScale = isConnectingScale,
-       _scaleLastConnectedId = scaleLastConnectedId,
-       _preferredScaleId = preferredScaleId,
-       _onMachineConnected = onMachineConnected,
-       _onMachineDisconnected = onMachineDisconnected,
-       _onUnexpectedMachineDisconnect = onUnexpectedMachineDisconnect,
-       _onScaleConnected = onScaleConnected,
-       _onScaleDisconnected = onScaleDisconnected {
+    required this._machineStream,
+    required this._scaleStream,
+    required this._statusPublisher,
+    required this._expectations,
+    required this._isConnectingMachine,
+    required this._isConnectingScale,
+    required this._scaleLastConnectedId,
+    required this._preferredScaleId,
+    this._onMachineConnected,
+    this._onMachineDisconnected,
+    this._onUnexpectedMachineDisconnect,
+    this._onScaleConnected,
+    this._onScaleDisconnected,
+  }) {
     _start();
   }
 
@@ -80,6 +80,11 @@ class DisconnectSupervisor {
       _latestDe1 = de1;
       if (de1 != null) {
         _lastKnownMachineId = de1.deviceId;
+        if (de1.deviceId == _awaitedMachineId) {
+          _awaitedMachineId = null;
+          _machineSeenCompleter?.complete();
+          _machineSeenCompleter = null;
+        }
         _onMachineConnected?.call();
         return;
       }
@@ -103,11 +108,15 @@ class DisconnectSupervisor {
       final wasConnected =
           _latestScaleState == device.ConnectionState.connected;
       _latestScaleState = state;
+      final hadConnection = _scaleHadConnection;
+      if (state != device.ConnectionState.disconnecting) {
+        _scaleHadConnection = state == device.ConnectionState.connected;
+      }
       _log.fine('scale connection update: ${state.name}');
       if (!wasConnected && state == device.ConnectionState.connected) {
         _onScaleConnected?.call();
       }
-      if (wasConnected &&
+      if (hadConnection &&
           state == device.ConnectionState.disconnected &&
           !_isConnectingScale()) {
         final id = _scaleLastConnectedId() ?? _preferredScaleId();
@@ -173,5 +182,8 @@ class DisconnectSupervisor {
     _scaleSub?.cancel();
     _machineSub = null;
     _scaleSub = null;
+    _awaitedMachineId = null;
+    _machineSeenCompleter?.complete();
+    _machineSeenCompleter = null;
   }
 }

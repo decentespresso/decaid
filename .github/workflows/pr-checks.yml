@@ -151,7 +151,8 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           if git diff --quiet "$BASE_SHA...$HEAD_SHA" -- \
-            tools tool/ci .github/workflows/pr-checks.yml; then
+            tools tool/ci scripts .github/workflows/pr-checks.yml \
+            .github/workflows/release.yml; then
             echo "python=false" >> "$GITHUB_OUTPUT"
           else
             status=$?
@@ -182,10 +183,23 @@ jobs:
       - name: Test release aliases
         run: scripts/test_release_aliases.sh
 
+      - name: Test Decent app skill docs
+        run: scripts/test_decent_app_skill.sh
+
+      - name: Check Apple camera privacy declarations
+        run: python3 tool/ci/check_apple_camera_privacy_test.py
+
+      - name: Test iOS location privacy declarations
+        run: python3 tool/ci/check_ios_location_privacy_test.py
+
+      - name: Check iOS location privacy declarations
+        run: python3 tool/ci/check_ios_location_privacy.py
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: '3.47.9'
           cache: true
           pub-cache: true
 
@@ -217,6 +231,7 @@ jobs:
         run: |
           ./scripts/fetch_dye2_plugin.sh
           ./scripts/fetch_shot_upload_plugin.sh
+          ./scripts/fetch_dcamp_plugin.sh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -249,7 +264,7 @@ jobs:
           echo "Using QuickJS lib dir: $QUICKJS_LIB_DIR"
           mkdir -p build/test-results
           LD_LIBRARY_PATH="$QUICKJS_LIB_DIR:${LD_LIBRARY_PATH:-}" \
-            flutter test --no-pub --machine | \
+            flutter test --no-pub --machine --concurrency=4 | \
             tee build/test-results/flutter-events.json
 
       - name: Gate slow test suites
@@ -292,6 +307,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: '3.47.9'
           cache: true
           pub-cache: true
 
@@ -303,6 +319,7 @@ jobs:
         run: |
           ./scripts/fetch_dye2_plugin.sh
           ./scripts/fetch_shot_upload_plugin.sh
+          ./scripts/fetch_dcamp_plugin.sh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -362,7 +379,11 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v5
 
+      - name: Install Python dependencies
+        run: python3 -m pip install --quiet pyyaml
+
       - name: Test Python tools
         run: |
           python3 tools/analyze_weight_flow_test.py
           python3 tool/ci/summarize_flutter_tests_test.py
+          python3 scripts/test_release_dye2.py

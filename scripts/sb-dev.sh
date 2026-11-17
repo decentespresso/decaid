@@ -28,7 +28,7 @@ sb-dev.sh — Decent dev-session manager
 Usage:
   sb-dev start [--platform <id>] [--connect-machine <name|id>] [--connect-scale <name|id>]
                [--preferred-machine-id <id>] [--preferred-scale-id <id>]
-               [--real] [--adb-forward] [--dart-define k=v]
+               [--real] [--adb-forward] [--dart-define k=v] [--app-arg <value>]
   sb-dev stop
   sb-dev restart           — cold restart with the same flags as the last start
   sb-dev reload            — hot reload (preserves app state)
@@ -39,7 +39,7 @@ Usage:
 
 Flags:
   --platform <id>          Flutter device id (`-d` passthrough). Examples: macos,
-                           linux, chrome, or an Android adb serial like 8734SCCFAC00000747.
+                           linux, chrome, or an Android adb serial from `adb devices`.
   --connect-machine <v>    Match by device name OR id in the post-boot scan loop.
                            In simulate mode also drives preferredMachineId (the
                            mock's name == its id). In --real mode a name like
@@ -57,6 +57,7 @@ Flags:
                            localhost:$PORT reaches the REST server on an Android
                            device. Removed on stop.
   --dart-define k=v        Extra --dart-define passed to flutter (repeatable).
+  --app-arg <value>        App argument passed to main() (repeatable).
 
 Env:
   SB_RUNTIME_DIR  runtime state directory (default: /tmp/decent-$USER)
@@ -129,6 +130,7 @@ start_cmd() {
   local preferred_machine_id="" preferred_scale_id=""
   local real=0 adb_forward=0
   local -a extra_defines=()
+  local -a app_args=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --platform)
@@ -153,6 +155,13 @@ start_cmd() {
       --dart-define)
         [[ $# -ge 2 ]] || { echo "Missing value for $1" >&2; return 2; }
         extra_defines+=("--dart-define=$2"); shift 2 ;;
+      --app-arg)
+        [[ $# -ge 2 ]] || { echo "Missing value for $1" >&2; return 2; }
+        [[ "$2" != *$'\n'* ]] || { echo "App arguments cannot contain newlines" >&2; return 2; }
+        app_args+=("--dart-entrypoint-args=$2"); shift 2 ;;
+      --app-arg=*)
+        [[ "${1#--app-arg=}" != *$'\n'* ]] || { echo "App arguments cannot contain newlines" >&2; return 2; }
+        app_args+=("--dart-entrypoint-args=${1#--app-arg=}"); shift ;;
       *) echo "Unknown flag: $1" >&2; return 2 ;;
     esac
   done
@@ -168,6 +177,7 @@ start_cmd() {
     [[ "$real" -eq 1 ]] && printf '%s\n' "--real"
     [[ "$adb_forward" -eq 1 ]] && printf '%s\n' "--adb-forward"
     for d in ${extra_defines[@]+"${extra_defines[@]}"}; do printf '%s\n' "--dart-define ${d#--dart-define=}"; done
+    for a in ${app_args[@]+"${app_args[@]}"}; do printf '%s\n' "--app-arg=${a#--dart-entrypoint-args=}"; done
   } > "$FLAGSFILE"
 
   if [[ "$adb_forward" -eq 1 ]]; then
@@ -203,11 +213,15 @@ start_cmd() {
   rm -f "$STDIN_FIFO"
   mkfifo "$STDIN_FIFO"
 
-  tail -f /dev/null > "$STDIN_FIFO" &
+  # Redirect all three fds: a holder that inherits the caller's stderr keeps a
+  # non-interactive caller's pipe open, so `sb-dev start` never returns even
+  # though it has finished and the app is up. EOF on stdin is unwanted too.
+  tail -f /dev/null > "$STDIN_FIFO" 2>/dev/null </dev/null &
   echo $! > "$HOLDER_PIDFILE"
 
   nohup ./flutter_with_commit.sh run \
     ${platform_flag[@]+"${platform_flag[@]}"} ${defines[@]+"${defines[@]}"} \
+    ${app_args[@]+"${app_args[@]}"} \
     < "$STDIN_FIFO" > "$LOGFILE" 2>&1 &
   echo $! > "$PIDFILE"
 
@@ -328,10 +342,12 @@ reload_cmd() {
   local before
   before=$(wc -l < "$LOGFILE")
   echo r > "$STDIN_FIFO"
-  if wait_for_pattern_after 'Reloaded [0-9]+( of [0-9]+)? libraries' 30 "$before"; then
+  # Flutter formats counts with thousands separators (e.g. "1,024"), so allow
+  # commas in the number groups; otherwise confirmation never matches.
+  if wait_for_pattern_after 'Reloaded [0-9][0-9,]*( of [0-9][0-9,]*)? libraries' 30 "$before"; then
     echo "Hot reload complete"
     tail -n +"$((before + 1))" "$LOGFILE" \
-      | awk '/Reloaded [0-9]+( of [0-9]+)? libraries/ {print; exit}'
+      | awk '/Reloaded [0-9][0-9,]*( of [0-9][0-9,]*)? libraries/ {print; exit}'
   else
     echo "Timed out waiting for reload confirmation" >&2
     return 1
@@ -346,10 +362,10 @@ hot_restart_cmd() {
   local before
   before=$(wc -l < "$LOGFILE")
   echo R > "$STDIN_FIFO"
-  if wait_for_pattern_after 'Restarted application in [0-9]+ms' 60 "$before"; then
+  if wait_for_pattern_after 'Restarted application in [0-9][0-9,]*ms' 60 "$before"; then
     echo "Hot restart complete"
     tail -n +"$((before + 1))" "$LOGFILE" \
-      | awk '/Restarted application in [0-9]+ms/ {print; exit}'
+      | awk '/Restarted application in [0-9][0-9,]*ms/ {print; exit}'
   else
     echo "Timed out waiting for restart confirmation" >&2
     return 1
@@ -361,7 +377,11 @@ restart_cmd() {
   if [[ -f "$FLAGSFILE" ]]; then
     while IFS= read -r line; do
       # shellcheck disable=SC2206
-      saved_args+=($line)
+      if [[ "$line" == --app-arg=* ]]; then
+        saved_args+=("$line")
+      else
+        saved_args+=($line)
+      fi
     done < "$FLAGSFILE"
   fi
   stop_cmd || true

@@ -5,17 +5,26 @@ class De1Handler {
   final De1Controller _controller;
   final ScaleController _scaleController;
   final WorkflowController _workflowController;
+  final Set<String> _bengleSettingsGroups;
   final log = Logger("De1WebHandler");
 
   De1Handler({
-    required De1Controller controller,
-    required SettingsController settingsController,
-    required ScaleController scaleController,
-    required WorkflowController workflowController,
-  }) : _controller = controller,
-       _settingsController = settingsController,
-       _scaleController = scaleController,
-       _workflowController = workflowController;
+    required this._controller,
+    required this._settingsController,
+    required this._scaleController,
+    required this._workflowController,
+    String bengleCoalescedSettings = const String.fromEnvironment(
+      'bengleCoalescedSettings',
+      defaultValue: 'fanTank,flush,heater',
+    ),
+  }) : _bengleSettingsGroups = Set.unmodifiable(
+         bengleCoalescedSettings
+             .split(',')
+             .map((group) => group.trim())
+             .where(
+               (group) => const {'fanTank', 'flush', 'heater'}.contains(group),
+             ),
+       );
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/machine/info', _infoHandler);
@@ -70,7 +79,15 @@ class De1Handler {
     app.put('/api/v1/machine/cupWarmer', (Request r) async {
       final dynamic json;
       try {
-        json = jsonDecode(await r.readAsString());
+        json = jsonDecode(
+          await readBoundedRequestBodyString(
+            r,
+            maxBytes: smallRequestBodyBytes,
+            timeout: smallRequestBodyTimeout,
+          ),
+        );
+      } on RequestBodyReadException {
+        rethrow;
       } catch (e) {
         return jsonBadRequest({'error': 'Invalid JSON body'});
       }
@@ -114,7 +131,7 @@ class De1Handler {
           await bengle.setCupWarmerEnabled(true);
         }
         return jsonOk({'status': 'accepted'});
-      }, retryOnReplacement: true);
+      });
     });
 
     app.get('/api/v1/machine/cupWarmer/preheat', (Request _) async {
@@ -129,7 +146,15 @@ class De1Handler {
     app.put('/api/v1/machine/cupWarmer/preheat', (Request r) async {
       final dynamic json;
       try {
-        json = jsonDecode(await r.readAsString());
+        json = jsonDecode(
+          await readBoundedRequestBodyString(
+            r,
+            maxBytes: smallRequestBodyBytes,
+            timeout: smallRequestBodyTimeout,
+          ),
+        );
+      } on RequestBodyReadException {
+        rethrow;
       } catch (e) {
         return jsonBadRequest({'error': 'Invalid JSON body'});
       }
@@ -168,20 +193,26 @@ class De1Handler {
           leadMinutes: lead ?? current.leadMinutes,
         );
         return jsonOk({'status': 'accepted'});
-      }, retryOnReplacement: true);
+      });
     });
 
-    app.get('/ws/v1/machine/snapshot', sws.webSocketHandler(_handleSnapshot));
+    app.get(
+      '/ws/v1/machine/snapshot',
+      admittedWebSocketHandler(_handleSnapshot),
+    );
     app.get(
       '/ws/v1/machine/shotSettings',
-      sws.webSocketHandler(_handleShotSettings),
+      admittedWebSocketHandler(_handleShotSettings),
     );
     app.get(
       '/ws/v1/machine/waterLevels',
-      sws.webSocketHandler(_handleWaterLevels),
+      admittedWebSocketHandler(_handleWaterLevels),
     );
-    app.get('/ws/v1/machine/raw', sws.webSocketHandler(_handleRawSocket));
-    app.get('/ws/v1/machine/shotState', sws.webSocketHandler(_handleShotState));
+    app.get('/ws/v1/machine/raw', admittedWebSocketHandler(_handleRawSocket));
+    app.get(
+      '/ws/v1/machine/shotState',
+      admittedWebSocketHandler(_handleShotState),
+    );
 
     app.get('/api/v1/machine/ledStrip', (Request _) async {
       return withDe1((de1) async {
@@ -202,7 +233,15 @@ class De1Handler {
     app.put('/api/v1/machine/ledStrip', (Request r) async {
       final dynamic json;
       try {
-        json = jsonDecode(await r.readAsString());
+        json = jsonDecode(
+          await readBoundedRequestBodyString(
+            r,
+            maxBytes: smallRequestBodyBytes,
+            timeout: smallRequestBodyTimeout,
+          ),
+        );
+      } on RequestBodyReadException {
+        rethrow;
       } catch (e) {
         return jsonBadRequest({'error': 'Invalid JSON body'});
       }
@@ -214,8 +253,74 @@ class De1Handler {
         final gate = _bengleFirmwareGate(de1, 'ledStrip');
         if (gate != null) return gate;
         await (de1 as BengleInterface).setLedStrip(state);
-        return jsonOk({'status': 'accepted'});
-      }, retryOnReplacement: true);
+        final stored = await de1.getLedStripState();
+        return jsonOk(stored?.toJson() ?? {'status': 'accepted'});
+      });
+    });
+
+    app.post('/api/v1/machine/ledStrip/preview', (Request r) async {
+      final dynamic json;
+      try {
+        json = jsonDecode(
+          await readBoundedRequestBodyString(
+            r,
+            maxBytes: smallRequestBodyBytes,
+            timeout: smallRequestBodyTimeout,
+          ),
+        );
+      } on RequestBodyReadException {
+        rethrow;
+      } catch (e) {
+        return jsonBadRequest({'error': 'Invalid JSON body'});
+      }
+      if (json is! Map) {
+        return jsonBadRequest({'error': 'invalid JSON body'});
+      }
+      final map = json as Map<String, dynamic>;
+      if (!map.containsKey('frontStrip') && !map.containsKey('backStrip')) {
+        return jsonBadRequest({
+          'error': 'name at least one of frontStrip or backStrip',
+        });
+      }
+      for (final field in ['frontStrip', 'backStrip']) {
+        if (!map.containsKey(field)) continue;
+        final value = map[field];
+        if (value is! String ||
+            value.length != 12 ||
+            !RegExp(r'^[0-9a-fA-F]{12}$').hasMatch(value)) {
+          return jsonBadRequest({
+            'error': '$field must be exactly 12 hexadecimal characters',
+          });
+        }
+      }
+      final front = map.containsKey('frontStrip')
+          ? Color16.fromJson(map['frontStrip'])
+          : null;
+      final back = map.containsKey('backStrip')
+          ? Color16.fromJson(map['backStrip'])
+          : null;
+      return withQueuedDe1((de1) async {
+        final gate = _bengleFirmwareGate(de1, 'ledStrip');
+        if (gate != null) return gate;
+        await (de1 as BengleInterface).previewLedStrip(
+          front: front,
+          back: back,
+        );
+        return jsonAccepted();
+      });
+    });
+
+    app.post('/api/v1/machine/ledStrip/preview/clear', (Request _) async {
+      return withQueuedDe1((de1) async {
+        final gate = _bengleFirmwareGate(de1, 'ledStrip');
+        if (gate != null) return gate;
+        try {
+          await (de1 as BengleInterface).clearLedStripPreview();
+        } on LedStripStateUnavailableException catch (e) {
+          return jsonServiceUnavailable({'error': e.message});
+        }
+        return jsonAccepted();
+      });
     });
 
     app.post('/api/v1/machine/ledStrip/commit', (Request _) async {
@@ -224,7 +329,7 @@ class De1Handler {
         if (gate != null) return gate;
         await (de1 as BengleInterface).commitLedStrip();
         return jsonAccepted();
-      }, retryOnReplacement: true);
+      });
     });
 
     app.post('/api/v1/machine/ledStrip/reset', (Request _) async {
@@ -238,7 +343,7 @@ class De1Handler {
           });
         }
         return jsonOk(state.toJson());
-      }, retryOnReplacement: true);
+      });
     });
 
     app.get('/api/v1/machine/scaleCalibration', (Request _) async {
@@ -253,7 +358,15 @@ class De1Handler {
     app.put('/api/v1/machine/scaleCalibration', (Request r) async {
       final dynamic json;
       try {
-        json = jsonDecode(await r.readAsString());
+        json = jsonDecode(
+          await readBoundedRequestBodyString(
+            r,
+            maxBytes: smallRequestBodyBytes,
+            timeout: smallRequestBodyTimeout,
+          ),
+        );
+      } on RequestBodyReadException {
+        rethrow;
       } catch (e) {
         return jsonBadRequest({'error': 'Invalid JSON body'});
       }
@@ -303,13 +416,28 @@ class De1Handler {
           'reason': 'machine busy or shot in progress',
           'state': state.toJson(),
         });
-      }, retryOnReplacement: true);
+      });
+    });
+
+    app.get('/api/v1/machine/waterLevels', (Request _) async {
+      return withDe1((de1) async {
+        final levels = await _latestWaterLevels(de1);
+        return jsonOk(levels.toJson());
+      });
     });
 
     app.post('/api/v1/machine/waterLevels', (Request r) async {
       final dynamic json;
       try {
-        json = jsonDecode(await r.readAsString());
+        json = jsonDecode(
+          await readBoundedRequestBodyString(
+            r,
+            maxBytes: smallRequestBodyBytes,
+            timeout: smallRequestBodyTimeout,
+          ),
+        );
+      } on RequestBodyReadException {
+        rethrow;
       } catch (e) {
         return jsonBadRequest({'error': 'Invalid JSON body'});
       }
@@ -319,18 +447,24 @@ class De1Handler {
       final refillLevel = json['refillLevel'] == null
           ? null
           : (json['refillLevel'] as num).toInt();
-      return withQueuedDe1((de1) async {
-        if (refillLevel != null) {
-          await de1.setRefillLevel(refillLevel);
-        }
+      return _mapDe1WriteErrors(() async {
+        await _controller.updateRefillLevel(refillLevel);
         return jsonAccepted();
-      }, retryOnReplacement: true);
+      });
     });
 
     app.post('/api/v1/machine/settings', (Request r) async {
       final dynamic json;
       try {
-        json = jsonDecode(await r.readAsString());
+        json = jsonDecode(
+          await readBoundedRequestBodyString(
+            r,
+            maxBytes: smallRequestBodyBytes,
+            timeout: smallRequestBodyTimeout,
+          ),
+        );
+      } on RequestBodyReadException {
+        rethrow;
       } catch (e) {
         return jsonBadRequest({'error': 'Invalid JSON body'});
       }
@@ -380,16 +514,17 @@ class De1Handler {
 
     app.get('/api/v1/machine/settings', () async {
       return withDe1((de1) async {
+        final settings = await _machineSettingsSnapshot(de1);
         var json = <String, dynamic>{};
-        json['fan'] = await de1.getFanThreshhold();
-        json['usb'] = await de1.getUsbChargerMode();
-        json['flushTemp'] = await de1.getFlushTemperature();
-        json['flushTimeout'] = await de1.getFlushTimeout();
-        json['flushFlow'] = await de1.getFlushFlow();
-        json['hotWaterFlow'] = await de1.getHotWaterFlow();
-        json['steamFlow'] = await de1.getSteamFlow();
-        json['tankTemp'] = await de1.getTankTempThreshold();
-        json['steamPurgeMode'] = await de1.getSteamPurgeMode();
+        json['fan'] = settings.fanThreshold;
+        json['usb'] = settings.usbChargerMode;
+        json['flushTemp'] = settings.flushTemperature;
+        json['flushTimeout'] = settings.flushTimeout;
+        json['flushFlow'] = settings.flushFlow;
+        json['hotWaterFlow'] = settings.hotWaterFlow;
+        json['steamFlow'] = settings.steamFlow;
+        json['tankTemp'] = settings.tankTempThreshold;
+        json['steamPurgeMode'] = settings.steamPurgeMode;
         return jsonOk(json);
       });
     });
@@ -397,7 +532,15 @@ class De1Handler {
     app.post('/api/v1/machine/settings/advanced', (Request r) async {
       final dynamic json;
       try {
-        json = jsonDecode(await r.readAsString());
+        json = jsonDecode(
+          await readBoundedRequestBodyString(
+            r,
+            maxBytes: smallRequestBodyBytes,
+            timeout: smallRequestBodyTimeout,
+          ),
+        );
+      } on RequestBodyReadException {
+        rethrow;
       } catch (e) {
         return jsonBadRequest({'error': 'Invalid JSON body'});
       }
@@ -434,36 +577,27 @@ class De1Handler {
           ? null
           : De1RefillKitSettings.fromInt(refillKitRaw);
 
-      return withQueuedDe1((de1) async {
-        if (heaterPh1Flow != null) {
-          await de1.setHeaterPhase1Flow(heaterPh1Flow);
-        }
-        if (heaterPh2Flow != null) {
-          await de1.setHeaterPhase2Flow(heaterPh2Flow);
-        }
-        if (heaterIdleTemp != null) {
-          await de1.setHeaterIdleTemp(heaterIdleTemp);
-        }
-        if (heaterPh2Timeout != null) {
-          await de1.setHeaterPhase2Timeout(heaterPh2Timeout);
-        }
-        if (heaterVoltage != null) {
-          await de1.setHeaterVoltage(heaterVoltage);
-        }
-        if (refillKitSetting != null) {
-          await de1.setRefillKitSettings(refillKitSetting);
-        }
+      return _mapDe1WriteErrors(() async {
+        await _controller.updateAdvancedMachineSettings(
+          heaterPh1Flow: heaterPh1Flow,
+          heaterPh2Flow: heaterPh2Flow,
+          heaterIdleTemp: heaterIdleTemp,
+          heaterPh2Timeout: heaterPh2Timeout,
+          heaterVoltage: heaterVoltage,
+          refillKitSetting: refillKitSetting,
+        );
         return jsonAccepted();
-      }, retryOnReplacement: true);
+      });
     });
 
     app.get('/api/v1/machine/settings/advanced', () async {
       return withDe1((de1) async {
+        final settings = await _advancedMachineSettingsSnapshot(de1);
         var json = <String, dynamic>{};
-        json['heaterPh1Flow'] = await de1.getHeaterPhase1Flow();
-        json['heaterPh2Flow'] = await de1.getHeaterPhase2Flow();
-        json['heaterIdleTemp'] = await de1.getHeaterIdleTemp();
-        json['heaterPh2Timeout'] = await de1.getHeaterPhase2Timeout();
+        json['heaterPh1Flow'] = settings.heaterPhase1Flow;
+        json['heaterPh2Flow'] = settings.heaterPhase2Flow;
+        json['heaterIdleTemp'] = settings.heaterIdleTemp;
+        json['heaterPh2Timeout'] = settings.heaterPhase2Timeout;
         json['heaterVoltage'] = (await de1.getHeaterVoltage()).voltage;
         json['refillKitSetting'] = (await de1.getRefillKitSettings()).hex;
         return jsonOk(json);
@@ -481,7 +615,15 @@ class De1Handler {
     app.post('/api/v1/machine/calibration', (Request r) async {
       final dynamic json;
       try {
-        json = jsonDecode(await r.readAsString());
+        json = jsonDecode(
+          await readBoundedRequestBodyString(
+            r,
+            maxBytes: smallRequestBodyBytes,
+            timeout: smallRequestBodyTimeout,
+          ),
+        );
+      } on RequestBodyReadException {
+        rethrow;
       } catch (e) {
         return jsonBadRequest({'error': 'Invalid JSON body'});
       }
@@ -491,12 +633,10 @@ class De1Handler {
       final flowMultiplier = json['flowMultiplier'] == null
           ? null
           : parseDouble(json['flowMultiplier']);
-      return withQueuedDe1((de1) async {
-        if (flowMultiplier != null) {
-          await de1.setFlowEstimation(flowMultiplier);
-        }
+      return _mapDe1WriteErrors(() async {
+        await _controller.updateMachineCalibration(flowMultiplier);
         return jsonAccepted();
-      }, retryOnReplacement: true);
+      });
     });
 
     app.get('/api/v1/machine/calibration/<target>', (
@@ -540,7 +680,15 @@ class De1Handler {
       }
       final dynamic json;
       try {
-        json = jsonDecode(await r.readAsString());
+        json = jsonDecode(
+          await readBoundedRequestBodyString(
+            r,
+            maxBytes: smallRequestBodyBytes,
+            timeout: smallRequestBodyTimeout,
+          ),
+        );
+      } on RequestBodyReadException {
+        rethrow;
       } catch (e) {
         return jsonBadRequest({'error': 'Invalid JSON body'});
       }
@@ -584,14 +732,13 @@ class De1Handler {
           return jsonBadRequest({'error': e.toString()});
         }
         return jsonAccepted();
-      }, retryOnReplacement: true);
+      });
     });
 
     app.delete('/api/v1/machine/settings/reset', (Request r) async {
       return _mapDe1WriteErrors(() async {
         await _controller.runDeviceWrite(
           (device) => _controller.applySettingsDefaults(device),
-          retryOnReplacement: true,
         );
         return jsonAccepted();
       });
@@ -601,27 +748,28 @@ class De1Handler {
   De1CalibrationTarget? _parseCalibrationTarget(String target) =>
       De1CalibrationTarget.values.where((t) => t.name == target).firstOrNull;
 
-  Future<Response> withDe1(Future<Response> Function(De1Interface) call) async {
-    try {
-      var de1 = _controller.connectedDe1();
-      return await call(de1);
-    } on MachineReplacementTimeoutException catch (e) {
-      return jsonServiceUnavailable({
-        'error': 'Machine unavailable',
-        'message': '$e',
-      });
-    } on EndpointUnavailableException catch (e) {
-      return jsonGatewayTimeout({'error': e.toString()});
-    } on BleTimeoutException catch (e) {
-      return jsonGatewayTimeout({'error': e.toString()});
-    } catch (e, st) {
-      return jsonError({'error': e.toString(), 'st': st.toString()});
-    }
+  Future<Response> withDe1(Future<Response> Function(De1Interface) call) {
+    return _mapDe1WriteErrors(() async {
+      final de1 = _controller.connectedDe1();
+      return call(de1);
+    });
   }
 
   Future<Response> _mapDe1WriteErrors(Future<Response> Function() call) async {
     try {
       return await call();
+    } on RequestBodyReadException {
+      rethrow;
+    } on De1WriteQueueFullException catch (e) {
+      return jsonServiceUnavailable({
+        'error': 'Machine write queue is full',
+        'message': '$e',
+      });
+    } on De1WriteSupersededException catch (e) {
+      return jsonConflict({
+        'error': 'Machine write was superseded',
+        'message': '$e',
+      });
     } on MachineReplacementTimeoutException catch (e) {
       return jsonServiceUnavailable({
         'error': 'Machine unavailable',
@@ -638,6 +786,54 @@ class De1Handler {
     }
   }
 
+  Future<De1MachineSettings> _machineSettingsSnapshot(De1Interface de1) {
+    if (de1 is UnifiedDe1) {
+      if (de1 is! BengleInterface) {
+        return de1.getCoalescedMachineSettings();
+      }
+      final fanTank = _bengleSettingsGroups.contains('fanTank');
+      final flush = _bengleSettingsGroups.contains('flush');
+      if (fanTank || flush) {
+        return de1.getCoalescedMachineSettings(fanTank: fanTank, flush: flush);
+      }
+    }
+    return de1.getMachineSettingsSnapshot();
+  }
+
+  Future<De1AdvancedMachineSettings> _advancedMachineSettingsSnapshot(
+    De1Interface de1,
+  ) {
+    if (de1 is UnifiedDe1) {
+      if (de1 is! BengleInterface) {
+        return de1.getCoalescedAdvancedMachineSettings();
+      }
+      if (_bengleSettingsGroups.contains('heater')) {
+        return de1.getCoalescedAdvancedMachineSettings(heater: true);
+      }
+    }
+    return de1.getAdvancedMachineSettingsSnapshot();
+  }
+
+  static const _waterLevelsTimeout = Duration(seconds: 4);
+
+  Future<De1WaterLevels> _latestWaterLevels(De1Interface de1) async {
+    try {
+      return await de1.waterLevels
+          .timeout(
+            _waterLevelsTimeout,
+            onTimeout: (sink) => sink.addError(
+              const EndpointUnavailableException(
+                'waterLevels',
+                _waterLevelsTimeout,
+              ),
+            ),
+          )
+          .first;
+    } on StateError {
+      throw const DeviceNotConnectedException.machine();
+    }
+  }
+
   Response? _bengleFirmwareGate(De1Interface de1, String feature) {
     if (de1 is! BengleInterface) {
       return jsonNotFound({'error': '$feature not supported'});
@@ -646,15 +842,9 @@ class De1Handler {
   }
 
   Future<Response> withQueuedDe1(
-    Future<Response> Function(De1Interface device) call, {
-    bool retryOnReplacement = false,
-  }) {
-    return _mapDe1WriteErrors(
-      () => _controller.runDeviceWrite(
-        call,
-        retryOnReplacement: retryOnReplacement,
-      ),
-    );
+    Future<Response> Function(De1Interface device) call,
+  ) {
+    return _mapDe1WriteErrors(() => _controller.runDeviceWrite(call));
   }
 
   void _withDe1Ws(
@@ -775,7 +965,7 @@ class De1Handler {
       final stoppingActiveShot =
           requestState == MachineState.idle &&
           _controller.currentShotState.state != ShotState.idle;
-      await de1.requestState(requestState);
+      await _controller.requestMachineState(requestState);
       if (stoppingActiveShot) {
         _controller.recordStopIntent(ShotDecisionReason.apiStop);
       }
@@ -785,7 +975,11 @@ class De1Handler {
 
   Future<Response> _profileHandler(Request request) async {
     return withDe1((_) async {
-      final payload = await request.readAsString();
+      final payload = await readBoundedRequestBodyString(
+        request,
+        maxBytes: largeRequestBodyBytes,
+        timeout: largeRequestBodyTimeout,
+      );
 
       Map<String, dynamic> json;
       try {
@@ -794,17 +988,17 @@ class De1Handler {
         return jsonBadRequest({'error': 'Invalid JSON body'});
       }
       Profile profile = Profile.fromJson(json);
-      await _controller.runDeviceWrite(
-        (device) => device.setProfile(profile),
-        retryOnReplacement: true,
-      );
+      await _controller.runDeviceWrite((device) => device.setProfile(profile));
       return jsonOk(null);
     });
   }
 
   Future<Response> _shotSettingsHandler(Request request) async {
     return withDe1((_) async {
-      final payload = await request.readAsString();
+      final payload = await readBoundedRequestBodyString(
+        request,
+        maxBytes: largeRequestBodyBytes,
+      );
 
       Map<String, dynamic> json;
       try {
@@ -815,7 +1009,6 @@ class De1Handler {
       De1ShotSettings settings = De1ShotSettings.fromJson(json);
       await _controller.runDeviceWrite(
         (device) => device.updateShotSettings(settings),
-        retryOnReplacement: true,
       );
       return jsonOk(null);
     });

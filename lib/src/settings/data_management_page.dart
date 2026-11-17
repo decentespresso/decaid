@@ -1,8 +1,6 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:archive/archive_io.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -13,6 +11,7 @@ import 'package:reaprime/src/util/rot13.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/feedback_feature/feedback_view.dart';
+import 'package:reaprime/src/feedback_feature/feedback_button.dart';
 import 'package:reaprime/src/import/de1app_importer.dart';
 import 'package:reaprime/src/import/saf_folder_copier.dart';
 import 'package:reaprime/src/import/de1app_scanner.dart';
@@ -20,28 +19,23 @@ import 'package:reaprime/src/import/import_result.dart';
 import 'package:reaprime/src/import/widgets/import_progress_view.dart';
 import 'package:reaprime/src/import/widgets/import_result_view.dart';
 import 'package:reaprime/src/import/widgets/import_summary_view.dart';
+import 'package:reaprime/src/services/account/decent_account_service.dart';
+import 'package:reaprime/src/services/github_credentials.dart';
 import 'package:reaprime/src/services/storage/bean_storage_service.dart';
 import 'package:reaprime/src/services/storage/grinder_storage_service.dart';
 import 'package:reaprime/src/services/storage/profile_storage_service.dart';
 import 'package:reaprime/src/settings/backup_import_response.dart';
+import 'package:reaprime/src/settings/backup_import_presentation.dart';
 import 'package:reaprime/src/services/webserver/data_export/backup_transfer_service.dart';
-import 'package:reaprime/src/util/temp_archive_files.dart';
+import 'package:reaprime/src/services/export/archive_export.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
 import 'package:reaprime/src/util/shot_exporter.dart';
 import 'package:reaprime/src/util/shot_importer.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
-import 'package:share_plus/share_plus.dart';
+import 'package:reaprime/src/ui/share_origin.dart';
 
 final Logger _log = Logger("DataManagement");
-
-Uint8List _zipFiles(Map<String, Uint8List> files) {
-  final archive = Archive();
-  files.forEach((name, bytes) {
-    archive.addFile(ArchiveFile(name, bytes.length, bytes));
-  });
-  return Uint8List.fromList(ZipEncoder().encode(archive));
-}
 
 class DataManagementPage extends StatefulWidget {
   const DataManagementPage({
@@ -49,10 +43,14 @@ class DataManagementPage extends StatefulWidget {
     required this.controller,
     required this.persistenceController,
     required this.de1Controller,
+    required this.decentAccountService,
+    this.githubCredentials,
     this.profileStorageService,
     this.beanStorageService,
     this.grinderStorageService,
     this.workflowController,
+    this.importBackup,
+    this.installedComponents,
   });
 
   static const routeName = '/data';
@@ -60,10 +58,18 @@ class DataManagementPage extends StatefulWidget {
   final SettingsController controller;
   final PersistenceController persistenceController;
   final De1Controller de1Controller;
+  final DecentAccountService? decentAccountService;
+  final GithubCredentialProvider? githubCredentials;
   final ProfileStorageService? profileStorageService;
   final BeanStorageService? beanStorageService;
   final GrinderStorageService? grinderStorageService;
   final WorkflowController? workflowController;
+  final List<String> Function()? installedComponents;
+  final Future<BackupImportResponse> Function(
+    String? filePath,
+    String strategy,
+  )?
+  importBackup;
 
   @override
   State<DataManagementPage> createState() => _DataManagementPageState();
@@ -113,9 +119,8 @@ class _DataManagementPageState extends State<DataManagementPage> {
               const SizedBox(width: 8),
               Text(
                 'Export & Backup',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                style: Theme.of(context).textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -123,9 +128,8 @@ class _DataManagementPageState extends State<DataManagementPage> {
           Text(
             'Create backups of your data or export specific items',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(
-                context,
-              ).colorScheme.onSurface.withValues(alpha: 0.7),
+              color: Theme.of(context).colorScheme.onSurface
+                  .withValues(alpha: 0.7),
             ),
           ),
           const SizedBox(height: 16),
@@ -133,9 +137,12 @@ class _DataManagementPageState extends State<DataManagementPage> {
             spacing: 12,
             runSpacing: 12,
             children: [
-              ShadButton.outline(
-                onPressed: _exportFullBackup,
-                child: const Text('Export Full Backup'),
+              Builder(
+                builder: (context) => ShadButton.outline(
+                  onPressed: () =>
+                      _exportFullBackup(() => shareOriginFor(context)),
+                  child: const Text('Export Full Backup'),
+                ),
               ),
               ShadButton.outline(
                 onPressed: _exportLogs,
@@ -164,9 +171,8 @@ class _DataManagementPageState extends State<DataManagementPage> {
               const SizedBox(width: 8),
               Text(
                 'Import & Restore',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                style: Theme.of(context).textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -174,9 +180,8 @@ class _DataManagementPageState extends State<DataManagementPage> {
           Text(
             'Restore data from a previous backup',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(
-                context,
-              ).colorScheme.onSurface.withValues(alpha: 0.7),
+              color: Theme.of(context).colorScheme.onSurface
+                  .withValues(alpha: 0.7),
             ),
           ),
           const SizedBox(height: 16),
@@ -195,7 +200,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
               if (_canImportFromDe1app)
                 ShadButton.outline(
                   onPressed: _importFromDe1app,
-                  child: const Text('Import from DE1 app'),
+                  child: const Text('Import from De1App'),
                 ),
             ],
           ),
@@ -203,9 +208,8 @@ class _DataManagementPageState extends State<DataManagementPage> {
           Text(
             'Use "Import Shots (JSON)" for legacy shot exports — single JSON files or arrays of shot records.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(
-                context,
-              ).colorScheme.onSurface.withValues(alpha: 0.5),
+              color: Theme.of(context).colorScheme.onSurface
+                  .withValues(alpha: 0.5),
             ),
           ),
         ],
@@ -225,9 +229,8 @@ class _DataManagementPageState extends State<DataManagementPage> {
               const SizedBox(width: 8),
               Text(
                 'Privacy & Feedback',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                style: Theme.of(context).textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -235,9 +238,8 @@ class _DataManagementPageState extends State<DataManagementPage> {
           Text(
             'Control data sharing and send feedback',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(
-                context,
-              ).colorScheme.onSurface.withValues(alpha: 0.7),
+              color: Theme.of(context).colorScheme.onSurface
+                  .withValues(alpha: 0.7),
             ),
           ),
           const SizedBox(height: 16),
@@ -252,7 +254,8 @@ class _DataManagementPageState extends State<DataManagementPage> {
             ),
           ),
           const SizedBox(height: 12),
-          ShadButton.outline(
+          FeedbackButton(
+            accountService: widget.decentAccountService,
             onPressed: () => showFeedbackDialog(
               context,
               githubToken: rot13(
@@ -262,8 +265,10 @@ class _DataManagementPageState extends State<DataManagementPage> {
                 ),
               ),
               serialNumbers: () => widget.de1Controller.seenSerials,
+              accountService: widget.decentAccountService,
+              installedComponents: widget.installedComponents,
+              credentials: widget.githubCredentials,
             ),
-            child: const Text("Send Feedback"),
           ),
         ],
       ),
@@ -275,38 +280,8 @@ class _DataManagementPageState extends State<DataManagementPage> {
       widget.beanStorageService != null &&
       widget.grinderStorageService != null;
 
-  Future<void> _exportFullBackup() async {
+  Future<void> _exportFullBackup(Rect Function() sharePositionOrigin) async {
     if (!mounted) return;
-    _showProgressDialog(context, 'Preparing full backup...');
-
-    final tempDir = await TempArchiveDir.create('reaprime-native-export-');
-    final transfer = BackupTransferService();
-    late final File zipFile;
-    try {
-      zipFile = await transfer.downloadExportZip(
-        'http://localhost:8080/api/v1/data/export',
-        tempDir.directory,
-      );
-    } catch (e) {
-      _log.severe("Failed to export full backup", e);
-      _dismissProgressDialog();
-      await tempDir.dispose();
-      if (mounted) {
-        final message = e is BackupTransferException ? e.message : '$e';
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to export full backup: $message')),
-        );
-      }
-      return;
-    } finally {
-      transfer.close();
-    }
-
-    if (!mounted) {
-      await tempDir.dispose();
-      return;
-    }
-    _dismissProgressDialog();
 
     final timestamp = DateTime.now()
         .toIso8601String()
@@ -315,62 +290,40 @@ class _DataManagementPageState extends State<DataManagementPage> {
         .first;
     final fileName = 'decent_export_$timestamp.zip';
 
-    if (Platform.isIOS || Platform.isAndroid) {
-      try {
-        final result = await SharePlus.instance.share(
-          ShareParams(
-            files: [XFile(zipFile.path, mimeType: 'application/zip')],
-            subject: 'Decent backup',
+    try {
+      final outcome = await deliverArchive(
+        fileName: fileName,
+        sharePositionOrigin: sharePositionOrigin,
+        dialogTitle: 'Choose where to save backup',
+        writeArchive: (dest) async {
+          _showProgressDialog(context, 'Preparing full backup...');
+          final transfer = BackupTransferService();
+          try {
+            await transfer.downloadExportZipTo(
+              'http://localhost:8080/api/v1/data/export',
+              File(dest.outputPath),
+            );
+          } finally {
+            transfer.close();
+            _dismissProgressDialog();
+          }
+        },
+      );
+      if (outcome == DeliveryOutcome.saved && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Full backup exported successfully'),
+            backgroundColor: Colors.green,
           ),
         );
-        if (result.status == ShareResultStatus.dismissed) {
-          await tempDir.dispose();
-          return;
-        }
-        Timer(const Duration(minutes: 5), () => tempDir.dispose());
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Full backup exported successfully'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      } catch (e) {
-        _log.severe("Failed to export full backup", e);
-        await tempDir.dispose();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to export full backup: $e')),
-          );
-        }
       }
-    } else {
-      try {
-        final outputFile = await FilePicker.saveFile(
-          fileName: fileName,
-          dialogTitle: 'Choose where to save backup',
+    } catch (e) {
+      _log.severe("Failed to export full backup", e);
+      if (mounted) {
+        final message = e is BackupTransferException ? e.message : '$e';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to export full backup: $message')),
         );
-        if (outputFile != null) {
-          await zipFile.copy(outputFile);
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Full backup exported successfully'),
-                backgroundColor: Colors.green,
-              ),
-            );
-          }
-        }
-      } catch (e) {
-        _log.severe("Failed to export full backup", e);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to export full backup: $e')),
-          );
-        }
-      } finally {
-        await tempDir.dispose();
       }
     }
   }
@@ -406,14 +359,13 @@ class _DataManagementPageState extends State<DataManagementPage> {
       if (hasWebviewLog) {
         files['webview_console.log'] = await webviewLogFile.readAsBytes();
       }
-      zipBytes = await compute(_zipFiles, files);
+      zipBytes = await compute(zipFiles, files);
     } catch (e) {
       _log.severe("Failed to export logs", e);
       _dismissProgressDialog();
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to export logs: $e')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Failed to export logs: $e')));
       }
       return;
     }
@@ -422,12 +374,12 @@ class _DataManagementPageState extends State<DataManagementPage> {
     _dismissProgressDialog();
 
     try {
-      final outputFile = await FilePicker.saveFile(
+      final saved = await saveArchiveBytes(
         fileName: "R1-logs.zip",
         dialogTitle: "Choose where to save logs",
         bytes: zipBytes,
       );
-      if (outputFile != null) {
+      if (saved) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -440,9 +392,8 @@ class _DataManagementPageState extends State<DataManagementPage> {
     } catch (e) {
       _log.severe("Failed to export logs", e);
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to export logs: $e')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Failed to export logs: $e')));
       }
     }
   }
@@ -458,7 +409,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
       );
       final jsonData = await exporter.exportJson();
       final jsonBytes = Uint8List.fromList(utf8.encode(jsonData));
-      zipBytes = await compute(_zipFiles, {'shots.json': jsonBytes});
+      zipBytes = await compute(zipFiles, {'shots.json': jsonBytes});
     } catch (e, st) {
       _log.severe("Failed to export shots", e, st);
       _dismissProgressDialog();
@@ -474,12 +425,12 @@ class _DataManagementPageState extends State<DataManagementPage> {
     _dismissProgressDialog();
 
     try {
-      final outputFile = await FilePicker.saveFile(
+      final saved = await saveArchiveBytes(
         fileName: "R1_shots.zip",
         dialogTitle: "Choose where to save shots",
         bytes: zipBytes,
       );
-      if (outputFile != null) {
+      if (saved) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -562,13 +513,15 @@ class _DataManagementPageState extends State<DataManagementPage> {
         );
       }
 
-      final importResponse = await transfer.uploadZip(
-        'http://localhost:8080/api/v1/data/import',
-        strategy,
-        filePath: filePath,
-        readStream: readStream,
-        contentLength: length,
-      );
+      final importResponse = await (widget.importBackup != null
+          ? widget.importBackup!(filePath, strategy)
+          : transfer.uploadZip(
+              'http://localhost:8080/api/v1/data/import',
+              strategy,
+              filePath: filePath,
+              readStream: readStream,
+              contentLength: length,
+            ));
 
       if (!mounted) return;
 
@@ -577,17 +530,12 @@ class _DataManagementPageState extends State<DataManagementPage> {
       if (!mounted) return;
 
       await _showImportResultDialog(importResponse);
-
-      if (importResponse.shouldNotifyShotsChanged) {
-        widget.persistenceController.notifyShotsChanged();
-      }
     } on BackupImportException catch (e) {
       _log.severe("Failed to import backup", e);
       if (mounted) {
         Navigator.of(context).pop();
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(e.message)));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(backupImportErrorSnackBar(e));
       }
     } catch (e) {
       _log.severe("Failed to import backup", e);
@@ -625,25 +573,13 @@ class _DataManagementPageState extends State<DataManagementPage> {
     _showProgressDialog(context, 'Importing shots...');
 
     try {
-      final importer = ShotImporter(
-        storage: widget.persistenceController.storageService,
-      );
+      final importer = ShotImporter(controller: widget.persistenceController);
       final file = File(filePath);
       final content = await file.readAsString();
-      final decoded = jsonDecode(content);
-
-      int count = 0;
-      if (decoded is List) {
-        count = await importer.importShotsJson(content);
-      } else {
-        await importer.importShotJson(content);
-        count = 1;
-      }
+      final count = await importer.importJson(content);
 
       if (!mounted) return;
       Navigator.of(context).pop();
-
-      widget.persistenceController.notifyShotsChanged();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -742,15 +678,15 @@ class _DataManagementPageState extends State<DataManagementPage> {
 
       if (folderPath == null) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No DE1 app data found')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('No De1App data found')));
         }
         return;
       }
     } else {
       folderPath = await FilePicker.getDirectoryPath(
-        dialogTitle: 'Select the DE1 app folder',
+        dialogTitle: 'Select the De1App folder',
       );
     }
     if (folderPath == null) return;
@@ -770,9 +706,8 @@ class _DataManagementPageState extends State<DataManagementPage> {
         _log.severe('De1app scan failed', e);
         if (mounted) {
           Navigator.of(context).pop();
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('Scan failed: $e')));
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text('Scan failed: $e')));
         }
         return;
       }
@@ -784,7 +719,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('No DE1 app data found in this folder'),
+              content: Text('No De1App data found in this folder'),
             ),
           );
         }
@@ -795,7 +730,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
       final confirmed = await showShadDialog<bool>(
         context: context,
         builder: (ctx) => ShadDialog(
-          title: const Text('Import from Decent app'),
+          title: const Text('Import from De1App'),
           child: ImportSummaryView(
             scanResult: scanResult,
             onImportAll: () => Navigator.of(ctx).pop(true),
@@ -838,7 +773,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
 
       try {
         final importer = De1appImporter(
-          storageService: widget.persistenceController.storageService,
+          controller: widget.persistenceController,
           profileStorageService: widget.profileStorageService!,
           beanStorageService: widget.beanStorageService!,
           grinderStorageService: widget.grinderStorageService!,
@@ -861,9 +796,8 @@ class _DataManagementPageState extends State<DataManagementPage> {
         _log.severe('De1app import failed', e);
         if (mounted) {
           Navigator.of(context).pop();
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('Import failed: $e')));
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text('Import failed: $e')));
         }
         return;
       }
@@ -881,8 +815,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
           ),
         ),
       );
-
-      widget.persistenceController.notifyShotsChanged();
     } finally {
       if (Platform.isAndroid) {
         await SafFolderCopier().cleanup();
@@ -944,9 +876,8 @@ class _DataManagementPageState extends State<DataManagementPage> {
           sections.add(
             Text(
               '  Error: $error',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.error,
-              ),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: Theme.of(context).colorScheme.error),
             ),
           );
         }

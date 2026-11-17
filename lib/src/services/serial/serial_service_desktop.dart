@@ -11,11 +11,13 @@ import 'package:reaprime/src/models/device/impl/bengle/bengle.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
 import 'package:reaprime/src/models/device/impl/decent_scale/scale_serial.dart';
+import 'package:reaprime/src/models/device/impl/sensor/bengle_debug_port.dart';
 import 'package:reaprime/src/models/device/impl/sensor/debug_port.dart';
 import 'package:reaprime/src/models/device/impl/sensor/sensor_basket.dart';
 import 'package:reaprime/src/models/device/transport/serial_port.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:reaprime/src/models/device/remembered_device.dart';
+
 import 'mmr_codec.dart';
 import 'serial_reconcile.dart';
 import 'usb_ids.dart';
@@ -55,9 +57,7 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
   final Duration _reconcileInterval;
   Timer? _reconcileTimer;
 
-  SerialServiceDesktop({
-    Duration reconcileInterval = const Duration(seconds: 8),
-  }) : _reconcileInterval = reconcileInterval;
+  SerialServiceDesktop({this._reconcileInterval = const Duration(seconds: 8)});
 
   final BehaviorSubject<List<Device>> _machineSubject = BehaviorSubject.seeded(
     <Device>[],
@@ -104,23 +104,28 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
     }
 
     final ports = (await SerialPort.availablePorts).toSet();
-    for (final portPath in ports) {
-      final port = SerialPort(portPath);
+    final metadata = <SerialPortMetadata>[];
+    for (final path in ports) {
+      final port = SerialPort(path);
       try {
-        final meta = _readPortMetadata(portPath, port);
-        final stableId = meta.stableId ?? 'serial-${portPath.split("/").last}';
-        if (stableId != remembered.id) continue;
+        metadata.add(_readPortMetadata(path, port));
       } finally {
         port.dispose();
       }
+    }
+    final candidates = dedupeSerialCandidates(metadata);
+    for (final candidate in candidates) {
+      if (!candidate.acceptedIds.contains(remembered.id)) continue;
 
-      _log.info('Quick-connect: found port $portPath for ${remembered.id}');
+      _log.info(
+        'Quick-connect: found port ${candidate.path} for ${remembered.id}',
+      );
       Device? device;
       try {
-        device = await _detectDevice(portPath);
+        device = await _detectDevice(candidate);
       } catch (e, st) {
         _log.warning(
-          'Quick-connect: _detectDevice failed for $portPath',
+          'Quick-connect: _detectDevice failed for ${candidate.path}',
           e,
           st,
         );
@@ -128,13 +133,13 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
       }
       if (device == null || device.implementation != impl) {
         _log.info(
-          'Quick-connect: device mismatch on $portPath'
+          'Quick-connect: device mismatch on ${candidate.path}'
           ' (expected $impl, got ${device?.implementation})',
         );
         try {
           await device?.disconnect();
         } catch (_) {}
-        final t = _portPathToTransport.remove(portPath);
+        final t = _portPathToTransport.remove(candidate.path);
         try {
           await t?.dispose();
         } catch (_) {}
@@ -142,12 +147,14 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
       }
       try {
         await device.onConnect().timeout(const Duration(seconds: 10));
-        _portPathToDevice[portPath] = device;
-        _portPathToDeviceId[portPath] = device.deviceId;
+        _portPathToDevice[candidate.path] = device;
+        _portPathToDeviceId[candidate.path] = device.deviceId;
         late final StreamSubscription<ConnectionState> stateSub;
         stateSub = device.connectionState.listen((state) {
           if (state == ConnectionState.disconnected) {
-            unawaited(_handleQuickConnectedDisconnect(portPath, stateSub));
+            unawaited(
+              _handleQuickConnectedDisconnect(candidate.path, stateSub),
+            );
           }
         });
         _devices = _portPathToDevice.values.toList();
@@ -156,11 +163,15 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
         _log.info('Quick-connect succeeded for ${remembered.id}');
         return device;
       } catch (e, st) {
-        _log.warning('Quick-connect: onConnect failed for $portPath', e, st);
+        _log.warning(
+          'Quick-connect: onConnect failed for ${candidate.path}',
+          e,
+          st,
+        );
         try {
           await device.disconnect();
         } catch (_) {}
-        final t = _portPathToTransport.remove(portPath);
+        final t = _portPathToTransport.remove(candidate.path);
         try {
           await t?.dispose();
         } catch (_) {}
@@ -237,40 +248,59 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
     final trackedStableIds = _portPathToDevice.values
         .map((d) => d.deviceId)
         .toSet();
+    final trackedIdentities = trackedSerialIdentities(
+      trackedIds: trackedStableIds,
+      trackedPaths: _portPathToDevice.keys,
+    );
 
-    final scanPorts = ports.where((p) {
-      if (_portPathToDevice.containsKey(p)) return false;
-      if (_selfDisconnectedPaths.contains(p)) return false;
-      if (_nonDecentPorts.contains(p)) return false;
-      final port = SerialPort(p);
-      final meta = _readPortMetadata(p, port);
-      port.dispose();
-      if (meta.stableId != null && trackedStableIds.contains(meta.stableId)) {
-        return false;
+    final metadataByPath = <String, SerialPortMetadata>{};
+    for (final path in ports) {
+      final port = SerialPort(path);
+      try {
+        metadataByPath[path] = _readPortMetadata(path, port);
+      } finally {
+        port.dispose();
       }
-      return serialPortMatchesCandidate(
-        name: meta.name,
-        transport: meta.transport,
-        productName: meta.productName,
-      );
-    }).toList();
-
-    if (scanPorts.isNotEmpty) {
-      _log.info("Probing ${scanPorts.length} USB serial ports: $scanPorts");
     }
 
-    await Future.wait(
-      scanPorts.map((portId) async {
+    final candidates = dedupeSerialCandidates(
+      metadataByPath.values.where((metadata) {
+        final path = metadata.path;
+        if (_portPathToDevice.containsKey(path)) return false;
+        if (_selfDisconnectedPaths.contains(path)) return false;
+        if (_nonDecentPorts.contains(path)) return false;
+        if (metadata.acceptedIds.any(trackedIdentities.contains)) return false;
+        return serialPortMatchesCandidate(
+          name: metadata.name,
+          transport: metadata.transport,
+          productName: metadata.productName,
+        );
+      }).toList(),
+    );
+
+    if (candidates.isNotEmpty) {
+      _log.info(
+        "Probing ${candidates.length} USB serial ports: "
+        "${candidates.map((candidate) => candidate.path).toList()}",
+      );
+    }
+
+    final detectedDevices = await Future.wait(
+      candidates.map((candidate) async {
         try {
-          final device = await _detectDevice(portId);
-          if (device != null) {
-            _portPathToDevice[portId] = device;
-          }
+          return await _detectDevice(candidate);
         } catch (e, st) {
-          _log.warning("Error detecting device on $portId", e, st);
+          _log.warning("Error detecting device on ${candidate.path}", e, st);
+          return null;
         }
       }),
     );
+    for (var i = 0; i < candidates.length; i++) {
+      final device = detectedDevices[i];
+      if (device != null) {
+        _portPathToDevice[candidates[i].path] = device;
+      }
+    }
 
     if (plan.livenessPass) {
       _selfDisconnectedPaths.addAll(
@@ -326,13 +356,14 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
     }
   }
 
-  _PortMetadata _readPortMetadata(String path, SerialPort port) {
+  SerialPortMetadata _readPortMetadata(String path, SerialPort port) {
     String name = path;
     String transport = 'Unknown';
     String? productName;
     int? vid;
     int? pid;
     String? serial;
+    int? interfaceNumber;
     try {
       name = port.name ?? path;
     } catch (_) {}
@@ -351,64 +382,107 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
     try {
       serial = port.serialNumber;
     } catch (_) {}
-    final stableId = computeUsbStableId(vid: vid, pid: pid, serial: serial);
-    return _PortMetadata(
+    try {
+      interfaceNumber = port.interfaceNumber;
+    } catch (_) {}
+    return SerialPortMetadata(
+      path: path,
       name: name,
       transport: transport,
       productName: productName,
-      stableId: stableId,
+      vid: vid,
+      pid: pid,
+      serial: serial,
+      interfaceNumber: interfaceNumber,
     );
   }
 
-  Future<Device?> _detectDevice(String id) async {
-    final port = SerialPort(id);
+  _DesktopSerialPort _registerTransport(
+    SerialPort port,
+    SerialPortMetadata candidate, {
+    bool dtrOn = false,
+    bool decodeUtf8Text = true,
+  }) {
+    try {
+      final transport = _DesktopSerialPort(
+        port: port,
+        canonicalId: candidate.canonicalId,
+        dtrOn: dtrOn,
+        decodeUtf8Text: decodeUtf8Text,
+      );
+      _portPathToTransport[candidate.path] = transport;
+      return transport;
+    } catch (_) {
+      try {
+        port.dispose();
+      } catch (_) {}
+      rethrow;
+    }
+  }
+
+  Future<Device?> _detectDevice(SerialPortMetadata candidate) async {
+    final id = candidate.path;
     _log.info(
-      "detecting: ${port.name} ; ${port.productName} ; ${port.transport.toTransport()}",
+      "detecting: ${candidate.name} ; ${candidate.productName} ; ${candidate.transport}",
     );
-    if (port.transport.toTransport() == "Bluetooth") {
-      port.dispose();
-      return null;
+    if (candidate.transport == "Bluetooth") return null;
+    final port = SerialPort(candidate.path);
+
+    final vid = candidate.vid;
+    final pid = candidate.pid;
+    final interfaceNumber = candidate.interfaceNumber;
+    final productName = candidate.productName;
+    if (isBengleEbusTap(
+      vid: vid,
+      pid: pid,
+      interfaceNumber: interfaceNumber,
+      productName: productName,
+    )) {
+      _log.info(
+        "Bengle EBus tap on interface $interfaceNumber ($id)"
+        " — no protocol probe",
+      );
+      final transport = _registerTransport(
+        port,
+        candidate,
+        dtrOn: true,
+        decodeUtf8Text: false,
+      );
+      final device = BengleDebugPort(transport: transport);
+      _portPathToDeviceId[candidate.path] = device.deviceId;
+      return device;
     }
 
-    final transport = _DesktopSerialPort(port: port);
-    _portPathToTransport[id] = transport;
-    if (port.productName == "DE1") {
+    final transport = _registerTransport(port, candidate);
+    if (productName == "DE1") {
       final device = UnifiedDe1(transport: transport);
-      _portPathToDeviceId[id] = device.deviceId;
+      _portPathToDeviceId[candidate.path] = device.deviceId;
       return device;
     }
 
-    if (port.productName == "Bengle") {
+    if (productName == "Bengle") {
       final device = Bengle(transport: transport);
-      _portPathToDeviceId[id] = device.deviceId;
+      _portPathToDeviceId[candidate.path] = device.deviceId;
       return device;
     }
 
-    if (port.productName == "Half Decent Scale") {
+    if (productName == "Half Decent Scale") {
       final device = HDSSerial(transport: transport);
-      _portPathToDeviceId[id] = device.deviceId;
-      _hdsPaths.add(id);
+      _portPathToDeviceId[candidate.path] = device.deviceId;
+      _hdsPaths.add(candidate.path);
       return device;
     }
 
-    int? vid;
-    int? pid;
-    try {
-      vid = port.vendorId;
-    } catch (_) {}
-    try {
-      pid = port.productId;
-    } catch (_) {}
     final usbModel = matchUsbDevice(usbDeviceTable, vid: vid, pid: pid);
     if (usbModel != null) {
       final device = UnifiedDe1(transport: transport);
-      _portPathToDeviceId[id] = device.deviceId;
+      _portPathToDeviceId[candidate.path] = device.deviceId;
       return device;
     }
 
     final rawData = <Uint8List>[];
     const readDuration = Duration(milliseconds: 1800);
-    _log.fine("Inspecting: ${port.name}, ${port.productName}");
+    _log.fine("Inspecting: ${candidate.name}, ${candidate.productName}");
 
     try {
       await transport.connect().timeout(Duration(milliseconds: 300));
@@ -442,21 +516,21 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
       }
       if (strings.any((s) => s.startsWith('R '))) {
         final device = DebugPort(transport: transport);
-        _portPathToDeviceId[id] = device.deviceId;
+        _portPathToDeviceId[candidate.path] = device.deviceId;
         return device;
       } else if (isDecentScale(strings, rawData)) {
         _log.info(
           "Detected: Decent Scale — releasing port until user connects",
         );
         final device = HDSSerial(transport: transport);
-        _portPathToDeviceId[id] = device.deviceId;
-        _hdsPaths.add(id);
+        _portPathToDeviceId[candidate.path] = device.deviceId;
+        _hdsPaths.add(candidate.path);
         await transport.disconnect();
         return device;
       } else if (isSensorBasket(strings)) {
         _log.info("Detected: Sensor Basket");
         final device = SensorBasket(transport: transport);
-        _portPathToDeviceId[id] = device.deviceId;
+        _portPathToDeviceId[candidate.path] = device.deviceId;
         return device;
       } else {
         final messages = <String>[];
@@ -507,20 +581,20 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
           final device = isBengle
               ? Bengle(transport: transport)
               : UnifiedDe1(transport: transport);
-          _portPathToDeviceId[id] = device.deviceId;
+          _portPathToDeviceId[candidate.path] = device.deviceId;
           return device;
         }
       }
 
       _log.warning("Unknown device on port $id");
-      _nonDecentPorts.add(id);
-      _portPathToTransport.remove(id);
+      _nonDecentPorts.add(candidate.path);
+      _portPathToTransport.remove(candidate.path);
       await transport.dispose();
       return null;
     } catch (e, st) {
       _log.warning("Port $id is probably not a device we want", e, st);
-      _nonDecentPorts.add(id);
-      _portPathToTransport.remove(id);
+      _nonDecentPorts.add(candidate.path);
+      _portPathToTransport.remove(candidate.path);
       await transport.dispose();
       return null;
     }
@@ -531,6 +605,8 @@ const int _serialWriteTimeoutMs = 500;
 
 class _DesktopSerialPort implements SerialTransport {
   final SerialPort _port;
+  final bool _dtrOn;
+  final bool _decodeUtf8Text;
   late Logger _log;
   final BehaviorSubject<ConnectionState> _open = BehaviorSubject.seeded(
     ConnectionState.discovered,
@@ -539,12 +615,16 @@ class _DesktopSerialPort implements SerialTransport {
   @override
   Stream<ConnectionState> get connectionState => _open.asBroadcastStream();
 
-  late final String _cachedId = _computeId();
+  final String _id;
   late final String _cachedName = _safePortName() ?? "Unknown port";
 
-  _DesktopSerialPort({required SerialPort port}) : _port = port {
-    _log = Logger("SerialPort:${port.name}");
-    _cachedId;
+  _DesktopSerialPort({
+    required this._port,
+    required String canonicalId,
+    this._dtrOn = false,
+    this._decodeUtf8Text = true,
+  }) : _id = canonicalId {
+    _log = Logger("SerialPort:${_safePortName() ?? 'unknown'}");
     _cachedName;
   }
 
@@ -554,29 +634,6 @@ class _DesktopSerialPort implements SerialTransport {
     } catch (_) {
       return null;
     }
-  }
-
-  String _computeId() {
-    int? vid;
-    int? pid;
-    String? serial;
-    try {
-      vid = _port.vendorId;
-    } catch (_) {}
-    try {
-      pid = _port.productId;
-    } catch (_) {}
-    try {
-      serial = _port.serialNumber;
-    } catch (_) {}
-    final stable = computeUsbStableId(vid: vid, pid: pid, serial: serial);
-    if (stable != null) return stable;
-    final portName = _safePortName();
-    if (portName != null) {
-      final basename = portName.split('/').last;
-      return 'serial-$basename';
-    }
-    return 'serial-${_port.address}';
   }
 
   bool _disposed = false;
@@ -617,7 +674,7 @@ class _DesktopSerialPort implements SerialTransport {
   }
 
   @override
-  String get id => _cachedId;
+  String get id => _id;
 
   @override
   String get name => _cachedName;
@@ -673,7 +730,7 @@ class _DesktopSerialPort implements SerialTransport {
       cfg.stopBits = 1;
       cfg.rts = 0;
       cfg.cts = 0;
-      cfg.dtr = 0;
+      cfg.dtr = _dtrOn ? 1 : 0;
       cfg.dsr = 0;
       cfg.xonXoff = 0;
       cfg.setFlowControl(0);
@@ -690,6 +747,7 @@ class _DesktopSerialPort implements SerialTransport {
       _portSubscription = reader.stream.listen(
         (data) {
           _rawStreamController.add(data);
+          if (!_decodeUtf8Text) return;
           try {
             final input = utf8.decode(data);
             _log.finest("received serial input: $input");
@@ -769,19 +827,6 @@ class _DesktopSerialPort implements SerialTransport {
       rethrow;
     }
   }
-}
-
-class _PortMetadata {
-  final String name;
-  final String transport;
-  final String? productName;
-  final String? stableId;
-  _PortMetadata({
-    required this.name,
-    required this.transport,
-    required this.productName,
-    required this.stableId,
-  });
 }
 
 extension IntToString on int {

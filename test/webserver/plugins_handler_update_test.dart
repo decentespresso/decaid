@@ -78,9 +78,8 @@ function createPlugin() {
     }) async {
       final dir = Directory('${tempDir.path}/source_$id')
         ..createSync(recursive: true);
-      File(
-        '${dir.path}/manifest.json',
-      ).writeAsStringSync(jsonEncode(manifestJson(id, version: version)));
+      File('${dir.path}/manifest.json')
+          .writeAsStringSync(jsonEncode(manifestJson(id, version: version)));
       File('${dir.path}/plugin.js').writeAsStringSync(pluginJs(id));
       await service.addPlugin(dir.path);
       return dir;
@@ -251,9 +250,8 @@ function createPlugin() {
         );
         expect(
           jsonDecode(
-            File(
-              '${tempDir.path}/plugins/$id/manifest.json',
-            ).readAsStringSync(),
+            File('${tempDir.path}/plugins/$id/manifest.json')
+                .readAsStringSync(),
           ),
           containsPair('version', '1.0.0'),
         );

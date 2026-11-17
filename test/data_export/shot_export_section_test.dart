@@ -2,16 +2,21 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
+import 'package:reaprime/src/models/data/shot_annotations.dart';
 import 'package:reaprime/src/models/data/shot_record.dart';
+import 'package:reaprime/src/models/data/shot_snapshot.dart';
 import 'package:reaprime/src/models/data/steam_record.dart';
 import 'package:reaprime/src/models/data/workflow.dart';
+import 'package:reaprime/src/models/data/workflow_context.dart';
 import 'package:reaprime/src/models/data/profile.dart';
+import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/services/storage/storage_service.dart';
 import 'package:reaprime/src/services/webserver/data_export/data_export_section.dart';
 import 'package:reaprime/src/services/webserver/data_export/shot_export_section.dart';
 import 'package:reaprime/src/util/incremental_json_parser.dart';
 
 import 'streaming_test_helpers.dart';
+import '../helpers/shot_event_storage.dart';
 
 class _TestShotStorage {
   final Map<String, Map<String, dynamic>> shots = {};
@@ -47,6 +52,7 @@ class _FakeStorage implements StorageService {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
     bool ascending = false,
   }) async {
     throw StateError('offset paging must not be used for export');
@@ -94,6 +100,7 @@ class _FakeStorage implements StorageService {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
   }) async => owner.shots.length;
 
   @override
@@ -157,8 +164,245 @@ ShotRecord makeShot(int i) => ShotRecord.fromJson({
   'workflow': makeWorkflowJson(),
 });
 
+ShotRecord makeGrinderShot(int i) {
+  final shot = makeShot(i);
+  return shot.copyWith(
+    workflow: shot.workflow.copyWith(
+      id: shot.workflow.id,
+      context: const WorkflowContext(
+        grinderId: 'grinder-1',
+        grinderModel: 'EG1',
+        grinderBurrs: 'Core',
+        grinderSetting: '12.5',
+        grinderRpm: 1200,
+        extras: {
+          'plugin.grinder': {
+            'feedingRate': 4.5,
+            'rpmProfile': [900, 1200],
+          },
+        },
+      ),
+    ),
+  );
+}
+
+ShotSnapshot _snapshot() => ShotSnapshot(
+  machine: MachineSnapshot(
+    timestamp: DateTime.utc(2026, 5, 18, 12),
+    state: const MachineStateSnapshot(
+      state: MachineState.steam,
+      substate: MachineSubstate.pouring,
+    ),
+    flow: 0,
+    pressure: 0,
+    targetFlow: 0,
+    targetPressure: 0,
+    mixTemperature: 90,
+    groupTemperature: 90,
+    targetMixTemperature: 93,
+    targetGroupTemperature: 93,
+    profileFrame: 0,
+    steamTemperature: 140,
+  ),
+  volume: 0,
+);
+
 void main() {
   group('ShotExportSection', () {
+    test(
+      'JSON export and import preserve complete grinder workflow values',
+      () async {
+        final source = _TestShotStorage();
+        final original = makeGrinderShot(1);
+        await source.service.storeShot(original);
+        final exporting = ShotExportSection(
+          controller: PersistenceController(storageService: source.service),
+          pageShots: (limit, {afterTimestamp, afterCreatedAt, afterId}) async =>
+              afterTimestamp == null ? [original] : [],
+        );
+        final sink = CapturingJsonSink();
+        await exporting.exportJson(sink);
+
+        final destination = _TestShotStorage();
+        final importing = ShotExportSection(
+          controller: PersistenceController(
+            storageService: destination.service,
+          ),
+          pageShots: (limit, {afterTimestamp, afterCreatedAt, afterId}) async =>
+              [],
+        );
+        final result = await importSectionJson(
+          importing,
+          sink.json,
+          ConflictStrategy.overwrite,
+        );
+
+        expect(result.imported, 1);
+        final restored = ShotRecord.fromJson(destination.shots['shot-1']!);
+        final context = restored.workflow.context!;
+        expect(context.grinderId, 'grinder-1');
+        expect(context.grinderModel, 'EG1');
+        expect(context.grinderBurrs, 'Core');
+        expect(context.grinderSetting, '12.5');
+        expect(context.grinderRpm, 1200);
+        expect(context.extras, {
+          'plugin.grinder': {
+            'feedingRate': 4.5,
+            'rpmProfile': [900, 1200],
+          },
+        });
+      },
+    );
+
+    test('bulk import keeps per-shot plugin events and one refresh', () async {
+      final storage = ShotEventStorage();
+      storage.shots['existing'] = eventShot(id: 'existing');
+      final controller = PersistenceController(storageService: storage);
+      addTearDown(controller.dispose);
+      final stored = <String>[];
+      final updated = <String>[];
+      controller.onShotStored = stored.add;
+      controller.onShotUpdated = (shot, patch) => updated.add(shot.id);
+      var changes = 0;
+      final subscription = controller.shotsChanged.listen((_) => changes++);
+      addTearDown(subscription.cancel);
+      final section = ShotExportSection(
+        controller: controller,
+        pageShots: (limit, {afterTimestamp, afterCreatedAt, afterId}) async =>
+            [],
+      );
+      final result = await importSectionJson(
+        section,
+        jsonEncode([
+          eventShot(id: 'new-1').toJson(),
+          eventShot(id: 'existing', notes: 'changed').toJson(),
+          eventShot(id: 'new-2').toJson(),
+        ]),
+        ConflictStrategy.overwrite,
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(result.imported, 3);
+      expect(stored, ['new-1', 'new-2']);
+      expect(updated, ['existing']);
+      expect(changes, 1);
+    });
+
+    for (final scenario in [
+      'new',
+      'changed',
+      'unchanged',
+      'skipped',
+      'failed insert',
+      'failed overwrite',
+      'removed notes',
+      'removed annotations',
+      'bookkeeping',
+      'measurements',
+    ]) {
+      test(
+        '$scenario import emits only the corresponding successful mutation',
+        () async {
+          final storage = ShotEventStorage();
+          final existing = eventShot();
+          final isNew = scenario == 'new' || scenario == 'failed insert';
+          if (!isNew) storage.shots[existing.id] = existing;
+          if (scenario.startsWith('failed')) storage.failedIds.add(existing.id);
+          final controller = PersistenceController(storageService: storage);
+          addTearDown(controller.dispose);
+          final stored = <String>[];
+          final updated = <Map<String, dynamic>>[];
+          var changes = 0;
+          final subscription = controller.shotsChanged.listen((_) => changes++);
+          addTearDown(subscription.cancel);
+          controller.onShotStored = stored.add;
+          controller.onShotUpdated = (shot, patch) => updated.add({
+            'id': shot.id,
+            'shot': shot.toJsonWithoutMeasurements(),
+            'patch': patch,
+          });
+          final section = ShotExportSection(
+            controller: controller,
+            pageShots: (
+              limit, {
+              afterTimestamp,
+              afterCreatedAt,
+              afterId,
+            }) async => [],
+          );
+          final imported = existing.toJson();
+          if (scenario != 'unchanged') {
+            imported['annotations'] = {
+              'espressoNotes': 'new',
+              'enjoyment': 7.0,
+            };
+            imported['shotNotes'] = 'new';
+          }
+          if (scenario == 'removed notes') {
+            imported['annotations'] = {'enjoyment': 7.0};
+            imported.remove('shotNotes');
+          }
+          if (scenario == 'removed annotations') {
+            imported.remove('annotations');
+            imported.remove('shotNotes');
+          }
+          if (scenario == 'bookkeeping') {
+            imported.addAll(existing.toJson());
+            imported['annotations']['extras'] = {'visualizerId': 'remote-id'};
+          }
+          if (scenario == 'measurements') {
+            imported.addAll(existing.toJson());
+            imported['measurements'] = [_snapshot().toJson()];
+          }
+          final result = await importSectionJson(
+            section,
+            jsonEncode([imported]),
+            scenario == 'skipped'
+                ? ConflictStrategy.skip
+                : ConflictStrategy.overwrite,
+          );
+          await Future<void>.delayed(Duration.zero);
+          final failed = scenario.startsWith('failed');
+          expect(result.errors, failed ? hasLength(1) : isEmpty);
+          expect(result.skipped, scenario == 'skipped' ? 1 : 0);
+          expect(result.imported, failed || scenario == 'skipped' ? 0 : 1);
+          expect(stored, scenario == 'new' ? [existing.id] : isEmpty);
+          final changed = [
+            'changed',
+            'removed notes',
+            'removed annotations',
+            'measurements',
+          ].contains(scenario);
+          expect(updated, changed ? hasLength(1) : isEmpty);
+          if (changed) {
+            expect(
+              updated.single['shot'],
+              storage.shots[existing.id]!.toJsonWithoutMeasurements(),
+            );
+            expect(updated.single['id'], existing.id);
+            expect(updated.single['shot'].containsKey('measurements'), isFalse);
+            expect(
+              updated.single['patch'],
+              scenario == 'measurements'
+                  ? isEmpty
+                  : {
+                      'annotations': {
+                        'espressoNotes': scenario.startsWith('removed')
+                            ? null
+                            : 'new',
+                        if (scenario == 'removed annotations')
+                          'enjoyment': null,
+                      },
+                      'shotNotes': scenario.startsWith('removed')
+                          ? null
+                          : 'new',
+                    },
+            );
+          }
+          expect(changes, failed || scenario == 'skipped' ? 0 : 1);
+        },
+      );
+    }
+
     test('streams records in bounded pages and encodes a JSON array', () async {
       final storage = _TestShotStorage();
       for (var i = 0; i < 250; i++) {
@@ -221,8 +465,12 @@ void main() {
     test('imports records incrementally with skip semantics', () async {
       final storage = _TestShotStorage();
       storage.shots['shot-1'] = makeShot(1).toJson();
+      final storedEvents = <String>[];
+      final controller = PersistenceController(storageService: storage.service)
+        ..onShotStored = storedEvents.add;
+      addTearDown(controller.dispose);
       final section = ShotExportSection(
-        controller: PersistenceController(storageService: storage.service),
+        controller: controller,
         pageShots: (limit, {afterTimestamp, afterCreatedAt, afterId}) async =>
             [],
       );
@@ -237,6 +485,8 @@ void main() {
       expect(result.skipped, 1);
       expect(result.errors, isEmpty);
       expect(storage.shots, hasLength(50));
+      expect(storedEvents, hasLength(49));
+      expect(storedEvents, isNot(contains('shot-1')));
     });
 
     test('imports records incrementally with overwrite semantics', () async {
@@ -256,6 +506,161 @@ void main() {
       expect(result.imported, 1);
       expect(storage.updated, 1);
     });
+
+    test(
+      'overwrite preserves createdAt and bumps updatedAt on content change',
+      () async {
+        final storage = _TestShotStorage();
+        final existing = makeShot(1).copyWith(
+          createdAt: DateTime.utc(2024, 1, 1, 8),
+          updatedAt: DateTime.utc(2024, 1, 1, 8, 30),
+          annotations: const ShotAnnotations(espressoNotes: 'old'),
+        );
+        storage.shots['shot-1'] = existing.toJson();
+        final section = ShotExportSection(
+          controller: PersistenceController(storageService: storage.service),
+          pageShots: (limit, {afterTimestamp, afterCreatedAt, afterId}) async =>
+              [],
+        );
+
+        final edited = makeShot(1).copyWith(
+          createdAt: DateTime.utc(2020, 1, 1),
+          updatedAt: DateTime.utc(2020, 1, 1),
+          annotations: const ShotAnnotations(espressoNotes: 'new'),
+        );
+        final result = await importSectionJson(
+          section,
+          jsonEncode([edited.toJson()]),
+          ConflictStrategy.overwrite,
+        );
+        expect(result.imported, 1);
+
+        final stored = storage.shots['shot-1']!;
+        expect(
+          stored['createdAt'],
+          existing.createdAt!.toUtc().toIso8601String(),
+        );
+        expect(stored['annotations']['espressoNotes'], 'new');
+        expect(stored['updatedAt'], endsWith('Z'));
+        expect(
+          DateTime.parse(stored['updatedAt'] as String)
+              .isAfter(DateTime.utc(2024, 1, 1, 8, 30)),
+          isTrue,
+        );
+      },
+    );
+
+    test('no-op overwrite preserves updatedAt', () async {
+      final storage = _TestShotStorage();
+      final existing = makeShot(1).copyWith(
+        createdAt: DateTime.utc(2024, 1, 1, 8),
+        updatedAt: DateTime.utc(2024, 1, 1, 8, 30),
+        annotations: const ShotAnnotations(espressoNotes: 'same'),
+      );
+      storage.shots['shot-1'] = existing.toJson();
+      final section = ShotExportSection(
+        controller: PersistenceController(storageService: storage.service),
+        pageShots: (limit, {afterTimestamp, afterCreatedAt, afterId}) async =>
+            [],
+      );
+
+      final result = await importSectionJson(
+        section,
+        jsonEncode([existing.toJson()]),
+        ConflictStrategy.overwrite,
+      );
+      expect(result.imported, 1);
+
+      final stored = storage.shots['shot-1']!;
+      expect(
+        stored['createdAt'],
+        existing.createdAt!.toUtc().toIso8601String(),
+      );
+      expect(
+        stored['updatedAt'],
+        existing.updatedAt!.toUtc().toIso8601String(),
+      );
+    });
+
+    test(
+      'overwrite confined to bookkeeping extras does not advance updatedAt',
+      () async {
+        final storage = _TestShotStorage();
+        final existing = makeShot(1).copyWith(
+          createdAt: DateTime.utc(2024, 1, 1, 8),
+          updatedAt: DateTime.utc(2024, 1, 1, 8, 30),
+          annotations: const ShotAnnotations(
+            extras: {'favorite': true, 'uploaded_to_decent': 1},
+          ),
+        );
+        storage.shots['shot-1'] = existing.toJson();
+        final section = ShotExportSection(
+          controller: PersistenceController(storageService: storage.service),
+          pageShots: (limit, {afterTimestamp, afterCreatedAt, afterId}) async =>
+              [],
+        );
+
+        final reimported = makeShot(1).copyWith(
+          createdAt: DateTime.utc(2020, 1, 1),
+          updatedAt: DateTime.utc(2020, 1, 1),
+          annotations: const ShotAnnotations(
+            extras: {'favorite': true, 'uploaded_to_decent': 2},
+          ),
+        );
+        final result = await importSectionJson(
+          section,
+          jsonEncode([reimported.toJson()]),
+          ConflictStrategy.overwrite,
+        );
+        expect(result.imported, 1);
+
+        final stored = storage.shots['shot-1']!;
+        expect(stored['annotations']['extras']['uploaded_to_decent'], 2);
+        expect(
+          stored['updatedAt'],
+          existing.updatedAt!.toUtc().toIso8601String(),
+        );
+      },
+    );
+
+    test(
+      'overwrite differing only in measurements advances updatedAt',
+      () async {
+        final storage = _TestShotStorage();
+        final existing = makeShot(1).copyWith(
+          createdAt: DateTime.utc(2024, 1, 1, 8),
+          updatedAt: DateTime.utc(2024, 1, 1, 8, 30),
+          measurements: [_snapshot().copyWith(volume: 36)],
+        );
+        storage.shots['shot-1'] = existing.toJson();
+        final section = ShotExportSection(
+          controller: PersistenceController(storageService: storage.service),
+          pageShots: (limit, {afterTimestamp, afterCreatedAt, afterId}) async =>
+              [],
+        );
+
+        final reimported = makeShot(1).copyWith(
+          createdAt: DateTime.utc(2020, 1, 1),
+          updatedAt: DateTime.utc(2020, 1, 1),
+          measurements: [_snapshot().copyWith(volume: 42)],
+        );
+        final result = await importSectionJson(
+          section,
+          jsonEncode([reimported.toJson()]),
+          ConflictStrategy.overwrite,
+        );
+        expect(result.imported, 1);
+
+        final stored = storage.shots['shot-1']!;
+        expect((stored['measurements'] as List).single['volume'], 42);
+        expect(stored['updatedAt'], endsWith('Z'));
+        expect(
+          DateTime.parse(stored['updatedAt'] as String)
+              .isAfter(DateTime.utc(2024, 1, 1, 8, 30)),
+          isTrue,
+        );
+      },
+    );
 
     test('individually invalid records keep partial-result behavior', () async {
       final storage = _TestShotStorage();
@@ -315,6 +720,54 @@ void main() {
       );
       expect(storage.shots, isEmpty);
     });
+
+    test(
+      'imports a recorded shot with a step-less imported profile (gh#784)',
+      () async {
+        final storage = _TestShotStorage();
+        final section = ShotExportSection(
+          controller: PersistenceController(storageService: storage.service),
+          pageShots: (limit, {afterTimestamp, afterCreatedAt, afterId}) async =>
+              [],
+        );
+
+        final stepLessWorkflow = Workflow(
+          id: 'workflow-1',
+          name: 'Test Workflow',
+          description: '',
+          profile: Profile(
+            version: '2',
+            title: 'de1app profile',
+            author: '',
+            notes: '',
+            beverageType: BeverageType.espresso,
+            steps: const [],
+            tankTemperature: 0,
+            targetVolumeCountStart: 0,
+          ),
+          steamSettings: SteamSettings.defaults(),
+          hotWaterData: HotWaterData.defaults(),
+          rinseData: RinseData.defaults(),
+        ).toJson();
+
+        final result = await importSectionJson(
+          section,
+          jsonEncode([
+            {
+              'id': 'de1app-1626149813',
+              'timestamp': '2021-07-13T00:00:00Z',
+              'measurements': <Object?>[],
+              'workflow': stepLessWorkflow,
+            },
+          ]),
+          ConflictStrategy.skip,
+        );
+
+        expect(result.errors, isEmpty);
+        expect(result.imported, 1);
+        expect(storage.shots['de1app-1626149813'], isNotNull);
+      },
+    );
 
     test('rejects a non-array payload without importing', () async {
       final storage = _TestShotStorage();

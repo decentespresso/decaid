@@ -14,10 +14,14 @@ void main() {
       expect(isBengleModelValue(value), isTrue);
       expect(DecentMachineModel.fromInt(value), DecentMachineModel.Bengle);
     }
+    expect(DecentMachineModel.fromInt(0), DecentMachineModel.Unknown);
+    expect(DecentMachineModel.fromInt(1), DecentMachineModel.DE1);
+    expect(DecentMachineModel.fromInt(2), DecentMachineModel.DE1Plus);
     expect(DecentMachineModel.fromInt(3), DecentMachineModel.DE1Pro);
     expect(DecentMachineModel.fromInt(4), DecentMachineModel.DE1XL);
-    expect(DecentMachineModel.fromInt(5), DecentMachineModel.DE1XXL);
-    expect(DecentMachineModel.fromInt(6), DecentMachineModel.DE1XXXL);
+    expect(DecentMachineModel.fromInt(5), DecentMachineModel.DE1Cafe);
+    expect(DecentMachineModel.fromInt(6), DecentMachineModel.DE1XXL);
+    expect(DecentMachineModel.fromInt(7), DecentMachineModel.DE1XXXL);
     expect(DecentMachineModel.fromInt(127), DecentMachineModel.Unknown);
   });
 

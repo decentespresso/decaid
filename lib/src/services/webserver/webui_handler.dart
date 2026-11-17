@@ -4,9 +4,7 @@ class WebUIHandler {
   final WebUIStorage _storage;
   final WebUIService _service;
 
-  WebUIHandler({required WebUIStorage storage, required WebUIService service})
-    : _storage = storage,
-      _service = service;
+  WebUIHandler({required this._storage, required this._service});
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/webui/skins', _handleListSkins);
@@ -78,8 +76,13 @@ class WebUIHandler {
 
   Future<Response> _handleSetDefaultSkin(Request request) async {
     try {
-      final body =
-          jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+      final body = jsonDecode(
+        await readBoundedRequestBodyString(
+          request,
+          maxBytes: smallRequestBodyBytes,
+          timeout: smallRequestBodyTimeout,
+        ),
+      ) as Map<String, dynamic>;
       final skinId = body['skinId'] as String?;
 
       if (skinId == null || skinId.isEmpty) {
@@ -94,6 +97,8 @@ class WebUIHandler {
         'message': 'Default skin updated successfully',
         'skinId': skinId,
       });
+    } on RequestBodyReadException {
+      rethrow;
     } catch (e, st) {
       log.severe('Failed to set default skin', e, st);
       if (e.toString().contains('Skin not found')) {
@@ -105,8 +110,13 @@ class WebUIHandler {
 
   Future<Response> _handleInstallFromGitHubRelease(Request request) async {
     try {
-      final body =
-          jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+      final body = jsonDecode(
+        await readBoundedRequestBodyString(
+          request,
+          maxBytes: smallRequestBodyBytes,
+          timeout: smallRequestBodyTimeout,
+        ),
+      ) as Map<String, dynamic>;
       final repo = body['repo'] as String?;
 
       if (repo == null || repo.isEmpty) {
@@ -129,16 +139,25 @@ class WebUIHandler {
         'message': 'Skin installed successfully from GitHub release',
         'repo': repo,
       });
+    } on RequestBodyReadException {
+      rethrow;
     } catch (e, st) {
       log.severe('Failed to install skin from GitHub release', e, st);
-      return jsonError({'error': e.toString()});
+      return jsonError({
+        'error': remoteErrorMessage(e, action: 'install the skin'),
+      });
     }
   }
 
   Future<Response> _handleInstallFromGitHubBranch(Request request) async {
     try {
-      final body =
-          jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+      final body = jsonDecode(
+        await readBoundedRequestBodyString(
+          request,
+          maxBytes: smallRequestBodyBytes,
+          timeout: smallRequestBodyTimeout,
+        ),
+      ) as Map<String, dynamic>;
       final repo = body['repo'] as String?;
 
       if (repo == null || repo.isEmpty) {
@@ -157,16 +176,25 @@ class WebUIHandler {
         'repo': repo,
         'branch': branch,
       });
+    } on RequestBodyReadException {
+      rethrow;
     } catch (e, st) {
       log.severe('Failed to install skin from GitHub branch', e, st);
-      return jsonError({'error': e.toString()});
+      return jsonError({
+        'error': remoteErrorMessage(e, action: 'install the skin'),
+      });
     }
   }
 
   Future<Response> _handleInstallFromUrl(Request request) async {
     try {
-      final body =
-          jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+      final body = jsonDecode(
+        await readBoundedRequestBodyString(
+          request,
+          maxBytes: smallRequestBodyBytes,
+          timeout: smallRequestBodyTimeout,
+        ),
+      ) as Map<String, dynamic>;
       final url = body['url'] as String?;
 
       if (url == null || url.isEmpty) {
@@ -182,9 +210,13 @@ class WebUIHandler {
         'message': 'Skin installed successfully from URL',
         'url': url,
       });
+    } on RequestBodyReadException {
+      rethrow;
     } catch (e, st) {
       log.severe('Failed to install skin from URL', e, st);
-      return jsonError({'error': e.toString()});
+      return jsonError({
+        'error': remoteErrorMessage(e, action: 'install the skin'),
+      });
     }
   }
 
@@ -210,10 +242,16 @@ class WebUIHandler {
 
   Future<Response> _handleUpdateSkins(Request request) async {
     try {
-      await _storage.updateAllSkins();
-      return jsonOk({'message': 'Skin update check completed'});
-    } catch (e) {
-      return jsonError({'error': 'Failed to check for updates: $e'});
+      final report = await _storage.checkForSkinUpdates();
+      return jsonOk({
+        'message': 'Skin update check completed',
+        'results': report.results.map((r) => r.toJson()).toList(),
+      });
+    } catch (e, st) {
+      log.warning('Skin update check failed', e, st);
+      return jsonError({
+        'error': remoteErrorMessage(e, action: 'check for skin updates'),
+      });
     }
   }
 

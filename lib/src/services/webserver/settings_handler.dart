@@ -7,14 +7,11 @@ class SettingsHandler {
   final BatteryController? _batteryController;
 
   SettingsHandler({
-    required SettingsController controller,
+    required this._controller,
     required WebUIService service,
-    required WebUIStorage webUIStorage,
-    BatteryController? batteryController,
-  }) : _controller = controller,
-       _webUIService = service,
-       _webUIStorage = webUIStorage,
-       _batteryController = batteryController;
+    required this._webUIStorage,
+    this._batteryController,
+  }) : _webUIService = service;
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/settings', () async {
@@ -31,6 +28,7 @@ class SettingsHandler {
       final stopHotWaterAtWeight = _controller.stopHotWaterAtWeight;
       final preferredMachineId = _controller.preferredMachineId;
       final preferredScaleId = _controller.preferredScaleId;
+      final preferredGrinderDeviceId = _controller.preferredGrinderDeviceId;
       final defaultSkinId = _controller.defaultSkinId;
       final automaticUpdateCheck = _controller.automaticUpdateCheck;
       final result = <String, dynamic>{
@@ -46,6 +44,7 @@ class SettingsHandler {
         'stopHotWaterAtWeight': stopHotWaterAtWeight,
         'preferredMachineId': preferredMachineId,
         'preferredScaleId': preferredScaleId,
+        'preferredGrinderDeviceId': preferredGrinderDeviceId,
         'defaultSkinId': defaultSkinId,
         'automaticUpdateCheck': automaticUpdateCheck,
         'chargingMode': _controller.chargingMode.name,
@@ -66,8 +65,26 @@ class SettingsHandler {
       return result;
     });
     app.post('/api/v1/settings', (Request request) async {
-      final payload = await request.readAsString();
+      final payload = await readBoundedRequestBodyString(
+        request,
+        maxBytes: largeRequestBodyBytes,
+      );
       Map<String, dynamic> json = jsonDecode(payload);
+      final changesSkin =
+          json.containsKey('webUiPath') ||
+          (json.containsKey('defaultSkinId') &&
+              json['defaultSkinId'] != _controller.defaultSkinId);
+      final enablesAutomaticUpdates =
+          json['automaticUpdateCheck'] == true &&
+          !_controller.automaticUpdateCheck;
+      final extensionsAuthorized = mayManageExtensions(request);
+      if (changesSkin || enablesAutomaticUpdates) {
+        final denial = requireExtensionManagement(
+          request,
+          action: 'POST /api/v1/settings extension settings',
+        );
+        if (denial != null) return denial;
+      }
       if (json.containsKey('gatewayMode')) {
         final GatewayMode? gatewayMode = GatewayModeFromString.fromString(
           json['gatewayMode'],
@@ -179,7 +196,17 @@ class SettingsHandler {
           });
         }
       }
-      if (json.containsKey('defaultSkinId')) {
+      if (json.containsKey('preferredGrinderDeviceId')) {
+        final value = json['preferredGrinderDeviceId'];
+        if (value == null || value is String) {
+          await _controller.setPreferredGrinderDeviceId(value);
+        } else {
+          return jsonBadRequest({
+            'message': 'preferredGrinderDeviceId must be a string or null',
+          });
+        }
+      }
+      if (extensionsAuthorized && json.containsKey('defaultSkinId')) {
         final value = json['defaultSkinId'];
         if (value is String) {
           try {
@@ -196,7 +223,9 @@ class SettingsHandler {
       if (json.containsKey('automaticUpdateCheck')) {
         final value = json['automaticUpdateCheck'];
         if (value is bool) {
-          await _controller.setAutomaticUpdateCheck(value);
+          if (extensionsAuthorized || !value) {
+            await _controller.setAutomaticUpdateCheck(value);
+          }
         } else {
           return jsonBadRequest({
             'message': 'automaticUpdateCheck must be a boolean',
@@ -303,7 +332,10 @@ class SettingsHandler {
   }
 
   Future<Response> _handleLogsRequest(Request req) async {
-    return sws.webSocketHandler((WebSocketChannel socket, String? protocol) {
+    return admittedWebSocketHandler((
+      WebSocketChannel socket,
+      String? protocol,
+    ) {
       StreamSubscription? sub;
       sub = Logger.root.onRecord.listen((logRecord) {
         socket.sink.add(

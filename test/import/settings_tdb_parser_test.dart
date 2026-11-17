@@ -73,33 +73,28 @@ screen_saver_delay 30
           0,
         );
         expect(
-          SettingsTdbParser.parse(
-            'screen_saver_delay 10\n',
-          ).sleepTimeoutMinutes,
+          SettingsTdbParser.parse('screen_saver_delay 10\n')
+              .sleepTimeoutMinutes,
           15,
         );
         expect(
-          SettingsTdbParser.parse(
-            'screen_saver_delay 50\n',
-          ).sleepTimeoutMinutes,
+          SettingsTdbParser.parse('screen_saver_delay 50\n')
+              .sleepTimeoutMinutes,
           45,
         );
         expect(
-          SettingsTdbParser.parse(
-            'screen_saver_delay 118\n',
-          ).sleepTimeoutMinutes,
+          SettingsTdbParser.parse('screen_saver_delay 118\n')
+              .sleepTimeoutMinutes,
           120,
         );
         expect(
-          SettingsTdbParser.parse(
-            'screen_saver_delay 180\n',
-          ).sleepTimeoutMinutes,
+          SettingsTdbParser.parse('screen_saver_delay 180\n')
+              .sleepTimeoutMinutes,
           180,
         );
         expect(
-          SettingsTdbParser.parse(
-            'screen_saver_delay 250\n',
-          ).sleepTimeoutMinutes,
+          SettingsTdbParser.parse('screen_saver_delay 250\n')
+              .sleepTimeoutMinutes,
           180,
         );
       });

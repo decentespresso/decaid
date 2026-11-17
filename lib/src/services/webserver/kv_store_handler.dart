@@ -37,7 +37,11 @@ final class KvStoreHandler {
     app.post('/api/v1/store/<namespace>/<key>', (Request req) async {
       final namespace = req.params['namespace'];
       final key = req.params['key'];
-      final value = await req.readAsString();
+      final value = await readBoundedRequestBodyString(
+        req,
+        maxBytes: largeRequestBodyBytes,
+        timeout: largeRequestBodyTimeout,
+      );
       final maybeJson = jsonDecode(value);
       if (namespace == null || key == null) {
         return jsonBadRequest({'error': 'Missing namespace or key'});

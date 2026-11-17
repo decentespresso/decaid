@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:drift/drift.dart';
+import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/data/shot_annotations.dart';
 import 'package:reaprime/src/models/data/shot_record.dart' as domain;
 import 'package:reaprime/src/models/data/shot_snapshot.dart';
@@ -8,8 +9,24 @@ import 'package:reaprime/src/models/data/workflow.dart' as domain_workflow;
 import 'package:reaprime/src/services/database/database.dart' as db;
 
 class ShotMapper {
+  static final Logger _log = Logger('ShotMapper');
+
+  static List<domain.ShotRecord> fromRows(Iterable<db.ShotRecord> rows) {
+    final records = <domain.ShotRecord>[];
+    for (final row in rows) {
+      try {
+        records.add(fromRow(row));
+      } catch (e) {
+        _log.warning('Skipping unreadable shot ${row.id}', e);
+      }
+    }
+    return records;
+  }
+
   static domain.ShotRecord fromRow(db.ShotRecord row) {
-    final workflow = domain_workflow.Workflow.fromJson(row.workflowJson);
+    final workflow = domain_workflow.Workflow.fromRecordedJson(
+      row.workflowJson,
+    );
 
     ShotAnnotations? annotations;
     if (row.annotationsJson != null) {
@@ -23,6 +40,8 @@ class ShotMapper {
     return domain.ShotRecord(
       id: row.id,
       timestamp: row.timestamp,
+      createdAt: row.createdAt ?? row.timestamp,
+      updatedAt: row.updatedAt ?? row.createdAt ?? row.timestamp,
       measurements: measurements,
       workflow: workflow,
       annotations: annotations,
@@ -35,6 +54,8 @@ class ShotMapper {
     return db.ShotRecordsCompanion(
       id: Value(record.id),
       timestamp: Value(record.timestamp),
+      createdAt: Value(record.createdAt),
+      updatedAt: Value(record.updatedAt),
 
       profileTitle: Value(record.workflow.profile.title),
       grinderId: Value(ctx?.grinderId),

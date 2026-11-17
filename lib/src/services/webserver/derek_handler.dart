@@ -15,9 +15,9 @@ class DerekHandler {
   }
 
   Future<Response> _handle(Request request) async {
-    final body = await request.read().fold<List<int>>(
-      <int>[],
-      (buffer, chunk) => buffer..addAll(chunk),
+    final body = await readBoundedRequestBody(
+      request,
+      maxBytes: largeRequestBodyBytes,
     );
 
     final upstreamRequest = http.Request('POST', _upstream)
@@ -25,7 +25,13 @@ class DerekHandler {
       ..headers['content-type'] =
           request.headers['content-type'] ?? 'application/json';
 
-    final upstream = await _client.send(upstreamRequest);
+    final http.StreamedResponse upstream;
+    try {
+      upstream = await _client.send(upstreamRequest);
+    } catch (e, st) {
+      log.warning('Derek connection failed', e, st);
+      return jsonError({'error': remoteErrorMessage(e, action: 'reach Derek')});
+    }
 
     return Response(
       upstream.statusCode,

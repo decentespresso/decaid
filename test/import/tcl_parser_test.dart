@@ -197,6 +197,27 @@ void main() {
       });
     });
 
+    group('splitList', () {
+      test('splits a plain Tcl list', () {
+        expect(TclParser.splitList('Coarse Fine Medium'), [
+          'Coarse',
+          'Fine',
+          'Medium',
+        ]);
+      });
+
+      test('keeps braced elements that contain spaces intact', () {
+        expect(TclParser.splitList('{Extra Fine} Medium'), [
+          'Extra Fine',
+          'Medium',
+        ]);
+      });
+
+      test('returns an empty list for an empty string', () {
+        expect(TclParser.splitList(''), isEmpty);
+      });
+    });
+
     group('full .tdb fixture file', () {
       late Map<String, dynamic> parsed;
 
@@ -221,9 +242,9 @@ void main() {
         expect(parsed['Niche Zero'], isA<Map>());
       });
 
-      test('Niche Zero setting_type is numeric', () {
+      test('Niche Zero is_numeric is 1', () {
         final niche = parsed['Niche Zero'] as Map;
-        expect(niche['setting_type'], equals('numeric'));
+        expect(niche['is_numeric'], equals('1'));
       });
 
       test('Niche Zero small_step is 1', () {
@@ -231,19 +252,94 @@ void main() {
         expect(niche['small_step'], equals('1'));
       });
 
-      test('Niche Zero burrs is a string', () {
-        final niche = parsed['Niche Zero'] as Map;
-        expect(niche['burrs'], equals('63mm conical'));
-      });
-
       test('Eureka Mignon small_step is 0.5', () {
         final eureka = parsed['Eureka Mignon'] as Map;
         expect(eureka['small_step'], equals('0.5'));
       });
 
-      test('Eureka Mignon burrs is a string', () {
-        final eureka = parsed['Eureka Mignon'] as Map;
-        expect(eureka['burrs'], equals('55mm flat'));
+      test('Baratza Encore values keeps its three settings', () {
+        final encore = parsed['Baratza Encore'] as Map;
+        expect(
+          TclParser.splitList(encore['values'].toString()),
+          equals(['Coarse', 'Fine', 'Medium']),
+        );
+      });
+    });
+
+    group('multi-line braced values', () {
+      const settingsWithBackup =
+          'settings {\n'
+          '\tbean_brand {Banibeans}\n'
+          '\tread_only_backup {advanced_shot {{exit_if 0 flow 4.50}}\n'
+          ' profile_title {Backup Profile}\n'
+          ' read_only 1\n'
+          '}\n'
+          '\tprofile_title {Rao Allonge}\n'
+          '}\n'
+          'clock 1699432544\n';
+
+      test('a value spanning lines does not close its enclosing block', () {
+        final result = TclParser.parse(settingsWithBackup);
+        final settings = result['settings'] as Map;
+        expect(settings['profile_title'], equals('Rao Allonge'));
+      });
+
+      test('keys after a multi-line value stay inside the block', () {
+        final result = TclParser.parse(settingsWithBackup);
+        expect(result.containsKey('profile_title'), isFalse);
+      });
+
+      test('parsing resumes at the top level after the block closes', () {
+        final result = TclParser.parse(settingsWithBackup);
+        expect(result['clock'], equals('1699432544'));
+      });
+
+      test('the multi-line value itself is retained', () {
+        final result = TclParser.parse(settingsWithBackup);
+        final settings = result['settings'] as Map;
+        expect(settings.containsKey('read_only_backup'), isTrue);
+      });
+    });
+
+    group('escaped braces', () {
+      const escapedOpenBrace =
+          'settings {\n'
+          '\tespresso_notes {tasted like \\{citrus}\n'
+          '\tprofile_title {Rao Allonge}\n'
+          '}\n'
+          'clock 1699432544\n';
+
+      const escapedCloseBrace =
+          'settings {\n'
+          '\tespresso_notes {ratio 1:2 \\} done}\n'
+          '\tprofile_title {Rao Allonge}\n'
+          '}\n'
+          'clock 1699432544\n';
+
+      test('an escaped open brace does not extend the value', () {
+        final settings = TclParser.parse(escapedOpenBrace)['settings'] as Map;
+        expect(settings['profile_title'], equals('Rao Allonge'));
+      });
+
+      test('an escaped close brace does not end the block early', () {
+        final settings = TclParser.parse(escapedCloseBrace)['settings'] as Map;
+        expect(settings['profile_title'], equals('Rao Allonge'));
+      });
+
+      test('parsing resumes at the top level after escaped braces', () {
+        expect(
+          TclParser.parse(escapedOpenBrace)['clock'],
+          equals('1699432544'),
+        );
+        expect(
+          TclParser.parse(escapedCloseBrace)['clock'],
+          equals('1699432544'),
+        );
+      });
+
+      test('the escaped brace is retained in the value', () {
+        final settings = TclParser.parse(escapedOpenBrace)['settings'] as Map;
+        expect(settings['espresso_notes'].toString(), contains(r'\{citrus'));
       });
     });
   });

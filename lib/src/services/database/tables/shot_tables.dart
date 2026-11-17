@@ -19,6 +19,9 @@ class ShotRecords extends Table {
 
   TextColumn get stopReason => text().nullable()();
 
+  DateTimeColumn get createdAt => dateTime().nullable()();
+  DateTimeColumn get updatedAt => dateTime().nullable()();
+
   TextColumn get workflowJson => text().map(const JsonMapConverter())();
   TextColumn get annotationsJson =>
       text().map(const NullableJsonMapConverter()).nullable()();

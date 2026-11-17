@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 
@@ -9,6 +10,13 @@ abstract class BLETransport extends DataTransport {
   Future<List<String>> discoverServices();
 
   Future<ConnectionState> getConnectionState();
+
+  Future<void> disconnectConfirmed() => Future.error(
+    UnsupportedError('Transport does not support confirmed BLE teardown'),
+  );
+
+  Future<void> unsubscribe(String serviceUUID, String characteristicUUID) =>
+      Future.error(UnsupportedError('Transport does not support unsubscribe'));
 
   Future<void> subscribe(
     String serviceUUID,

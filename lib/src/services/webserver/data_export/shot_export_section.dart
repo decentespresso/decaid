@@ -1,3 +1,4 @@
+import 'package:collection/collection.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
 import 'package:reaprime/src/models/data/shot_record.dart';
 import 'package:reaprime/src/services/webserver/data_export/backup_data_sources.dart';
@@ -11,11 +12,10 @@ class ShotExportSection implements DataExportSection {
   final int pageSize;
 
   ShotExportSection({
-    required PersistenceController controller,
-    required PageCursor<ShotRecord> pageShots,
+    required this._controller,
+    required this._pageShots,
     this.pageSize = DataTransferLimits.defaultExportPageSize,
-  }) : _controller = controller,
-       _pageShots = pageShots;
+  });
 
   @override
   String get filename => 'shots.json';
@@ -59,18 +59,41 @@ class ShotExportSection implements DataExportSection {
 
     await for (final event in input.valuesAtDepth(1)) {
       try {
-        final record = ShotRecord.fromJson(event.value as Map<String, dynamic>);
+        final record = ShotRecord.fromRecordedJson(
+          event.value as Map<String, dynamic>,
+        );
         final existing = await _controller.storageService.getShot(record.id);
 
         if (existing != null) {
           if (strategy == ConflictStrategy.overwrite) {
-            await _controller.storageService.updateShot(record);
+            final contentChanged = !existing.sameContent(
+              record,
+              includeMeasurements: true,
+            );
+            final replacement = record.copyWith(
+              createdAt:
+                  existing.createdAt ?? record.createdAt ?? existing.timestamp,
+              updatedAt: contentChanged
+                  ? DateTime.now().toUtc()
+                  : existing.updatedAt ??
+                        existing.createdAt ??
+                        existing.timestamp,
+            );
+            await _controller.updateShot(
+              replacement,
+              patch: _changedMetadata(
+                existing.contentSignature(),
+                replacement.contentSignature(),
+              ),
+              notifyPlugins: contentChanged,
+              notifyApplication: false,
+            );
             imported++;
           } else {
             skipped++;
           }
         } else {
-          await _controller.storageService.storeShot(record);
+          await _controller.storeShot(record, notifyApplication: false);
           imported++;
         }
       } catch (e) {
@@ -87,5 +110,23 @@ class ShotExportSection implements DataExportSection {
       skipped: skipped,
       errors: errors.toList(),
     );
+  }
+
+  Map<String, dynamic> _changedMetadata(
+    Map<String, dynamic> before,
+    Map<String, dynamic> after,
+  ) {
+    final patch = <String, dynamic>{};
+    for (final key in {...before.keys, ...after.keys}) {
+      final oldValue = before[key];
+      final newValue = after[key];
+      if (const DeepCollectionEquality().equals(oldValue, newValue)) continue;
+      patch[key] =
+          oldValue is Map<String, dynamic> &&
+              (newValue is Map<String, dynamic> || newValue == null)
+          ? _changedMetadata(oldValue, newValue ?? <String, dynamic>{})
+          : newValue;
+    }
+    return patch;
   }
 }

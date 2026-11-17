@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/debug_feature/calibration_debug_card.dart';
 import 'package:reaprime/src/models/device/bengle_interface.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
@@ -14,11 +15,16 @@ String debugViewTitle(De1Interface machine) =>
     machine is BengleInterface ? 'Bengle Details' : 'DE1 Details';
 
 class De1DebugView extends StatefulWidget {
-  const De1DebugView({super.key, required this.machine});
+  const De1DebugView({
+    super.key,
+    required this.machine,
+    required this.de1Controller,
+  });
 
   static const routeName = '/debug_details';
 
   final De1Interface machine;
+  final De1Controller? de1Controller;
 
   @override
   State<De1DebugView> createState() => _De1DebugViewState();
@@ -27,6 +33,11 @@ class De1DebugView extends StatefulWidget {
 class _De1DebugViewState extends State<De1DebugView> {
   var _lastDate = DateTime.now();
   late final Future<void> _connection;
+
+  De1Controller? get _machineController =>
+      identical(widget.de1Controller?.connectedDe1OrNull, widget.machine)
+      ? widget.de1Controller
+      : null;
 
   @override
   void initState() {
@@ -69,7 +80,12 @@ class _De1DebugViewState extends State<De1DebugView> {
       selectedOptionBuilder: (context, state) => Text(state.name),
       onChanged: (state) {
         if (state != null) {
-          widget.machine.requestState(state);
+          final controller = _machineController;
+          if (controller == null) {
+            widget.machine.requestState(state);
+          } else {
+            controller.requestMachineState(state);
+          }
         }
       },
       options: MachineState.values
@@ -150,7 +166,10 @@ class _De1DebugViewState extends State<De1DebugView> {
             child: Text('Machine connection failed'),
           );
         }
-        return CalibrationDebugCard(machine: widget.machine);
+        return CalibrationDebugCard(
+          machine: widget.machine,
+          writeCalibration: _writeCalibration,
+        );
       },
     );
   }
@@ -322,7 +341,12 @@ class _De1DebugViewState extends State<De1DebugView> {
           onPopInvokedWithResult: (didPop, _) {
             if (didPop) {
               cancelled = true;
-              widget.machine.cancelFirmwareUpload();
+              final controller = _machineController;
+              if (controller == null) {
+                widget.machine.cancelFirmwareUpload();
+              } else {
+                controller.cancelFirmwareUpload();
+              }
             }
           },
           child: ValueListenableBuilder<double>(
@@ -362,10 +386,18 @@ class _De1DebugViewState extends State<De1DebugView> {
     );
 
     try {
-      await widget.machine.updateFirmware(
-        data,
-        onProgress: (p) => progressNotifier.value = p,
-      );
+      final controller = _machineController;
+      if (controller == null) {
+        await widget.machine.updateFirmware(
+          data,
+          onProgress: (p) => progressNotifier.value = p,
+        );
+      } else {
+        await controller.updateFirmware(
+          data,
+          onProgress: (p) => progressNotifier.value = p,
+        );
+      }
     } on FirmwareUpdateInProgressException {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -401,6 +433,14 @@ class _De1DebugViewState extends State<De1DebugView> {
     if (mounted) {
       Navigator.of(context).pop();
     }
+  }
+
+  Future<void> _writeCalibration(De1Calibration calibration) {
+    final controller = _machineController;
+    if (controller == null) return widget.machine.writeCalibration(calibration);
+    return controller.runDeviceWrite(
+      (machine) => machine.writeCalibration(calibration),
+    );
   }
 
   final TextEditingController _serialPayloadController =

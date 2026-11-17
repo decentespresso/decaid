@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
@@ -10,6 +11,7 @@ import 'package:reaprime/src/controllers/shot_sequencer.dart';
 import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/data/shot_record.dart';
 import 'package:reaprime/src/models/data/shot_snapshot.dart';
+import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/models/data/steam_record.dart';
 import 'package:reaprime/src/models/data/workflow.dart';
 import 'package:reaprime/src/models/device/device.dart';
@@ -45,6 +47,34 @@ class _TestDe1Controller extends De1Controller {
 
   @override
   Stream<De1Interface?> get de1 => BehaviorSubject.seeded(testDe1).stream;
+
+  @override
+  Future<void> requestMachineState(MachineState state) {
+    return testDe1.requestState(state);
+  }
+
+  @override
+  Future<bool> requestShotStepSkip(bool Function() stillApplicable) async {
+    if (!stillApplicable()) return false;
+    await testDe1.requestState(MachineState.skipStep);
+    return true;
+  }
+}
+
+class _FailingTimerScale extends TestScale {
+  final calls = <String>[];
+
+  Future<void> fail(String operation) async {
+    calls.add(operation);
+    throw StateError('unsupported_operation');
+  }
+
+  @override
+  Future<void> startTimer() => fail('start');
+  @override
+  Future<void> stopTimer() => fail('stop');
+  @override
+  Future<void> resetTimer() => fail('reset');
 }
 
 class _TestScaleController extends ScaleController {
@@ -78,7 +108,7 @@ class _TestScaleController extends ScaleController {
   @override
   Scale connectedScale() {
     if (_connectionState.value != ConnectionState.connected) {
-      throw 'No scale connected';
+      throw const DeviceNotConnectedException.scale();
     }
     return testScale;
   }
@@ -158,6 +188,7 @@ class _NullStorageService implements StorageService {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
     bool ascending = false,
   }) async => [];
   @override
@@ -171,6 +202,7 @@ class _NullStorageService implements StorageService {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
   }) async => 0;
   @override
   Future<ShotRecord?> getLatestShot() async => null;
@@ -270,6 +302,196 @@ ProfileStepFlow _flowStep({
 }
 
 void main() {
+  test('step weight exit retries after governor saturation clears', () async {
+    final testDe1 = TestDe1();
+    final devices = DeviceController([_FakeDiscoveryService()]);
+    await devices.initialize();
+    final de1Controller = De1Controller(
+      controller: devices,
+      maxPendingDeviceWrites: 0,
+    );
+    await de1Controller.connectToDe1(testDe1);
+    testDe1.emitShotSettings(
+      De1ShotSettings(
+        steamSetting: 0,
+        targetSteamTemp: 150,
+        targetSteamDuration: 30,
+        targetHotWaterTemp: 75,
+        targetHotWaterVolume: 50,
+        targetHotWaterDuration: 30,
+        targetShotVolume: 36,
+        groupTemp: 94,
+      ),
+    );
+    await de1Controller.initSettled.firstWhere(
+      (generation) => generation != null,
+    );
+    addTearDown(de1Controller.dispose);
+
+    final testScale = TestScale();
+    final scaleController = _TestScaleController(testScale);
+    addTearDown(() {
+      scaleController.dispose();
+      testScale.dispose();
+    });
+    final persistenceController = PersistenceController(
+      storageService: _NullStorageService(),
+    );
+    addTearDown(persistenceController.dispose);
+    final profile = _profileWithSteps([
+      _pressureStep(name: 'retry', weight: 10),
+    ]);
+    scaleController.emitWeight(0);
+    final sequencer = ShotSequencer(
+      scaleController: scaleController,
+      de1controller: de1Controller,
+      persistenceController: persistenceController,
+      targetProfile: profile,
+      targetYield: 200,
+      bypassSAW: false,
+      blockOnNoScale: false,
+      weightFlowMultiplier: 0,
+      volumeFlowMultiplier: 0,
+      stepExitArbiterEnabled: true,
+    );
+    addTearDown(sequencer.dispose);
+
+    testDe1.emitStateAndSubstate(
+      MachineState.espresso,
+      MachineSubstate.preparingForShot,
+    );
+    testDe1.emitStateAndSubstate(
+      MachineState.espresso,
+      MachineSubstate.pouring,
+    );
+
+    final activeStarted = Completer<void>();
+    final activeRelease = Completer<void>();
+    final active = de1Controller.runDeviceWrite((_) async {
+      activeStarted.complete();
+      await activeRelease.future;
+    });
+    await activeStarted.future;
+
+    scaleController.emitWeight(12);
+    testDe1.emitSnapshot(
+      testDe1.snapshotSubject.value.copyWith(profileFrame: 0),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(testDe1.requestedStates, isNot(contains(MachineState.skipStep)));
+
+    activeRelease.complete();
+    await active;
+    final skipped = sequencer.decisions.firstWhere(
+      (decision) => decision.reason == ShotDecisionReason.profileSkip,
+    );
+    testDe1.emitSnapshot(
+      testDe1.snapshotSubject.value.copyWith(profileFrame: 0),
+    );
+    await skipped;
+
+    expect(testDe1.requestedStates, contains(MachineState.skipStep));
+    expect(sequencer.skippedSteps, [0]);
+  });
+
+  test('admitted step skip is dropped after the frame advances', () async {
+    final testDe1 = TestDe1();
+    final devices = DeviceController([_FakeDiscoveryService()]);
+    await devices.initialize();
+    final de1Controller = De1Controller(
+      controller: devices,
+      maxPendingDeviceWrites: 1,
+    );
+    await de1Controller.connectToDe1(testDe1);
+    testDe1.emitShotSettings(
+      De1ShotSettings(
+        steamSetting: 0,
+        targetSteamTemp: 150,
+        targetSteamDuration: 30,
+        targetHotWaterTemp: 75,
+        targetHotWaterVolume: 50,
+        targetHotWaterDuration: 30,
+        targetShotVolume: 36,
+        groupTemp: 94,
+      ),
+    );
+    await de1Controller.initSettled.firstWhere(
+      (generation) => generation != null,
+    );
+    addTearDown(de1Controller.dispose);
+
+    final testScale = TestScale();
+    final scaleController = _TestScaleController(testScale);
+    addTearDown(() {
+      scaleController.dispose();
+      testScale.dispose();
+    });
+    final persistenceController = PersistenceController(
+      storageService: _NullStorageService(),
+    );
+    addTearDown(persistenceController.dispose);
+    scaleController.emitWeight(0);
+    final sequencer = ShotSequencer(
+      scaleController: scaleController,
+      de1controller: de1Controller,
+      persistenceController: persistenceController,
+      targetProfile: _profileWithSteps([
+        _pressureStep(name: 'first', weight: 10),
+        _pressureStep(name: 'second', weight: 20),
+      ]),
+      targetYield: 200,
+      bypassSAW: false,
+      blockOnNoScale: false,
+      weightFlowMultiplier: 0,
+      volumeFlowMultiplier: 0,
+      stepExitArbiterEnabled: true,
+    );
+    addTearDown(sequencer.dispose);
+    final decisions = <ShotDecision>[];
+    final decisionSubscription = sequencer.decisions.listen(decisions.add);
+    addTearDown(decisionSubscription.cancel);
+    testDe1.emitStateAndSubstate(
+      MachineState.espresso,
+      MachineSubstate.preparingForShot,
+    );
+    testDe1.emitStateAndSubstate(
+      MachineState.espresso,
+      MachineSubstate.pouring,
+    );
+
+    final activeStarted = Completer<void>();
+    final activeRelease = Completer<void>();
+    final active = de1Controller.runDeviceWrite((_) async {
+      activeStarted.complete();
+      await activeRelease.future;
+    });
+    await activeStarted.future;
+
+    scaleController.emitWeight(12);
+    testDe1.emitSnapshot(
+      testDe1.snapshotSubject.value.copyWith(profileFrame: 0),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(de1Controller.pendingDeviceWriteCount, 1);
+
+    testDe1.emitSnapshot(
+      testDe1.snapshotSubject.value.copyWith(profileFrame: 1),
+    );
+    await Future<void>.delayed(Duration.zero);
+    activeRelease.complete();
+    await active;
+    await Future<void>.delayed(Duration.zero);
+
+    expect(testDe1.requestedStates, isNot(contains(MachineState.skipStep)));
+    expect(sequencer.skippedSteps, isEmpty);
+    expect(
+      decisions.where(
+        (decision) => decision.reason == ShotDecisionReason.profileSkip,
+      ),
+      isEmpty,
+    );
+  });
+
   group('ShotSequencer — scale disconnect during shot', () {
     late TestDe1 testDe1;
     late TestScale testScale;
@@ -399,6 +621,177 @@ void main() {
         });
       },
     );
+
+    ShotSequencer timerSequencer(ScaleController controller) => ShotSequencer(
+      scaleController: controller,
+      de1controller: de1Controller,
+      persistenceController: persistenceController,
+      targetProfile: profile,
+      targetYield: 36,
+      bypassSAW: false,
+      blockOnNoScale: false,
+      weightFlowMultiplier: 0,
+      volumeFlowMultiplier: 0,
+      stepExitArbiterEnabled: true,
+    );
+
+    void emitZeroWeight(TestScale scale) {
+      scale.emitSnapshot(
+        ScaleSnapshot(
+          timestamp: DateTime(2026, 1, 15, 8, 0),
+          weight: 0,
+          batteryLevel: 100,
+        ),
+      );
+    }
+
+    test(
+      'timer cleanup stops the original scale after a handoff, not B',
+      () async {
+        final controller = ScaleController();
+        final replacement = TestScale(deviceId: 'scale-B');
+        await controller.connectToScale(testScale);
+        await Future<void>.delayed(Duration.zero);
+        emitZeroWeight(testScale);
+        await Future<void>.delayed(Duration.zero);
+        expect(controller.currentConnectionState, ConnectionState.connected);
+        expect(controller.currentWeightSnapshot, isNotNull);
+        final sequencer = timerSequencer(controller);
+        await Future<void>.delayed(Duration.zero);
+        driveToPouring(sequencer);
+        await Future<void>.delayed(Duration.zero);
+        expect(testScale.startTimerCallCount, 1);
+
+        await controller.connectToScale(replacement);
+        await Future<void>.delayed(Duration.zero);
+        emitZeroWeight(replacement);
+        await Future<void>.delayed(Duration.zero);
+        testDe1.emitStateAndSubstate(
+          MachineState.espresso,
+          MachineSubstate.pouringDone,
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(sequencer.currentState, ShotState.finished);
+        expect(testScale.stopTimerCallCount, 1);
+        expect(replacement.startTimerCallCount, 0);
+        expect(replacement.stopTimerCallCount, 0);
+        sequencer.dispose();
+        controller.dispose();
+        replacement.dispose();
+      },
+    );
+
+    for (final reuseInstance in [true, false]) {
+      test(
+        reuseInstance
+            ? 'timer cleanup deliberately stops the reconnected original, not B'
+            : 'timer cleanup ignores a new instance on reconnect',
+        () async {
+          final controller = ScaleController();
+          final reconnected = reuseInstance
+              ? testScale
+              : TestScale(deviceId: testScale.deviceId);
+          await controller.connectToScale(testScale);
+          await Future<void>.delayed(Duration.zero);
+          emitZeroWeight(testScale);
+          await Future<void>.delayed(Duration.zero);
+          final sequencer = timerSequencer(controller);
+          await Future<void>.delayed(Duration.zero);
+          driveToPouring(sequencer);
+          await Future<void>.delayed(Duration.zero);
+          expect(testScale.startTimerCallCount, 1);
+          final generation = controller.connectionGeneration;
+
+          testScale.setConnectionState(ConnectionState.disconnected);
+          await Future<void>.delayed(Duration.zero);
+          reconnected.setConnectionState(ConnectionState.connected);
+          await controller.connectToScale(reconnected);
+          await Future<void>.delayed(Duration.zero);
+          expect(controller.connectionGeneration, greaterThan(generation));
+          expect(identical(controller.connectedScale(), reconnected), isTrue);
+          emitZeroWeight(reconnected);
+          await Future<void>.delayed(Duration.zero);
+          final replacement = TestScale(deviceId: 'scale-B');
+          if (reuseInstance) {
+            await controller.connectToScale(replacement);
+            await Future<void>.delayed(Duration.zero);
+          }
+          testDe1.emitStateAndSubstate(
+            MachineState.espresso,
+            MachineSubstate.pouringDone,
+          );
+          await Future<void>.delayed(Duration.zero);
+
+          expect(sequencer.currentState, ShotState.finished);
+          expect(reconnected.stopTimerCallCount, reuseInstance ? 1 : 0);
+          expect(replacement.stopTimerCallCount, 0);
+          sequencer.dispose();
+          controller.dispose();
+          replacement.dispose();
+          if (!reuseInstance) reconnected.dispose();
+        },
+      );
+    }
+
+    test(
+      'timer cleanup ignores a scale connecting after a scaleless start',
+      () async {
+        final controller = ScaleController();
+        final sequencer = timerSequencer(controller);
+        await Future<void>.delayed(Duration.zero);
+        driveToPouring(sequencer);
+        await Future<void>.delayed(Duration.zero);
+        expect(sequencer.currentState, ShotState.pouring);
+        await controller.connectToScale(testScale);
+        await Future<void>.delayed(Duration.zero);
+        emitZeroWeight(testScale);
+        await Future<void>.delayed(Duration.zero);
+        testDe1.emitStateAndSubstate(
+          MachineState.espresso,
+          MachineSubstate.pouringDone,
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(sequencer.currentState, ShotState.finished);
+        expect(testScale.startTimerCallCount, 0);
+        expect(testScale.stopTimerCallCount, 0);
+        sequencer.dispose();
+        controller.dispose();
+      },
+    );
+
+    test('synchronous timer stop failure logs and still finishes the shot', () {
+      fakeAsync((async) {
+        final records = <LogRecord>[];
+        final subscription = Logger.root.onRecord.listen(records.add);
+        testScale.throwOnStopTimer = true;
+        scaleController.emitWeight(0);
+        final sequencer = timerSequencer(scaleController);
+        driveToPouring(sequencer);
+        async.flushMicrotasks();
+        expect(testScale.startTimerCallCount, 1);
+        testDe1.emitStateAndSubstate(
+          MachineState.espresso,
+          MachineSubstate.pouringDone,
+        );
+        async.flushMicrotasks();
+
+        expect(sequencer.currentState, ShotState.finished);
+        expect(testScale.stopTimerCallCount, 1);
+        expect(
+          records.where(
+            (record) =>
+                record.level >= Level.WARNING &&
+                record.message == 'Failed to stop scale timer' &&
+                record.error is StateError,
+          ),
+          hasLength(1),
+        );
+        sequencer.dispose();
+        subscription.cancel();
+      });
+    });
 
     test('scale handoff during a shot stays scaleless', () {
       fakeAsync((async) {
@@ -590,6 +983,45 @@ void main() {
       });
     });
 
+    test('automatic timer failures do not escape shot sequencing', () {
+      fakeAsync((async) {
+        final optionalScale = _FailingTimerScale();
+        scaleController.dispose();
+        scaleController = _TestScaleController(optionalScale);
+        scaleController.emitWeight(0);
+        final sequencer = ShotSequencer(
+          scaleController: scaleController,
+          de1controller: de1Controller,
+          persistenceController: persistenceController,
+          targetProfile: profile,
+          targetYield: 36,
+          bypassSAW: false,
+          blockOnNoScale: false,
+          weightFlowMultiplier: 0,
+          volumeFlowMultiplier: 0,
+          stepExitArbiterEnabled: true,
+        );
+        async.elapse(const Duration(milliseconds: 10));
+        driveToPouring(sequencer);
+        async.elapse(const Duration(milliseconds: 10));
+        for (var i = 0; i < 2; i++) {
+          scaleController.emitWeight(i + 1.0);
+          testDe1.emitStateAndSubstate(
+            MachineState.espresso,
+            MachineSubstate.pouringDone,
+          );
+          async.elapse(const Duration(milliseconds: 100));
+        }
+        expect(optionalScale.calls, containsAll(['reset', 'start', 'stop']));
+        expect(
+          optionalScale.calls.where((call) => call == 'stop'),
+          hasLength(1),
+        );
+        sequencer.dispose();
+        optionalScale.dispose();
+      });
+    });
+
     test('SAW projects weight with control flow', () {
       fakeAsync((async) {
         scaleController.emitWeight(0.0);
@@ -707,8 +1139,7 @@ void main() {
         expect(
           testDe1.requestedStates,
           contains(MachineState.idle),
-          reason:
-              'SAW should fire when scale is connected and weight exceeds target',
+          reason: 'SAW should fire when scale is connected and weight exceeds target',
         );
 
         shotSequencer.dispose();
@@ -1462,6 +1893,112 @@ void main() {
         shotSequencer.dispose();
       });
     });
+
+    test('0 g yield still stops the scale timer before finishing', () {
+      fakeAsync((async) {
+        final shotSequencer = ShotSequencer(
+          scaleController: scaleController,
+          de1controller: de1Controller,
+          persistenceController: persistenceController,
+          targetProfile: profile,
+          targetYield: 36.0,
+          bypassSAW: false,
+          blockOnNoScale: false,
+          weightFlowMultiplier: 0.0,
+          volumeFlowMultiplier: 0.0,
+          stepExitArbiterEnabled: true,
+        );
+        final states = <ShotState>[];
+        shotSequencer.state.listen(states.add);
+        async.elapse(const Duration(milliseconds: 10));
+
+        scaleController.emitWeight(0.0);
+        async.elapse(const Duration(milliseconds: 10));
+
+        driveToPouring(shotSequencer);
+        async.elapse(const Duration(milliseconds: 10));
+
+        expect(
+          testScale.startTimerCallCount,
+          1,
+          reason: 'the pour should start the connected scale timer',
+        );
+
+        testDe1.emitStateAndSubstate(
+          MachineState.espresso,
+          MachineSubstate.pouringDone,
+        );
+        async.elapse(const Duration(milliseconds: 50));
+
+        expect(
+          states,
+          contains(ShotState.finished),
+          reason: '0 g has no trusted yield, so it finishes immediately',
+        );
+        expect(
+          states,
+          isNot(contains(ShotState.stopping)),
+          reason: '0 g skips the settling window',
+        );
+        expect(shotSequencer.trustedFinalYield, isNull);
+        expect(
+          testScale.stopTimerCallCount,
+          1,
+          reason: 'the scale timer must stop on every shot end',
+        );
+
+        shotSequencer.dispose();
+      });
+    });
+
+    test('a scaleless shot end logs no scale-timer failure', () {
+      fakeAsync((async) {
+        final warnings = <String>[];
+        final subscription = Logger.root.onRecord.listen((record) {
+          if (record.level >= Level.WARNING) {
+            warnings.add(record.message);
+          }
+        });
+
+        // No scale connected at all: the timer-stop path must treat this as an
+        // ordinary scaleless shot, not as a failed stopTimer call.
+        scaleController.simulateDisconnect();
+        final shotSequencer = ShotSequencer(
+          scaleController: scaleController,
+          de1controller: de1Controller,
+          persistenceController: persistenceController,
+          targetProfile: profile,
+          targetYield: 36.0,
+          bypassSAW: false,
+          blockOnNoScale: false,
+          weightFlowMultiplier: 0.0,
+          volumeFlowMultiplier: 0.0,
+          stepExitArbiterEnabled: true,
+        );
+        final states = <ShotState>[];
+        shotSequencer.state.listen(states.add);
+        async.elapse(const Duration(milliseconds: 10));
+
+        driveToPouring(shotSequencer);
+        async.elapse(const Duration(milliseconds: 10));
+        testDe1.emitStateAndSubstate(
+          MachineState.espresso,
+          MachineSubstate.pouringDone,
+        );
+        async.elapse(const Duration(milliseconds: 50));
+
+        expect(states, contains(ShotState.finished));
+        expect(testScale.stopTimerCallCount, 0);
+        expect(
+          warnings.where((m) => m.contains('Failed to stop scale timer')),
+          isEmpty,
+          reason: 'an absent scale is not a timer-stop failure',
+        );
+
+        shotSequencer.dispose();
+        subscription.cancel();
+      });
+    });
   });
 
   group('ShotSequencer — blockOnNoScale', () {
@@ -1699,6 +2236,7 @@ void main() {
     ShotSequencer makeSequencer({
       Profile? profile,
       double targetYield = 36.0,
+      double? targetWaterVolume,
       double volumeFlowMultiplier = 0.0,
     }) {
       return ShotSequencer(
@@ -1707,6 +2245,7 @@ void main() {
         persistenceController: persistenceController,
         targetProfile: profile ?? _simpleProfile(),
         targetYield: targetYield,
+        targetWaterVolume: targetWaterVolume,
         bypassSAW: false,
         blockOnNoScale: false,
         weightFlowMultiplier: 0.0,
@@ -1714,6 +2253,29 @@ void main() {
         stepExitArbiterEnabled: true,
       );
     }
+
+    Profile volumeProfile() => Profile(
+      version: '2',
+      title: 'Volume Profile',
+      notes: '',
+      author: 'test',
+      beverageType: BeverageType.espresso,
+      targetVolumeCountStart: 0,
+      tankTemperature: 0,
+      targetWeight: 0,
+      targetVolume: 50,
+      steps: [
+        ProfileStepPressure(
+          name: 'step1',
+          transition: TransitionType.fast,
+          volume: 0,
+          seconds: 30,
+          temperature: 93,
+          sensor: TemperatureSensor.coffee,
+          pressure: 9,
+        ),
+      ],
+    );
 
     void driveToPouring() {
       testDe1.emitStateAndSubstate(
@@ -1775,30 +2337,8 @@ void main() {
         'the shot', () {
       fakeAsync((async) {
         scaleController.simulateDisconnect();
-        final profile = Profile(
-          version: '2',
-          title: 'Volume Profile',
-          notes: '',
-          author: 'test',
-          beverageType: BeverageType.espresso,
-          targetVolumeCountStart: 0,
-          tankTemperature: 0,
-          targetWeight: 0,
-          targetVolume: 50,
-          steps: [
-            ProfileStepPressure(
-              name: 'step1',
-              transition: TransitionType.fast,
-              volume: 0,
-              seconds: 30,
-              temperature: 93,
-              sensor: TemperatureSensor.coffee,
-              pressure: 9,
-            ),
-          ],
-        );
         final sequencer = makeSequencer(
-          profile: profile,
+          profile: volumeProfile(),
           volumeFlowMultiplier: 1.0,
         );
         final decisions = <ShotDecision>[];
@@ -1815,8 +2355,132 @@ void main() {
           (d) => d.reason == ShotDecisionReason.targetVolume,
         );
         expect(stop.kind, ShotDecisionKind.stop);
+        expect(stop.data?['targetVolume'], 50.0);
         expect(sequencer.finalStopReason, ShotDecisionReason.targetVolume);
         expect(testDe1.requestedStates, contains(MachineState.idle));
+
+        sequencer.dispose();
+      });
+    });
+
+    test('workflow water-volume override replaces the profile fallback', () {
+      fakeAsync((async) {
+        scaleController.simulateDisconnect();
+        final sequencer = makeSequencer(
+          profile: volumeProfile(),
+          targetWaterVolume: 75,
+          volumeFlowMultiplier: 1.0,
+        );
+        final decisions = <ShotDecision>[];
+        sequencer.decisions.listen(decisions.add);
+
+        async.elapse(Duration(milliseconds: 10));
+        driveToPouring();
+        async.elapse(Duration(milliseconds: 10));
+
+        emitPouringFrame(0, flow: 60);
+        async.elapse(Duration(milliseconds: 10));
+        expect(
+          decisions.where((d) => d.reason == ShotDecisionReason.targetVolume),
+          isEmpty,
+        );
+
+        emitPouringFrame(0, flow: 80);
+        async.elapse(Duration(milliseconds: 10));
+
+        final stop = decisions.singleWhere(
+          (d) => d.reason == ShotDecisionReason.targetVolume,
+        );
+        expect(stop.data?['targetVolume'], 75.0);
+
+        sequencer.dispose();
+      });
+    });
+
+    test('zero workflow water volume disables the profile fallback', () {
+      fakeAsync((async) {
+        scaleController.simulateDisconnect();
+        final sequencer = makeSequencer(
+          profile: volumeProfile(),
+          targetWaterVolume: 0,
+          volumeFlowMultiplier: 1.0,
+        );
+        final decisions = <ShotDecision>[];
+        sequencer.decisions.listen(decisions.add);
+
+        async.elapse(Duration(milliseconds: 10));
+        driveToPouring();
+        async.elapse(Duration(milliseconds: 10));
+        emitPouringFrame(0, flow: 100);
+        async.elapse(Duration(milliseconds: 10));
+
+        expect(
+          decisions.where((d) => d.reason == ShotDecisionReason.targetVolume),
+          isEmpty,
+        );
+
+        sequencer.dispose();
+      });
+    });
+
+    test('target yield never becomes a volumetric fallback', () {
+      fakeAsync((async) {
+        scaleController.simulateDisconnect();
+        final sequencer = makeSequencer(
+          targetYield: 36,
+          volumeFlowMultiplier: 1.0,
+        );
+        final decisions = <ShotDecision>[];
+        sequencer.decisions.listen(decisions.add);
+
+        async.elapse(Duration(milliseconds: 10));
+        driveToPouring();
+        async.elapse(Duration(milliseconds: 10));
+        emitPouringFrame(0, flow: 100);
+        async.elapse(Duration(milliseconds: 10));
+
+        expect(
+          decisions.where((d) => d.reason == ShotDecisionReason.targetVolume),
+          isEmpty,
+        );
+
+        sequencer.dispose();
+      });
+    });
+
+    test('workflow water volume activates only after scale loss', () {
+      fakeAsync((async) {
+        scaleController.emitWeight(0);
+        final sequencer = makeSequencer(
+          profile: volumeProfile(),
+          targetYield: 36,
+          targetWaterVolume: 55,
+          volumeFlowMultiplier: 1.0,
+        );
+        final decisions = <ShotDecision>[];
+        sequencer.decisions.listen(decisions.add);
+
+        async.elapse(Duration(milliseconds: 10));
+        driveToPouring();
+        async.elapse(Duration(milliseconds: 10));
+        emitPouringFrame(0, flow: 60);
+        async.elapse(Duration(milliseconds: 10));
+        expect(
+          decisions.where((d) => d.reason == ShotDecisionReason.targetVolume),
+          isEmpty,
+        );
+
+        scaleController.simulateDisconnect();
+        async.elapse(Duration(milliseconds: 10));
+        emitPouringFrame(0, flow: 60);
+        async.elapse(Duration(milliseconds: 10));
+
+        expect(
+          decisions
+              .singleWhere((d) => d.reason == ShotDecisionReason.targetVolume)
+              .data?['targetVolume'],
+          55.0,
+        );
 
         sequencer.dispose();
       });
@@ -2074,6 +2738,8 @@ void main() {
           final terminal = decisions.singleWhere(
             (d) => d.kind == ShotDecisionKind.terminal,
           );
+          expect(testScale.startTimerCallCount, 1);
+          expect(testScale.stopTimerCallCount, 1);
           expect(terminal.reason, ShotDecisionReason.error);
           expect(sequencer.finalStopReason, ShotDecisionReason.error);
           expect(states, contains(ShotState.finished));

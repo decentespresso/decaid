@@ -1,12 +1,16 @@
+import 'package:collection/collection.dart';
 import 'package:reaprime/src/models/data/utils.dart';
 
 class WorkflowContext {
   final double? targetDoseWeight;
   final double? targetYield;
+  final double? targetWaterVolume;
 
   final String? grinderId;
   final String? grinderModel;
+  final String? grinderBurrs;
   final String? grinderSetting;
+  final int? grinderRpm;
 
   final String? beanBatchId;
   final String? coffeeName;
@@ -22,9 +26,12 @@ class WorkflowContext {
   const WorkflowContext({
     this.targetDoseWeight,
     this.targetYield,
+    this.targetWaterVolume,
     this.grinderId,
     this.grinderModel,
+    this.grinderBurrs,
     this.grinderSetting,
+    this.grinderRpm,
     this.beanBatchId,
     this.coffeeName,
     this.coffeeRoaster,
@@ -43,9 +50,12 @@ class WorkflowContext {
     return WorkflowContext(
       targetDoseWeight: parseOptionalDouble(json['targetDoseWeight']),
       targetYield: parseOptionalDouble(json['targetYield']),
+      targetWaterVolume: parseOptionalDouble(json['targetWaterVolume']),
       grinderId: parseOptionalString(json['grinderId']),
       grinderModel: parseOptionalString(json['grinderModel']),
+      grinderBurrs: parseOptionalString(json['grinderBurrs']),
       grinderSetting: parseOptionalString(json['grinderSetting']),
+      grinderRpm: _parseOptionalGrinderRpm(json['grinderRpm']),
       beanBatchId: parseOptionalString(json['beanBatchId']),
       coffeeName: parseOptionalString(json['coffeeName']),
       coffeeRoaster: parseOptionalString(json['coffeeRoaster']),
@@ -60,9 +70,12 @@ class WorkflowContext {
     return {
       if (targetDoseWeight != null) 'targetDoseWeight': targetDoseWeight,
       if (targetYield != null) 'targetYield': targetYield,
+      if (targetWaterVolume != null) 'targetWaterVolume': targetWaterVolume,
       if (grinderId != null) 'grinderId': grinderId,
       if (grinderModel != null) 'grinderModel': grinderModel,
+      if (grinderBurrs != null) 'grinderBurrs': grinderBurrs,
       if (grinderSetting != null) 'grinderSetting': grinderSetting,
+      if (grinderRpm != null) 'grinderRpm': grinderRpm,
       if (beanBatchId != null) 'beanBatchId': beanBatchId,
       if (coffeeName != null) 'coffeeName': coffeeName,
       if (coffeeRoaster != null) 'coffeeRoaster': coffeeRoaster,
@@ -76,9 +89,12 @@ class WorkflowContext {
   WorkflowContext clearGrinder() => WorkflowContext(
     targetDoseWeight: targetDoseWeight,
     targetYield: targetYield,
+    targetWaterVolume: targetWaterVolume,
     grinderId: null,
     grinderModel: null,
+    grinderBurrs: null,
     grinderSetting: grinderSetting,
+    grinderRpm: grinderRpm,
     beanBatchId: beanBatchId,
     coffeeName: coffeeName,
     coffeeRoaster: coffeeRoaster,
@@ -91,9 +107,12 @@ class WorkflowContext {
   WorkflowContext clearBeanBatch() => WorkflowContext(
     targetDoseWeight: targetDoseWeight,
     targetYield: targetYield,
+    targetWaterVolume: targetWaterVolume,
     grinderId: grinderId,
     grinderModel: grinderModel,
+    grinderBurrs: grinderBurrs,
     grinderSetting: grinderSetting,
+    grinderRpm: grinderRpm,
     beanBatchId: null,
     coffeeName: null,
     coffeeRoaster: null,
@@ -106,10 +125,18 @@ class WorkflowContext {
   WorkflowContext copyWith({
     double? targetDoseWeight,
     double? targetYield,
+    double? targetWaterVolume,
+    bool clearTargetWaterVolume = false,
     String? grinderId,
+    bool clearGrinderId = false,
     String? grinderModel,
+    String? grinderBurrs,
+    bool clearGrinderBurrs = false,
     String? grinderSetting,
+    int? grinderRpm,
+    bool clearGrinderRpm = false,
     String? beanBatchId,
+    bool clearBeanBatchId = false,
     String? coffeeName,
     String? coffeeRoaster,
     String? finalBeverageType,
@@ -120,10 +147,17 @@ class WorkflowContext {
     return WorkflowContext(
       targetDoseWeight: targetDoseWeight ?? this.targetDoseWeight,
       targetYield: targetYield ?? this.targetYield,
-      grinderId: grinderId ?? this.grinderId,
+      targetWaterVolume: clearTargetWaterVolume
+          ? null
+          : targetWaterVolume ?? this.targetWaterVolume,
+      grinderId: clearGrinderId ? null : grinderId ?? this.grinderId,
       grinderModel: grinderModel ?? this.grinderModel,
+      grinderBurrs: clearGrinderBurrs
+          ? null
+          : grinderBurrs ?? this.grinderBurrs,
       grinderSetting: grinderSetting ?? this.grinderSetting,
-      beanBatchId: beanBatchId ?? this.beanBatchId,
+      grinderRpm: clearGrinderRpm ? null : grinderRpm ?? this.grinderRpm,
+      beanBatchId: clearBeanBatchId ? null : beanBatchId ?? this.beanBatchId,
       coffeeName: coffeeName ?? this.coffeeName,
       coffeeRoaster: coffeeRoaster ?? this.coffeeRoaster,
       finalBeverageType: finalBeverageType ?? this.finalBeverageType,
@@ -145,9 +179,12 @@ class WorkflowContext {
     if (other is! WorkflowContext) return false;
     return other.targetDoseWeight == targetDoseWeight &&
         other.targetYield == targetYield &&
+        other.targetWaterVolume == targetWaterVolume &&
         other.grinderId == grinderId &&
         other.grinderModel == grinderModel &&
+        other.grinderBurrs == grinderBurrs &&
         other.grinderSetting == grinderSetting &&
+        other.grinderRpm == grinderRpm &&
         other.beanBatchId == beanBatchId &&
         other.coffeeName == coffeeName &&
         other.coffeeRoaster == coffeeRoaster &&
@@ -161,29 +198,29 @@ class WorkflowContext {
   int get hashCode => Object.hash(
     targetDoseWeight,
     targetYield,
+    targetWaterVolume,
     grinderId,
     grinderModel,
+    grinderBurrs,
     grinderSetting,
+    grinderRpm,
     beanBatchId,
     coffeeName,
     coffeeRoaster,
     finalBeverageType,
     baristaName,
     drinkerName,
-    extras == null
-        ? null
-        : Object.hashAll(
-            extras!.entries.map((e) => Object.hash(e.key, e.value)),
-          ),
+    extras == null ? null : const DeepCollectionEquality().hash(extras),
   );
 }
 
-bool _mapEquals(Map<String, dynamic>? a, Map<String, dynamic>? b) {
-  if (identical(a, b)) return true;
-  if (a == null || b == null) return false;
-  if (a.length != b.length) return false;
-  for (final key in a.keys) {
-    if (!b.containsKey(key) || a[key] != b[key]) return false;
-  }
-  return true;
+int? _parseOptionalGrinderRpm(dynamic value) {
+  if (value == null) return null;
+  if (value is int && value >= 0) return value;
+  throw const FormatException(
+    'grinderRpm must be a non-negative integer or null',
+  );
 }
+
+bool _mapEquals(Map<String, dynamic>? a, Map<String, dynamic>? b) =>
+    const DeepCollectionEquality().equals(a, b);

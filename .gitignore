@@ -59,6 +59,7 @@ app.*.map.json
 # Externally released plugin build outputs
 assets/plugins/dye2.reaplugin/
 assets/plugins/shot-upload.reaplugin/
+assets/plugins/dcamp.reaplugin/
 
 # Skin bundling
 .skin_cache/
@@ -67,6 +68,16 @@ assets/bundled_skins/
 # Ruby / fastlane (bundler vendored install)
 .bundle/
 vendor/bundle/
+
+# App Store Connect credentials
+**/AuthKey_*.p8
+**/asc_key*.json
+
+# fastlane generated output (screenshots are captured by hand and stay versioned)
+**/fastlane/report.xml
+**/fastlane/Preview.html
+**/fastlane/test_output
+**/fastlane/screenshots/**/*.html
 pubspec_overrides.yaml
 
 # Local-only agent skill: google-analytics-cli (kept out of the repo)

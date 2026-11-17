@@ -14,7 +14,15 @@ class DriftStorageService implements StorageService {
 
   @override
   Future<void> storeShot(domain.ShotRecord record) {
-    return _db.shotDao.insertShot(ShotMapper.toCompanion(record));
+    final now = DateTime.now().toUtc();
+    return _db.shotDao.insertShot(
+      ShotMapper.toCompanion(
+        record.copyWith(
+          createdAt: record.createdAt ?? now,
+          updatedAt: record.updatedAt ?? now,
+        ),
+      ),
+    );
   }
 
   @override
@@ -35,7 +43,7 @@ class DriftStorageService implements StorageService {
   @override
   Future<List<domain.ShotRecord>> getAllShots() async {
     final rows = await _db.shotDao.getAllShots();
-    return rows.map(ShotMapper.fromRow).toList();
+    return ShotMapper.fromRows(rows);
   }
 
   @override
@@ -69,6 +77,7 @@ class DriftStorageService implements StorageService {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
     bool ascending = false,
   }) async {
     final rows = await _db.shotDao.getShotsPaginated(
@@ -82,9 +91,10 @@ class DriftStorageService implements StorageService {
       coffeeRoaster: coffeeRoaster,
       profileTitle: profileTitle,
       search: search,
+      minEnjoyment: minEnjoyment,
       ascending: ascending,
     );
-    return rows.map(ShotMapper.fromRow).toList();
+    return ShotMapper.fromRows(rows);
   }
 
   @override
@@ -97,6 +107,7 @@ class DriftStorageService implements StorageService {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
   }) {
     return _db.shotDao.countShots(
       grinderId: grinderId,
@@ -107,6 +118,7 @@ class DriftStorageService implements StorageService {
       coffeeRoaster: coffeeRoaster,
       profileTitle: profileTitle,
       search: search,
+      minEnjoyment: minEnjoyment,
     );
   }
 

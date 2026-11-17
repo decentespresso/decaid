@@ -4,8 +4,7 @@ class DisplayHandler {
   final DisplayController _displayController;
   final log = Logger('DisplayHandler');
 
-  DisplayHandler({required DisplayController displayController})
-    : _displayController = displayController;
+  DisplayHandler({required this._displayController});
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/display', _getState);
@@ -26,7 +25,11 @@ class DisplayHandler {
 
   Future<Response> _setBrightness(Request request) async {
     try {
-      final body = await request.readAsString();
+      final body = await readBoundedRequestBodyString(
+        request,
+        maxBytes: smallRequestBodyBytes,
+        timeout: smallRequestBodyTimeout,
+      );
       final json = jsonDecode(body) as Map<String, dynamic>;
       final brightness = json['brightness'];
       if (brightness == null ||
@@ -40,6 +43,8 @@ class DisplayHandler {
       }
       await _displayController.setBrightness(brightness);
       return jsonOk(_displayController.currentState.toJson());
+    } on RequestBodyReadException {
+      rethrow;
     } catch (e, st) {
       log.severe('Error in setBrightness handler', e, st);
       return jsonError({'error': e.toString()});
@@ -67,7 +72,10 @@ class DisplayHandler {
   }
 
   Future<Response> _handleWebSocket(Request req) async {
-    return sws.webSocketHandler((WebSocketChannel socket, String? protocol) {
+    return admittedWebSocketHandler((
+      WebSocketChannel socket,
+      String? protocol,
+    ) {
       bool overrideRequested = false;
       StreamSubscription? sub;
 

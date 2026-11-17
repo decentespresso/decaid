@@ -6,7 +6,9 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:reaprime/src/controllers/feedback_controller.dart';
 import 'package:reaprime/src/models/feedback/feedback_request.dart';
+import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/feedback_service.dart';
+import 'package:reaprime/src/services/github_credentials.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -16,22 +18,36 @@ void showFeedbackDialog(
   BuildContext context, {
   required String githubToken,
   required List<String> Function() serialNumbers,
+  required DecentAccountService? accountService,
+  List<String> Function()? installedComponents,
+  GithubCredentialProvider? credentials,
 }) {
   showShadDialog(
     context: context,
-    builder: (context) =>
-        FeedbackDialog(githubToken: githubToken, serialNumbers: serialNumbers),
+    builder: (context) => FeedbackDialog(
+      githubToken: githubToken,
+      serialNumbers: serialNumbers,
+      accountService: accountService,
+      installedComponents: installedComponents,
+      credentials: credentials,
+    ),
   );
 }
 
 class FeedbackDialog extends StatefulWidget {
   final String githubToken;
   final List<String> Function() serialNumbers;
+  final DecentAccountService? accountService;
+  final List<String> Function()? installedComponents;
+  final GithubCredentialProvider? credentials;
 
   const FeedbackDialog({
     super.key,
     required this.githubToken,
     required this.serialNumbers,
+    required this.accountService,
+    this.installedComponents,
+    this.credentials,
   });
 
   @override
@@ -57,6 +73,9 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
     _service = FeedbackService(
       githubToken: widget.githubToken,
       currentSerialNumbers: widget.serialNumbers,
+      installedComponents: widget.installedComponents,
+      accountService: widget.accountService,
+      credentials: widget.credentials,
     );
     _controller = FeedbackController(service: _service);
     _controller.addListener(_onControllerChanged);
@@ -105,14 +124,6 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
 
     if (_descriptionController.text.trim().isEmpty) {
       setState(() => _validationMessage = 'Please enter a description.');
-      return;
-    }
-
-    if (!_controller.isConfigured) {
-      setState(
-        () => _validationMessage =
-            'Feedback is not configured. Build with --dart-define=GITHUB_FEEDBACK_TOKEN=<token>.',
-      );
       return;
     }
 
@@ -166,7 +177,11 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
     return ShadDialog(
       title: const Text('Send Feedback'),
       description: const Text(
-        'Feedback will be submitted as a public GitHub issue.',
+        'You must be logged in to your Decent account to submit feedback. '
+        'Sign in under Decent Account. '
+        'Feedback will be submitted as a public GitHub issue. '
+        'Decent Support receives the issue link. '
+        'Only the support message ID, when available, is added to the public issue.',
       ),
       actions: _buildActions(context),
       child: _buildContent(context),
@@ -205,9 +220,8 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
         ],
         Text(
           'Type',
-          style: Theme.of(
-            context,
-          ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+          style: Theme.of(context).textTheme.bodyMedium
+              ?.copyWith(fontWeight: FontWeight.w500),
         ),
         const SizedBox(height: 4),
         ShadSelect<FeedbackType>(
@@ -230,9 +244,8 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
         const SizedBox(height: 12),
         Text(
           'Description',
-          style: Theme.of(
-            context,
-          ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+          style: Theme.of(context).textTheme.bodyMedium
+              ?.copyWith(fontWeight: FontWeight.w500),
         ),
         const SizedBox(height: 4),
         ShadInput(
@@ -266,9 +279,8 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
             Expanded(
               child: Text(
                 'Screenshots (${_screenshots.length}/$_maxScreenshots)',
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+                style: Theme.of(context).textTheme.bodyMedium
+                    ?.copyWith(fontWeight: FontWeight.w500),
               ),
             ),
             if (_screenshots.length < _maxScreenshots)
@@ -373,6 +385,22 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
           'Issue #${result.issueNumber}',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
+        if (result.warning != null) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.errorContainer,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              result.warning!,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onErrorContainer,
+              ),
+            ),
+          ),
+        ],
         const SizedBox(height: 12),
         if (result.issueUrl != null)
           ShadButton.outline(
@@ -410,7 +438,9 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
                 height: 16,
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
-            : const Text('Submit'),
+            : Text(
+                _controller.state == FeedbackState.error ? 'Retry' : 'Submit',
+              ),
       ),
     ];
   }

@@ -85,7 +85,7 @@
       "transition": "fast",
       "temperature": "95.0",
       "sensor": "coffee",
-      "seconds": "0.0",
+      "seconds": "15.0",
       "volume": "100.0",
       "weight": "0.0",
       "pressure": "1.0",

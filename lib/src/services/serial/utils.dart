@@ -18,8 +18,10 @@ bool isDecentScale(List<String> messages, List<Uint8List> captures) {
       messages.any((t) => _hdsRegex.hasMatch(t));
 }
 
+const _sbNumber = r'(?:[+-]?(?:nan|inf(?:inity)?)|[+-]?[0-9]*[.]?[0-9]+)';
 final _sbRegex = RegExp(
-  r'^\d+ (?:nan|[+-]?[0-9]*[.]?[0-9]+) [+-]?[0-9]*[.]?[0-9]+ [+-]?[0-9]*[.]?[0-9]+ [+-]?[0-9]*[.]?[0-9]+',
+  '^\\d+\\s+$_sbNumber\\s+$_sbNumber\\s+$_sbNumber\\s+$_sbNumber${r'(?=\s|$)'}',
+  caseSensitive: false,
 );
 bool isSensorBasket(List<String> messages) {
   return messages.any((t) => _sbRegex.hasMatch(t));
@@ -51,8 +53,49 @@ Future<void> drainWithTimeout({
   }
 }
 
-String? computeUsbStableId({int? vid, int? pid, String? serial}) {
+String? computeUsbStableId({
+  int? vid,
+  int? pid,
+  String? serial,
+  int? interfaceNumber,
+}) {
   if (vid == null || pid == null) return null;
   final s = (serial != null && serial.isNotEmpty) ? serial : 'unknown';
-  return 'usb-${vid.toRadixString(16)}-${pid.toRadixString(16)}-$s';
+  final id = 'usb-${vid.toRadixString(16)}-${pid.toRadixString(16)}-$s';
+  if (interfaceNumber == null || interfaceNumber <= 0) return id;
+  return '$id-if${interfaceNumber.toRadixString(16).padLeft(2, '0')}';
+}
+
+String? computeUsbAttachmentId({
+  int? vid,
+  int? pid,
+  String? serial,
+  int? physicalId,
+  int? interfaceNumber,
+}) {
+  final normalizedSerial = serial?.trim();
+  final stable = computeUsbStableId(
+    vid: vid,
+    pid: pid,
+    serial: normalizedSerial?.isNotEmpty == true ? normalizedSerial : null,
+    interfaceNumber: interfaceNumber,
+  );
+  if (stable == null) {
+    if (physicalId == null) return null;
+    final base = 'usb-session-$physicalId';
+    return interfaceNumber == null || interfaceNumber <= 0
+        ? base
+        : '$base-if${interfaceNumber.toRadixString(16).padLeft(2, '0')}';
+  }
+  if (normalizedSerial?.isNotEmpty == true || physicalId == null) return stable;
+  return '$stable-$physicalId';
+}
+
+/// Strips a trailing `-ifNN` (optionally followed by a physical-instance
+/// `-<deviceId>`) suffix from a USB stable ID, so a composite device's
+/// machine and tap logical IDs map back to one physical device. IDs without
+/// a suffix are returned unchanged.
+String withoutUsbInterfaceSuffix(String stableId) {
+  final match = RegExp(r'-if[0-9a-fA-F]+(?:-[0-9]+)?$').firstMatch(stableId);
+  return match == null ? stableId : stableId.substring(0, match.start);
 }

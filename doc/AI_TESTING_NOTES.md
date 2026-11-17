@@ -25,7 +25,8 @@ All Dart tests (unit + integration) live in `test/` and run via `flutter test`. 
 
 - **`FakeBleTransport`:** `queueOnConnectResponses()` also queues `MMRItem.calFlowEst` (raw `1000` = `1.0`; override via `calFlowEst:`). Without it, every `onConnect()` pays the full MMR timeout (~12.6s: 3 x 4s + 2 x 300ms) because `UnifiedDe1.onConnect()` reads flow calibration last. `emitNotification(Endpoint, bytes)` pushes a characteristic notification through the registered subscriber (e.g. `Endpoint.shotSample`), keeping notification/input boundary tests out of private internals.
 - **`MockDeviceDiscoveryService`:** Controllable discovery for widget tests. Add/remove specific devices at specific times via `addDevice()`, `removeDevice()`, `clear()`.
-- **`TestScale`:** Use instead of `MockScale` — `MockScale` has `Timer.periodic` that conflicts with `pumpAndSettle()`.
+- **`TestScale`:** See
+  [`device-notes/simulators.md`](device-notes/simulators.md#test-behavior).
 - **`MockSettingsService`:** In-memory `SettingsService`. Sets `telemetryPromptShown` and `telemetryConsentDialogShown` to `true` to skip dialogs.
 
 ## Widget Test Patterns
@@ -39,7 +40,7 @@ Standard stream subscription `cancel()` futures also never complete under `fakeA
 `fakeAsync` virtualizes timers but code that reads `DateTime.now()` still sees real time. When watchdog/throttle logic combines timers and wall-clock comparisons, make both controllable: inject `DateTime Function() now` at the device boundary, defaulting to `clock.now` (`package:clock` is fake_async-aware, and identical to `DateTime.now` outside a fake zone). Then `fakeAsync` tests get deterministic liveness/watchdog coverage with production durations, no manual clock bookkeeping.
 
 ### Hardware settle delays
-Hardware/protocol settle delays (e.g. Acaia `100/200/500ms` init steps, Skale2 `1s` init steps) should be configurable at the device implementation boundary (immutable timing object or optional constructor durations). Production keeps the real hardware-safe defaults. Unit tests that merely need an initialized device inject zero durations. Only tests specifically validating timing should exercise the actual durations — virtually via `fakeAsync`.
+See [`device-notes/simulators.md`](device-notes/simulators.md#test-behavior).
 
 ### Backoff semantics vs post-backoff behavior
 Distinguish: (1) tests proving the duration/backoff policy itself — use `fakeAsync` and keep production durations virtually; and (2) tests proving behavior that occurs *after* a delay (e.g. `ConnectionManager` scale reacquisition) — inject a zero/small base delay (`scaleReconnectBaseDelay`, `machineReconnectBaseDelay` are `@visibleForTesting` seams) and synchronize on the resulting event. Do not spend real seconds merely to reach the state being asserted.
@@ -54,7 +55,7 @@ A silent DE1 transport that intentionally causes the MMR timeout is appropriate 
 Under concurrent `flutter test` runs, a suite's wall span (first test start to last test end) is not equivalent to its CPU/active cost — an isolate can sit idle waiting on the scheduler while another suite runs. When identifying optimization candidates use the cumulative sum of individual test durations (the `duration_ms` field in `--machine` events), not the suite wall span. Inspect the individual tests in a file before assuming a long suite span means expensive tests.
 
 ### Mock simulator tick cadence
-Mock device simulators (`MockDe1` et al.) drive their state machine with a periodic tick whose model time-step is fixed (100ms of simulated time per tick). The wall-clock tick cadence is injectable (`MockDe1(simulationTickInterval: ...)`): shortening it makes simulated time run faster than wall time without changing generated values, because trajectories are per-tick-count functions. When a simulation test asserts on curve shape or trajectory, shorten the tick and scale wall delays accordingly (e.g. 9000ms wait at 100ms ticks becomes 900ms at 10ms ticks — same 90 ticks, same simulated 9s). Do not scale wall delays alone (that changes the simulated trajectory) or change the model time-step (that changes the calibration). Tests that validate realistic elapsed-time behavior (e.g. a power-off timeout window measured with a Stopwatch) should keep real durations.
+See [`device-notes/simulators.md`](device-notes/simulators.md#test-behavior).
 
 ### Stream Propagation
 Add devices to mock service *before* building widgets, then `await tester.pump()` to flush microtasks before `pumpWidget()`.
@@ -65,9 +66,6 @@ Use `ShadApp(home: Scaffold(body: child))` — `Scaffold` provides `Material` an
 ### Animations
 Use `pump()` not `pumpAndSettle()` when tree has `CircularProgressIndicator` or ongoing animations.
 
-### DeviceDiscoveryView
-Use `tester.runAsync()` — it uses real `Future.delayed` and stream microtask propagation.
-
 ### StreamBuilder Patterns
 - Check both `hasData` AND `data != null` for nullable streams (e.g., `De1Interface?`)
 - Use explicit type parameters: `StreamBuilder<De1Interface?>`
@@ -75,16 +73,8 @@ Use `tester.runAsync()` — it uses real `Future.delayed` and stream microtask p
 
 ## Simulated Devices
 
-Available via `--dart-define=simulate=1` or settings UI toggle. For end-to-end API smoke tests, use `scripts/sb-dev.sh start` which defaults to simulate mode.
-
-| Flag value | Devices |
-|------------|---------|
-| `1` | All: `MockDe1`, `MockScale`, `MockBengle`, `MockSensor` |
-| `machine` | `MockDe1` only |
-| `scale` | `MockScale` only |
-| `bengle` | `MockBengle` only |
-| `sensor` | `MockSensor` only |
-| `replay` | `MockReplayDe1` (single device: replays recorded shots matched to the profile) |
+See [`device-notes/simulators.md`](device-notes/simulators.md). For end-to-end
+API smoke tests, `scripts/sb-dev.sh start` defaults to simulated devices.
 
 ## Pre-Commit Checklist
 
@@ -102,3 +92,35 @@ Available via `--dart-define=simulate=1` or settings UI toggle. For end-to-end A
 ## Keeping Notes Fresh
 
 Add widget test gotchas, mock helper changes, and test infrastructure patterns. Prune when test APIs change.
+
+## Plugin transport tests (`test/plugins/plugin_manager_transport*_test.dart`)
+
+QuickJS can report an async helper's synchronous fast-path rejection as unhandled
+before its caller attaches an await handler. Verify asynchronous plugin error
+paths in the native runtime as well as Node, including intermediate promises.
+
+Notification widget checks should preserve an existing persistent snackbar and
+its action, isolate unrelated plugin notices, and exercise small viewports.
+Use a URL-launcher platform fake to assert external-browser mode; lifecycle
+callbacks alone do not verify iOS launch behavior. Post-consent proxy checks must
+distinguish completed logins, unfinished credential writes, and generation
+changes during reads. A credential reread failure must leave an upstream 401 intact.
+
+`PluginManager` accepts optional `connectWebSocket` / `connectSocket` /
+`connectSecureSocket` connectors (defaulting to `WebSocket.connect` /
+`Socket.connect` / `SecureSocket.connect`) forwarded to
+`PluginTransportService`. Tests use them for:
+
+- **Backpressure accounting:** `_BlockingWebSocket` never completes
+  `addStream`, so the test deterministically exercises the outbound byte
+  limit without depending on kernel socket-buffer sizes.
+- **TLS/WSS positive paths:** platform trust validation cannot be exercised
+  offline. Verified empirically that dart:io on this platform ignores
+  user-supplied trust anchors: `SecureSocket.connect(context:
+  SecurityContext()..setTrustedCertificates(ca))` and
+  `WebSocket.connect(customClient: HttpClient(context: ...))` both fail with
+  CERTIFICATE_VERIFY_FAILED for a CA-signed local server cert. The rejection
+  tests prove the default connectors validate against the platform store; the
+  positive tests inject connectors that accept the local self-signed
+  certificate (`onBadCertificate` / `badCertificateCallback`) and still run a
+  real TLS / TLS-wrapped-WebSocket round trip.

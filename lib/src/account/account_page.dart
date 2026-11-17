@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:reaprime/src/account/app_log_upload_section.dart';
 import 'package:reaprime/src/account/decent_login_form.dart';
 import 'package:reaprime/src/account/account_tokens_section.dart';
 import 'package:reaprime/src/controllers/account_tokens_controller.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
+import 'package:reaprime/src/services/app_log_upload_service.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 class AccountPage extends StatefulWidget {
@@ -10,18 +12,43 @@ class AccountPage extends StatefulWidget {
     super.key,
     required this.accountService,
     this.tokensController,
+    this.appLogUploadService,
   });
 
   static const routeName = '/account';
 
   final DecentAccountService accountService;
   final AccountTokensController? tokensController;
+  final AppLogUploadService? appLogUploadService;
 
   @override
   State<AccountPage> createState() => _AccountPageState();
 }
 
 class _AccountPageState extends State<AccountPage> {
+  Widget _appLogUploadCard(AppLogUploadService service) {
+    return ShadCard(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: AppLogUploadSection(service: service),
+      ),
+    );
+  }
+
+  List<Widget> _tokensCard() {
+    final controller = widget.tokensController;
+    if (controller == null) return const [];
+    return [
+      const SizedBox(height: 16),
+      ShadCard(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: AccountTokensSection(controller: controller),
+        ),
+      ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -59,15 +86,15 @@ class _AccountPageState extends State<AccountPage> {
                                         children: [
                                           Text(
                                             'Logged In',
-                                            style: Theme.of(
-                                              context,
-                                            ).textTheme.titleMedium,
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .titleMedium,
                                           ),
                                           Text(
                                             emailSnap.data ?? '',
-                                            style: Theme.of(
-                                              context,
-                                            ).textTheme.bodySmall,
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodySmall,
                                           ),
                                         ],
                                       ),
@@ -77,8 +104,13 @@ class _AccountPageState extends State<AccountPage> {
                                 const SizedBox(height: 16),
                                 ShadButton.destructive(
                                   onPressed: () async {
+                                    final uploadService =
+                                        widget.appLogUploadService;
+                                    if (uploadService != null) {
+                                      await uploadService.setEnabled(false);
+                                    }
                                     await widget.accountService.logout();
-                                    setState(() {});
+                                    if (mounted) setState(() {});
                                   },
                                   child: const Text('Unlink Account'),
                                 ),
@@ -86,24 +118,18 @@ class _AccountPageState extends State<AccountPage> {
                             ),
                           ),
                         ),
-                        if (widget.tokensController != null) ...[
+                        if (widget.appLogUploadService != null) ...[
                           const SizedBox(height: 16),
-                          ShadCard(
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: AccountTokensSection(
-                                controller: widget.tokensController!,
-                              ),
-                            ),
-                          ),
+                          _appLogUploadCard(widget.appLogUploadService!),
                         ],
+                        ..._tokensCard(),
                       ],
                     );
                   },
                 );
               }
 
-              return ShadCard(
+              final loginCard = ShadCard(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
@@ -118,9 +144,8 @@ class _AccountPageState extends State<AccountPage> {
                       Text(
                         'Link your Decent Espresso account to verify your machine serial number and access additional features.',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.onSurface.withValues(alpha: 0.7),
+                          color: Theme.of(context).colorScheme.onSurface
+                              .withValues(alpha: 0.7),
                         ),
                       ),
                       const SizedBox(height: 16),
@@ -133,6 +158,29 @@ class _AccountPageState extends State<AccountPage> {
                     ],
                   ),
                 ),
+              );
+              final uploadService = widget.appLogUploadService;
+              if (uploadService == null) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [loginCard, ..._tokensCard()],
+                );
+              }
+              return FutureBuilder<bool>(
+                future: widget.accountService.hasLinkedAccount(),
+                builder: (context, linkedSnapshot) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      loginCard,
+                      if (linkedSnapshot.data == true) ...[
+                        const SizedBox(height: 16),
+                        _appLogUploadCard(uploadService),
+                      ],
+                      ..._tokensCard(),
+                    ],
+                  );
+                },
               );
             },
           ),

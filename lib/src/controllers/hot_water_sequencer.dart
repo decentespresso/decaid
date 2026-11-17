@@ -160,10 +160,9 @@ class HotWaterSequencer {
         '(weight ${decision.weight.toStringAsFixed(1)} g, '
         'projected ${decision.projectedWeight.toStringAsFixed(1)} g) — stopping',
       );
-      final machine = _machine;
-      if (machine != null) {
-        machine
-            .requestState(MachineState.idle)
+      if (_machine != null) {
+        _de1
+            .requestMachineState(MachineState.idle)
             .catchError(
               (e) => _log.warning('Failed to stop hot water at weight', e),
             );

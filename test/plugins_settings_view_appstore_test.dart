@@ -2,30 +2,31 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shadcn_ui/shadcn_ui.dart';
+import 'package:reaprime/src/account/account_page.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
+import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/settings/plugins_settings_view.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 
 class FakePluginLoaderService extends Fake implements PluginLoaderService {
   FakePluginLoaderService({
     List<PluginManifest> plugins = const [],
     this.settings = const {},
-    Future<void>? initialization,
-  }) : plugins = List.of(plugins),
-       initialization = initialization ?? Future.value();
+    this.initialization,
+  }) : plugins = List.of(plugins);
 
   final List<PluginManifest> plugins;
   final Map<String, dynamic> settings;
-  final Future<void> initialization;
+  final Future<void>? initialization;
   Map<String, dynamic>? savedSettings;
   int saveCallCount = 0;
   int initializeCallCount = 0;
 
   @override
-  Future<void> initialize() {
+  Future<void> initialize() async {
     initializeCallCount++;
-    return initialization;
+    if (initialization != null) await initialization;
   }
 
   @override
@@ -59,6 +60,26 @@ class FakePluginLoaderService extends Fake implements PluginLoaderService {
   }
 }
 
+class FakeDecentAccountService extends Fake implements DecentAccountService {
+  FakeDecentAccountService(this.status);
+
+  final DecentAccountStatus status;
+  int verificationCallCount = 0;
+
+  @override
+  Future<DecentAccountStatus> verifyStoredCredentialsStatus() async {
+    verificationCallCount++;
+    return status;
+  }
+}
+
+Future<void> _openPluginSettings(WidgetTester tester) async {
+  await tester.tap(find.byIcon(LucideIcons.ellipsisVertical));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Settings'));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   late FakePluginLoaderService fakePluginLoaderService;
 
@@ -77,8 +98,10 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.byTooltip('Install Plugin'), findsOneWidget);
-      expect(find.byTooltip('Refresh Plugins'), findsOneWidget);
+      await tester.tap(find.byTooltip('Plugin actions'));
+      await tester.pumpAndSettle();
+      expect(find.text('Install plugin'), findsOneWidget);
+      expect(find.text('Refresh plugins'), findsOneWidget);
     });
 
     testWidgets('hides install button when allowInstall is false', (
@@ -94,8 +117,10 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.byTooltip('Install Plugin'), findsNothing);
-      expect(find.byTooltip('Refresh Plugins'), findsOneWidget);
+      await tester.tap(find.byTooltip('Plugin actions'));
+      await tester.pumpAndSettle();
+      expect(find.text('Install plugin'), findsNothing);
+      expect(find.text('Refresh plugins'), findsOneWidget);
     });
   });
 
@@ -116,15 +141,10 @@ void main() {
 
     expect(fakePluginLoaderService.initializeCallCount, 1);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
-    final installButton = find.byWidgetPredicate(
-      (widget) =>
-          widget is PopupMenuButton<String> &&
-          widget.tooltip == 'Install Plugin',
+    final actionsButton = find.byWidgetPredicate(
+      (widget) => widget is IconButton && widget.tooltip == 'Plugin actions',
     );
-    expect(
-      tester.widget<PopupMenuButton<String>>(installButton).enabled,
-      isFalse,
-    );
+    expect(tester.widget<IconButton>(actionsButton).onPressed, isNull);
 
     fakePluginLoaderService.plugins.add(
       PluginManifest(
@@ -143,10 +163,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Ready Plugin'), findsOneWidget);
-    expect(
-      tester.widget<PopupMenuButton<String>>(installButton).enabled,
-      isTrue,
-    );
+    expect(tester.widget<IconButton>(actionsButton).onPressed, isNotNull);
   });
 
   testWidgets('shows a retry state when initialization fails', (tester) async {
@@ -196,6 +213,145 @@ void main() {
     expect(find.text('proxyDecentApi'), findsNothing);
   });
 
+  PluginManifest accountProxyManifest({bool hasSettings = true}) =>
+      PluginManifest(
+        id: 'account.reaplugin',
+        name: 'Account Plugin',
+        author: 'Test',
+        description: 'Test plugin',
+        version: '1.0.0',
+        apiVersion: 1,
+        permissions: {PluginPermissions.proxyDecentApiWrite},
+        settings: hasSettings
+            ? {
+                'AutoUpload': {'type': 'boolean', 'default': false},
+              }
+            : {},
+        api: PluginApi(endpoints: []),
+      );
+
+  Future<FakeDecentAccountService> openAccountProxySettings(
+    WidgetTester tester, {
+    required DecentAccountStatus status,
+    bool hasSettings = true,
+  }) async {
+    final accountService = FakeDecentAccountService(status);
+    fakePluginLoaderService = FakePluginLoaderService(
+      plugins: [accountProxyManifest(hasSettings: hasSettings)],
+    );
+    await tester.pumpWidget(
+      ShadApp(
+        builder: (_, child) => ScaffoldMessenger(child: child!),
+        onGenerateRoute: (settings) {
+          if (settings.name == AccountPage.routeName) {
+            return MaterialPageRoute<void>(
+              settings: settings,
+              builder: (_) => const Scaffold(body: Text('Account page')),
+            );
+          }
+          return null;
+        },
+        home: PluginsSettingsView(
+          pluginLoaderService: fakePluginLoaderService,
+          decentAccountService: accountService,
+          allowInstall: false,
+        ),
+      ),
+    );
+    await tester.pump();
+    await _openPluginSettings(tester);
+    return accountService;
+  }
+
+  testWidgets('shows logged-in status for Decent account plugins', (
+    tester,
+  ) async {
+    final accountService = await openAccountProxySettings(
+      tester,
+      status: DecentAccountStatus.authenticated,
+    );
+
+    expect(find.text('Decent account'), findsOneWidget);
+    expect(find.text('Logged In'), findsOneWidget);
+    expect(find.text('Account settings'), findsNothing);
+    expect(accountService.verificationCallCount, 1);
+  });
+
+  testWidgets('caps the settings dialog width on large screens', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1920, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await openAccountProxySettings(
+      tester,
+      status: DecentAccountStatus.authenticated,
+    );
+
+    final content = find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.byType(ListView),
+    );
+    expect(tester.getSize(content).width, lessThanOrEqualTo(800));
+  });
+
+  testWidgets('logged-out account action opens Account without saving', (
+    tester,
+  ) async {
+    final accountService = await openAccountProxySettings(
+      tester,
+      status: DecentAccountStatus.unauthenticated,
+    );
+
+    expect(find.text('Not Logged In'), findsOneWidget);
+    expect(find.text('Account settings'), findsOneWidget);
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.byType(ShadSwitch),
+      ),
+    );
+    await tester.tap(find.text('Account settings'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Account page'), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(fakePluginLoaderService.saveCallCount, 0);
+    expect(accountService.verificationCallCount, 1);
+  });
+
+  testWidgets('shows unavailable when account validation is indeterminate', (
+    tester,
+  ) async {
+    final accountService = await openAccountProxySettings(
+      tester,
+      status: DecentAccountStatus.indeterminate,
+    );
+
+    expect(find.text('Account status unavailable'), findsOneWidget);
+    expect(find.text('Not Logged In'), findsNothing);
+    expect(find.text('Account settings'), findsNothing);
+    expect(accountService.verificationCallCount, 1);
+  });
+
+  testWidgets('shows account status when proxy plugin has no settings', (
+    tester,
+  ) async {
+    await openAccountProxySettings(
+      tester,
+      status: DecentAccountStatus.authenticated,
+      hasSettings: false,
+    );
+
+    expect(find.text('Decent account'), findsOneWidget);
+    expect(find.text('Logged In'), findsOneWidget);
+    expect(find.text('This plugin has no configurable settings'), findsNothing);
+  });
+
   PluginManifest enumManifest({bool includeDefault = true}) => PluginManifest(
     id: 'enum.reaplugin',
     name: 'Enum Plugin',
@@ -234,8 +390,7 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.tap(find.widgetWithText(ShadButton, 'Settings'));
-    await tester.pumpAndSettle();
+    await _openPluginSettings(tester);
   }
 
   testWidgets('selects and saves enum settings', (tester) async {
@@ -320,8 +475,7 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.tap(find.widgetWithText(ShadButton, 'Settings'));
-    await tester.pumpAndSettle();
+    await _openPluginSettings(tester);
   }
 
   testWidgets('clears a stored secure setting explicitly', (tester) async {
@@ -455,8 +609,7 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.tap(find.widgetWithText(ShadButton, 'Settings'));
-    await tester.pumpAndSettle();
+    await _openPluginSettings(tester);
 
     final inputs = find.descendant(
       of: find.byType(AlertDialog),

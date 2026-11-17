@@ -42,7 +42,7 @@ void main() {
         findsOneWidget,
       );
       expect(
-        find.text('Coming from the DE1 app? You can import your data next.'),
+        find.text('Coming from De1App? You can import your data next.'),
         findsOneWidget,
       );
       expect(find.text('Get Started'), findsOneWidget);

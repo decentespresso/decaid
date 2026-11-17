@@ -83,32 +83,25 @@ void main() {
     },
   );
 
-  test(
-    'M2: a stale prior version of a changed default is hidden, current stays visible',
-    () async {
-      final storage = InMemoryProfileStorage();
-      final json = await _bundledJson(_milkyFile);
-      (json['steps'] as List).first['seconds'] = '999';
-      final stale = ProfileRecord.create(
-        profile: Profile.fromJson(json),
-        isDefault: true,
-        metadata: {'source': 'bundled', 'filename': _milkyFile},
-      );
-      await storage.store(stale);
+  test('M2: a stale prior version of a changed default is hidden, current stays visible', () async {
+    final storage = InMemoryProfileStorage();
+    final json = await _bundledJson(_milkyFile);
+    (json['steps'] as List).first['seconds'] = '999';
+    final stale = ProfileRecord.create(
+      profile: Profile.fromJson(json),
+      isDefault: true,
+      metadata: {'source': 'bundled', 'filename': _milkyFile},
+    );
+    await storage.store(stale);
 
-      await ProfileController(storage: storage).initialize();
+    await ProfileController(storage: storage).initialize();
 
-      final current = Profile.fromJson(await _bundledJson(_milkyFile));
-      final currentId = ProfileRecord.create(profile: current).id;
-      expect(
-        stale.id == currentId,
-        isFalse,
-        reason: 'precondition: ids differ',
-      );
-      expect(storage.records[currentId]?.visibility, Visibility.visible);
-      expect(storage.records[stale.id]!.visibility, Visibility.hidden);
-    },
-  );
+    final current = Profile.fromJson(await _bundledJson(_milkyFile));
+    final currentId = ProfileRecord.create(profile: current).id;
+    expect(stale.id == currentId, isFalse, reason: 'precondition: ids differ');
+    expect(storage.records[currentId]?.visibility, Visibility.visible);
+    expect(storage.records[stale.id]!.visibility, Visibility.hidden);
+  });
 
   test(
     'M1: an existing default with stale metadata gets its title refreshed',
@@ -167,32 +160,59 @@ void main() {
     expect(storage.records[hidden.id]!.isDefault, isTrue);
   });
 
+  test('M3: a hidden default still gets curated metadata refreshed but stays hidden', () async {
+    final storage = InMemoryProfileStorage();
+    final json = await _bundledJson(_milkyFile);
+    json['title'] = 'OLD STALE TITLE';
+    final hiddenStale = ProfileRecord.create(
+      profile: Profile.fromJson(json),
+      isDefault: true,
+      metadata: {'source': 'bundled', 'filename': _milkyFile},
+    ).copyWith(visibility: Visibility.hidden);
+    await storage.store(hiddenStale);
+
+    await ProfileController(storage: storage).initialize();
+
+    final refreshed = storage.records[hiddenStale.id]!;
+    expect(
+      refreshed.profile.title,
+      'Flow profile for milky drinks',
+      reason: 'curation metadata refresh still applies to hidden defaults',
+    );
+    expect(
+      refreshed.visibility,
+      Visibility.hidden,
+      reason: 'refreshing metadata must not un-hide the profile',
+    );
+  });
+
   test(
-    'M3: a hidden default still gets curated metadata refreshed but stays hidden',
+    'P1: a bundled profile with a parent_id gets its parentId linked',
     () async {
       final storage = InMemoryProfileStorage();
-      final json = await _bundledJson(_milkyFile);
-      json['title'] = 'OLD STALE TITLE';
-      final hiddenStale = ProfileRecord.create(
-        profile: Profile.fromJson(json),
-        isDefault: true,
-        metadata: {'source': 'bundled', 'filename': _milkyFile},
-      ).copyWith(visibility: Visibility.hidden);
-      await storage.store(hiddenStale);
+      final controller = ProfileController(storage: storage);
+      await controller.initialize();
 
-      await ProfileController(storage: storage).initialize();
+      final v2 = Profile.fromJson(await _bundledJson('best_practice.json'));
+      final v3 = Profile.fromJson(await _bundledJson('best_practice_v3.json'));
+      final v2Id = ProfileRecord.create(profile: v2).id;
+      final v3Id = ProfileRecord.create(profile: v3).id;
+      expect(v2Id == v3Id, isFalse, reason: 'precondition: v3 differs from v2');
 
-      final refreshed = storage.records[hiddenStale.id]!;
+      final v3Json = await _bundledJson('best_practice_v3.json');
       expect(
-        refreshed.profile.title,
-        'Flow profile for milky drinks',
-        reason: 'curation metadata refresh still applies to hidden defaults',
+        v3Json['parent_id'],
+        v2Id,
+        reason: 'bundled parent_id must match v2\'s immutable content hash',
       );
-      expect(
-        refreshed.visibility,
-        Visibility.hidden,
-        reason: 'refreshing metadata must not un-hide the profile',
-      );
+
+      expect(storage.records[v3Id]!.parentId, v2Id);
+
+      final lineage = await controller.getLineage(v3Id);
+      expect(lineage.map((r) => r.id).toList(), [
+        v2Id,
+        v3Id,
+      ], reason: 'lineage walks from v3 back to its v2 parent');
     },
   );
 }

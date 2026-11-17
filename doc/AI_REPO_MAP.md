@@ -8,14 +8,20 @@ Use this for unfamiliar or multi-subsystem tasks. For known files or exact symbo
 |------|-----------|------|
 | Any Dart code or test change | `doc/AI_TESTING_NOTES.md` | Domain-specific file below |
 | BLE transport, connection, GATT errors | `doc/AI_BLE_NOTES.md` | `lib/src/services/ble/`, `lib/src/controllers/connection/` |
-| Bengle machine (MMR surface, capability mixins, wake sync) | `doc/AI_BENGLE_NOTES.md` | `lib/src/models/device/impl/bengle/`, `lib/src/models/device/impl/de1/unified_de1/*_capability.dart` |
+| Bengle machine (MMR surface, capability mixins, wake sync) | `doc/device-notes/bengle.md` | `lib/src/models/device/impl/bengle/`, `lib/src/models/device/impl/de1/unified_de1/*_capability.dart` |
+| DE1 firmware, serial behavior, profile sync | `doc/device-notes/de1.md` | `lib/src/models/device/impl/de1/`, `lib/src/controllers/de1_controller.dart` |
+| Named scale protocols and readiness | `doc/device-notes/scales.md` | `lib/src/models/device/impl/`, `lib/src/controllers/scale_controller.dart` |
+| Named sensor protocols | `doc/device-notes/sensors.md` | `lib/src/models/device/impl/sensor/`, `lib/src/controllers/sensor_controller.dart` |
+| Simulated device behavior | `doc/device-notes/simulators.md` | `lib/src/services/simulated_device_service.dart`, `lib/src/models/device/impl/` (`mock_de1/`, `mock_scale/`, `bengle/mock_bengle.dart`, `replay/mock_replay_de1.dart`, `sensor/mock/`, `simulated_shot_weight_model.dart`) |
 | REST/WS endpoint changes | `doc/AI_API_NOTES.md`, read spec first | `lib/src/services/webserver/` |
 | DE1 machine state, shot state | — | `lib/src/controllers/de1_state_manager.dart`, `de1_controller.dart`, `shot_sequencer.dart` |
 | Profile/workflow serialization | `doc/Profiles.md` | `lib/src/models/data/`, `lib/src/daos/` |
 | Database schema/migration | `doc/AI_STORAGE_NOTES.md` | `lib/src/database/app_database.dart`, `lib/src/daos/`, `lib/src/mappers/` |
 | Plugin API or permissions | `doc/Plugins.md` | `lib/src/plugins/plugin_manager.dart`, `plugin_host.dart` |
+| Bundled plugin implementation | `doc/AI_PLUGINS_NOTES.md`, `doc/Plugins.md` | `assets/plugins/`, pinned upstream repositories for generated bundles |
+| Example plugin implementation | `doc/Plugins.md` | `examples/plugins/*/plugin.js`, matching `README.md`, manifest and host boundary |
 | Skin serving or WebUI | `doc/Skins.md` | `lib/src/webui_support/`, `lib/src/services/webserver/webui/` |
-| Device discovery or connection | `doc/DeviceManagement.md` | `lib/src/controllers/connection/connection_manager.dart` |
+| Device discovery or connection | `doc/DeviceManagement.md` | `lib/src/controllers/connection_manager.dart` |
 | Build, platform, CLI flags | `doc/AI_BUILD_NOTES.md` | `Makefile`, `pubspec.yaml` |
 | Crashes, error tracing | `doc/AI_DEBUG_NOTES.md` | `lib/src/services/crashlytics_error_filter.dart` |
 | Onboarding or settings UI | — | `lib/src/onboarding_feature/`, `lib/src/settings/`, `lib/src/launcher/` |
@@ -34,10 +40,10 @@ When you change X, also check Y and Z.
 | Profile/workflow serialization | `Workflow.fromJson()`, `ProfileDao`, `ProfileStorageService`, legacy field backfill, spec | Dual representation (`context` + legacy fields); both must stay in sync |
 | `ConnectionManager` | 7 collaborators (`DisconnectExpectations`, `StatusPublisher`, `ScanReportBuilder`, `DisconnectSupervisor`, `EarlyConnectWatcher`, `ScanOrchestrator`, `PolicyResolver`) | Delegate to the right collaborator rather than growing the manager |
 | `De1StateManager` | `ShotSequencer`, `SteamSequencer`, `ScaleController` (sleep/wake), `ConnectionManager` (reconnect) | Machine state transitions cascade to shot lifecycle, scale power, and reconnect logic |
-| Plugin API or permissions | `PluginManager`, `PluginHost`, [decentespresso/dye2](https://github.com/decentespresso/dye2), [decentespresso/shot-upload](https://github.com/decentespresso/shot-upload), `doc/Plugins.md`, bundled plugin assets | Plugin host + bundled plugins must stay compatible |
+| Plugin API or permissions | `PluginManager`, `PluginHost`, [decentespresso/dye2](https://github.com/decentespresso/dye2), [decentespresso/shot-upload](https://github.com/decentespresso/shot-upload), [decentespresso/decaid-dcamp-plugin](https://github.com/decentespresso/decaid-dcamp-plugin), `doc/Plugins.md`, bundled plugin assets | Plugin host + bundled plugins must stay compatible |
 | WebUI / skin serving | `lib/src/webui_support/`, `lib/src/services/webserver/webui/`, `doc/Skins.md` | Skin install, serving, and metadata are coupled |
 | Device discovery | `DeviceMatcher`, `BleServiceIdentifier`, `ScanStateGuardian`, `ScanOrchestrator`, `doc/DeviceManagement.md` | Name matching, service verification, and scan lifecycle are interdependent |
-| `BatteryController` / charging | `charging_logic.dart`, `De1Controller`, DE1 FW behavior (auto-re-enables charger) | Charger mode logic depends on DE1 FW quirks |
+| `BatteryController` / charging | `charging_logic.dart`, `De1Controller`, `doc/device-notes/de1.md` | Charger mode logic depends on DE1 FW quirks |
 
 ## Focused Tests
 
@@ -46,7 +52,7 @@ flutter test                                  # All tests
 flutter test test/path/to/test.dart           # Specific file
 flutter test --name "test pattern"            # Specific test
 flutter analyze                               # Static analysis
-dart format lib/ test/                        # Format
+# Format changed Dart files: see AGENTS.md -> Verification step 1.
 ```
 
 API smoke test: `scripts/sb-dev.sh start` then `curl` / `websocat` per `.agents/skills/decent-app/verification.md`.
@@ -57,5 +63,6 @@ API smoke test: `scripts/sb-dev.sh start` then `curl` / `websocat` per `.agents/
 - `test/` test files — read only the ones relevant to the change.
 - `assets/` assets unrelated to API specs.
 - `ios/`, `android/`, `macos/`, `linux/`, `windows/` — platform-native project files. Only touch when adding platform capabilities.
-- `packages/dye2-plugin/` — DYE2 plugin source, **not built or bundled by Decaid**. The bundled copy is pinned and fetched from [decentespresso/dye2](https://github.com/decentespresso/dye2) releases via `scripts/fetch_dye2_plugin.sh` (see `doc/Plugins.md`). Do DYE2 compatibility work against that repo, not this in-tree copy.
+- `packages/dye2-plugin/` — DYE2 plugin source, **not built or bundled by Decaid**. The bundled copy is fetched at build time from the latest [decentespresso/dye2](https://github.com/decentespresso/dye2) release via `scripts/fetch_dye2_plugin.sh` (see `doc/Plugins.md`). Do DYE2 compatibility work against that repo, not this in-tree copy.
 - `assets/plugins/shot-upload.reaplugin/` — generated from the pinned [decentespresso/shot-upload](https://github.com/decentespresso/shot-upload) release by `scripts/fetch_shot_upload_plugin.sh`. Do shot-upload behavior work in that repository, not against the generated Decaid asset.
+- `assets/plugins/dcamp.reaplugin/` — generated from the pinned [decentespresso/decaid-dcamp-plugin](https://github.com/decentespresso/decaid-dcamp-plugin) release by `scripts/fetch_dcamp_plugin.sh`. Do dcamp behavior work in that repository, not against the generated Decaid asset.

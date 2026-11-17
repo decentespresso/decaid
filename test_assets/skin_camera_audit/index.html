@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Skin camera audit</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 12px 12px 40px; background: #101216; color: #e6e8ec;
+         font: 15px/1.4 -apple-system, system-ui, sans-serif; -webkit-text-size-adjust: 100%; }
+  h1 { font-size: 18px; margin: 4px 0 10px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: #8b95a5; margin: 0 0 8px; }
+  section { border: 1px solid #2a2f3a; border-radius: 10px; padding: 10px; margin: 0 0 12px; }
+  button { font: inherit; padding: 10px 12px; margin: 0 6px 6px 0; border-radius: 8px;
+           border: 1px solid #39404d; background: #1b2029; color: #e6e8ec; }
+  button:active { background: #2a3140; }
+  button.warn { border-color: #6b4a1f; color: #fcd34d; }
+  button.neg { border-color: #5c2b2b; color: #fca5a5; }
+  .grid { display: flex; flex-wrap: wrap; }
+  .diag, .meta { font: 12px/1.5 ui-monospace, monospace; color: #9aa4b2;
+                 white-space: pre-wrap; word-break: break-all; }
+  #preview { display: none; width: 100%; max-height: 40vh; margin-top: 8px;
+             background: #000; border-radius: 8px; }
+  label.file { display: block; margin: 0 0 10px; }
+  label.file span { display: block; font-size: 12px; color: #8b95a5; margin-bottom: 4px; }
+  input[type=file] { width: 100%; padding: 8px; font-size: 13px; color: #e6e8ec;
+                     background: #12151b; border: 1px dashed #38414f; border-radius: 8px; }
+  .log { max-height: 45vh; overflow: auto; margin: 0; padding: 10px; border-radius: 10px;
+         border: 1px solid #2a2f3a; background: #0b0d11;
+         font: 12px/1.45 ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; }
+  .log div { margin: 0 0 2px; }
+  .log .t { color: #6b7280; }
+  .log .ok { color: #4ade80; }
+  .log .deny { color: #fbbf24; }
+  .log .err { color: #f87171; }
+  .log .info { color: #93c5fd; }
+</style>
+</head>
+<body>
+<h1>Skin camera audit</h1>
+
+<section>
+  <h2>Context</h2>
+  <div class="diag" id="diag"></div>
+</section>
+
+<section>
+  <h2>Live camera (per-skin consent)</h2>
+  <div class="grid">
+    <button data-case="video">video: true</button>
+    <button data-case="front">front (user)</button>
+    <button data-case="back">back (environment)</button>
+  </div>
+  <div class="grid">
+    <button class="neg" data-case="audio">audio: true (deny)</button>
+    <button class="neg" data-case="both">video+audio (deny)</button>
+  </div>
+  <div class="grid">
+    <button class="warn" id="stop">Stop all tracks</button>
+    <button class="warn" id="reload">Reload skin</button>
+  </div>
+  <video id="preview" playsinline autoplay muted></video>
+  <div class="meta" id="tracks"></div>
+</section>
+
+<section>
+  <h2>File input: import from library</h2>
+  <label class="file">
+    <span>accept="image/*" - system picker, handled by the app</span>
+    <input type="file" accept="image/*" data-case="file-image" />
+  </label>
+  <label class="file">
+    <span>accept=".jpg" - extension filter kept narrow</span>
+    <input type="file" accept=".jpg" data-case="file-jpg" />
+  </label>
+  <label class="file">
+    <span>accept="image/*" multiple</span>
+    <input type="file" accept="image/*" multiple data-case="file-multiple" />
+  </label>
+  <div class="meta" id="picked"></div>
+</section>
+
+<section>
+  <h2>File input: one-shot capture</h2>
+  <label class="file">
+    <span>accept="image/*" capture="environment"</span>
+    <input type="file" accept="image/*" capture="environment" data-case="capture-back" />
+  </label>
+  <label class="file">
+    <span>accept="image/*" capture="user"</span>
+    <input type="file" accept="image/*" capture="user" data-case="capture-front" />
+  </label>
+  <label class="file">
+    <span>accept="image/jpeg,.jpg" capture="environment"</span>
+    <input type="file" accept="image/jpeg,.jpg" capture="environment" data-case="capture-jpg" />
+  </label>
+  <label class="file">
+    <span>accept="video/*" capture="environment" - expect denied</span>
+    <input type="file" accept="video/*" capture="environment" data-case="capture-video" />
+  </label>
+</section>
+
+<section>
+  <h2>Log</h2>
+  <div class="grid">
+    <button class="warn" id="copy">Copy log</button>
+    <button class="warn" id="clear">Clear log</button>
+  </div>
+  <pre class="log" id="log"></pre>
+</section>
+
+<script>
+(function () {
+  'use strict';
+
+  var logEl = document.getElementById('log');
+  var preview = document.getElementById('preview');
+  var tracksEl = document.getElementById('tracks');
+  var pickedEl = document.getElementById('picked');
+
+  function stamp() {
+    var d = new Date();
+    return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2) +
+      ':' + ('0' + d.getSeconds()).slice(-2) + '.' + ('00' + d.getMilliseconds()).slice(-3);
+  }
+
+  function log(text, kind) {
+    var line = document.createElement('div');
+    if (kind) line.className = kind;
+    var t = document.createElement('span');
+    t.className = 't';
+    t.textContent = '[' + stamp() + '] ';
+    line.appendChild(t);
+    line.appendChild(document.createTextNode(text));
+    logEl.appendChild(line);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function describeError(err) {
+    if (!err) return 'unknown error';
+    return (err.name || err.constructor.name || 'Error') + ': ' + (err.message || '');
+  }
+
+  document.getElementById('diag').textContent = [
+    'origin       : ' + location.origin,
+    'href         : ' + location.href,
+    'secureContext: ' + window.isSecureContext,
+    'mediaDevices : ' + !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
+    'enumerate    : ' + !!(navigator.mediaDevices && navigator.mediaDevices.enumerateDevices),
+    'ua           : ' + navigator.userAgent
+  ].join('\n');
+
+  var CASES = {
+    video: { video: true, audio: false },
+    front: { video: { facingMode: 'user' }, audio: false },
+    back: { video: { facingMode: 'environment' }, audio: false },
+    audio: { video: false, audio: true },
+    both: { video: true, audio: true }
+  };
+
+  var EXPECT_DENY = { audio: true, both: true };
+  var activeStream = null;
+
+  function describeStream(stream) {
+    var lines = [];
+    stream.getTracks().forEach(function (track) {
+      var settings = track.getSettings ? track.getSettings() : {};
+      lines.push(track.kind + ' | label=' + (track.label || '(empty)') +
+        ' | state=' + track.readyState +
+        ' | facing=' + (settings.facingMode || '-') +
+        ' | ' + (settings.width || '?') + 'x' + (settings.height || '?') +
+        ' @' + (settings.frameRate || '?') + 'fps');
+    });
+    tracksEl.textContent = lines.join('\n');
+    lines.forEach(function (line) { log('track ' + line); });
+  }
+
+  function releaseStream(announce) {
+    if (activeStream) {
+      activeStream.getTracks().forEach(function (track) {
+        if (announce) log('stopping ' + track.kind + ' track');
+        track.stop();
+      });
+      activeStream = null;
+    }
+    preview.srcObject = null;
+    preview.style.display = 'none';
+    tracksEl.textContent = '';
+  }
+
+  function requestLive(name) {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      log('getUserMedia ' + name + ' -> API unavailable', 'err');
+      return;
+    }
+    var constraints = CASES[name];
+    log('requesting getUserMedia ' + name + ' ' + JSON.stringify(constraints), 'info');
+    navigator.mediaDevices.getUserMedia(constraints).then(function (stream) {
+      log('getUserMedia ' + name + ' -> GRANTED, tracks=' + stream.getTracks().length, 'ok');
+      releaseStream(false);
+      activeStream = stream;
+      preview.srcObject = stream;
+      preview.style.display = 'block';
+      describeStream(stream);
+      return navigator.mediaDevices.enumerateDevices();
+    }).then(function (devices) {
+      if (!devices) return;
+      var cams = devices.filter(function (d) { return d.kind === 'videoinput'; });
+      log('enumerateDevices -> ' + cams.length + ' videoinput: ' +
+        cams.map(function (d) { return d.label || '(no label)'; }).join(' | '));
+    }).catch(function (err) {
+      log('getUserMedia ' + name + ' -> ' + (EXPECT_DENY[name] ? 'DENIED (expected) ' : 'FAILED ') +
+        describeError(err), EXPECT_DENY[name] ? 'deny' : 'err');
+    });
+  }
+
+  document.addEventListener('click', function (event) {
+    var target = event.target;
+    var button = target && target.closest ? target.closest('button[data-case]') : null;
+    if (button) requestLive(button.getAttribute('data-case'));
+  });
+
+  document.getElementById('stop').addEventListener('click', function () {
+    if (!activeStream) { log('stop -> no active stream'); return; }
+    releaseStream(true);
+    log('stop -> all tracks stopped', 'ok');
+  });
+
+  document.getElementById('reload').addEventListener('click', function () {
+    log('reload -> reloading skin to test consent persistence', 'info');
+    location.reload();
+  });
+
+  document.getElementById('clear').addEventListener('click', function () {
+    logEl.textContent = '';
+  });
+
+  document.getElementById('copy').addEventListener('click', function () {
+    var text = logEl.textContent;
+    function done(ok) { log('copy log -> ' + (ok ? 'copied' : 'failed'), ok ? 'ok' : 'err'); }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { done(true); },
+        function () { done(false); });
+    } else {
+      done(false);
+    }
+  });
+
+  var inputs = document.querySelectorAll('input[type=file]');
+  for (var i = 0; i < inputs.length; i++) {
+    (function (input) {
+      var name = input.getAttribute('data-case');
+      input.addEventListener('change', function () {
+        if (!input.files || input.files.length === 0) {
+          log(name + ' -> change with 0 files', 'deny');
+          input.value = '';
+          return;
+        }
+        log(name + ' -> returned ' + input.files.length + ' file(s)', 'ok');
+        for (var j = 0; j < input.files.length; j++) {
+          var file = input.files[j];
+          log(name + '   ' + file.name + ' | type=' + (file.type || '(empty)') +
+            ' | size=' + file.size + 'B');
+        }
+        showPicked(input.files[0]);
+        input.value = '';
+      });
+      input.addEventListener('cancel', function () {
+        log(name + ' -> CANCELLED by user', 'deny');
+      });
+    })(inputs[i]);
+  }
+
+  var pickedUrl = null;
+  function showPicked(file) {
+    if (pickedUrl) { URL.revokeObjectURL(pickedUrl); pickedUrl = null; }
+    pickedEl.textContent = '';
+    if (file.type.indexOf('image/') === 0) {
+      pickedUrl = URL.createObjectURL(file);
+      pickedEl.textContent = 'last file: ' + file.name + ' (' + file.size + 'B)';
+      var img = document.createElement('img');
+      img.src = pickedUrl;
+      img.style.cssText = 'display:block;margin-top:6px;width:100%;max-height:32vh;' +
+        'border-radius:8px;background:#000';
+      pickedEl.appendChild(img);
+      img.onload = function () {
+        log('preview loaded for ' + file.name + ' (' + img.naturalWidth + 'x' + img.naturalHeight + ')', 'ok');
+      };
+      img.onerror = function () { log('preview failed for ' + file.name, 'err'); };
+    } else {
+      pickedEl.textContent = 'last file: ' + file.name + ' (' + file.type + ', ' + file.size + 'B)';
+    }
+  }
+
+  log('skin loaded from ' + location.origin, 'info');
+  log('origin trusted for camera: ' + (location.hostname === 'localhost' &&
+    ['3000', '8080', '4001'].indexOf(location.port) === -1), 'info');
+})();
+</script>
+</body>
+</html>

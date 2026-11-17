@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/device/device.dart' as device;
 import 'package:reaprime/src/models/errors.dart';
+import 'package:reaprime/src/plugins/plugin_ble_session.dart';
 import 'package:reaprime/src/services/ble/universal_ble_transport.dart';
 import 'package:universal_ble/universal_ble.dart';
 
@@ -32,7 +33,10 @@ class _FakeBlePlatform extends UniversalBlePlatform {
   BleDevice? scanResult;
   final List<Object> serviceDiscoveryResults = [];
   final List<String> disconnectCalls = [];
+  Completer<void>? disconnectRequested;
   final List<BleInputProperty> notificationProperties = [];
+  final List<BleOutputProperty> writeProperties = [];
+  final Set<BleOutputProperty> unsupportedWriteProperties = {};
 
   bool throwOnSecondSetNotifiable = false;
   final Map<String, int> _setNotifiableCounts = {};
@@ -83,9 +87,10 @@ class _FakeBlePlatform extends UniversalBlePlatform {
   @override
   Future<void> disconnect(String deviceId) async {
     disconnectCalls.add(deviceId);
-    if (updateConnectionStateOnLifecycle) {
-      connectionStateResult = BleConnectionState.disconnected;
+    if (disconnectRequested?.isCompleted == false) {
+      disconnectRequested!.complete();
     }
+    connectionStateResult = BleConnectionState.disconnected;
     if (emitDisconnectEvent) updateConnection(deviceId, false);
   }
 
@@ -148,6 +153,16 @@ class _FakeBlePlatform extends UniversalBlePlatform {
     BleOutputProperty bleOutputProperty,
   ) async {
     writeCalls++;
+    writeProperties.add(bleOutputProperty);
+    if (unsupportedWriteProperties.contains(bleOutputProperty)) {
+      throw UniversalBleException(
+        code: bleOutputProperty == BleOutputProperty.withoutResponse
+            ? UniversalBleErrorCode
+                  .characteristicDoesNotSupportWriteWithoutResponse
+            : UniversalBleErrorCode.characteristicDoesNotSupportWrite,
+        message: 'Characteristic does not support $bleOutputProperty',
+      );
+    }
     if (writeError case final error?) throw error;
     if (hangWrites) {
       await (writeBlocker ?? Completer<void>()).future;
@@ -240,6 +255,132 @@ void main() {
       throwsA(isA<TimeoutException>()),
     );
   }
+
+  test('confirmed disconnect retains ownership until a native event', () async {
+    platform.emitDisconnectEvent = false;
+    platform.disconnectRequested = Completer<void>();
+    var completed = false;
+    final disconnect = transport.disconnectConfirmed().then(
+      (_) => completed = true,
+    );
+    await platform.disconnectRequested!.future;
+    expect(completed, isFalse);
+    platform.connectionStateResult = BleConnectionState.disconnected;
+    platform.updateConnection(deviceId, false);
+    await disconnect;
+    expect(completed, isTrue);
+  });
+
+  test(
+    'confirmed disconnect accepts a disconnected native link without an event',
+    () async {
+      platform.emitDisconnectEvent = false;
+      platform.connectionStateResult = BleConnectionState.disconnected;
+      await transport.disconnectConfirmed();
+      expect(
+        await transport.connectionState.first,
+        device.ConnectionState.disconnected,
+      );
+    },
+  );
+
+  test(
+    'unsubscribe removes forwarding and disables native notification',
+    () async {
+      final received = <int>[];
+      await transport.subscribe(
+        _serviceUuid,
+        _charUuid,
+        (bytes) => received.add(bytes.first),
+      );
+      await transport.unsubscribe(_serviceUuid, _charUuid);
+      platform.updateCharacteristicValue(
+        deviceId,
+        _charUuid,
+        Uint8List.fromList([1]),
+        null,
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(received, isEmpty);
+      expect(platform.notificationProperties.last, BleInputProperty.disabled);
+    },
+  );
+
+  group('write property negotiation', () {
+    test(
+      'a supported write is issued once with the requested property',
+      () async {
+        await transport.write(
+          _serviceUuid,
+          _charUuid,
+          Uint8List.fromList([0x03, 0x0a]),
+          withResponse: false,
+        );
+        await transport.write(
+          _serviceUuid,
+          _charUuid,
+          Uint8List.fromList([0x03, 0x0a]),
+        );
+
+        expect(platform.writeProperties, [
+          BleOutputProperty.withoutResponse,
+          BleOutputProperty.withResponse,
+        ]);
+        expect(platform.writeCalls, 2);
+      },
+    );
+
+    test('write without response falls back to write with response', () async {
+      platform.unsupportedWriteProperties.add(
+        BleOutputProperty.withoutResponse,
+      );
+
+      await transport.write(
+        _serviceUuid,
+        _charUuid,
+        Uint8List.fromList([0x54, 0x01, 0x01]),
+        withResponse: false,
+      );
+
+      expect(platform.writeProperties, [
+        BleOutputProperty.withoutResponse,
+        BleOutputProperty.withResponse,
+      ]);
+    });
+
+    test('a rejected write with response is never downgraded', () async {
+      platform.unsupportedWriteProperties.add(BleOutputProperty.withResponse);
+
+      await expectLater(
+        transport.write(
+          _serviceUuid,
+          _charUuid,
+          Uint8List.fromList([0x54, 0x01, 0x01]),
+        ),
+        throwsA(isA<UniversalBleException>()),
+      );
+
+      expect(platform.writeProperties, [BleOutputProperty.withResponse]);
+    });
+
+    test(
+      'a characteristic supporting neither write type still throws',
+      () async {
+        platform.unsupportedWriteProperties.addAll(BleOutputProperty.values);
+
+        await expectLater(
+          transport.write(
+            _serviceUuid,
+            _charUuid,
+            Uint8List.fromList([0x54, 0x01, 0x01]),
+            withResponse: false,
+          ),
+          throwsA(isA<UniversalBleException>()),
+        );
+        expect(platform.writeProperties.length, 2);
+      },
+    );
+  });
 
   group('GATT timeout link verification (fix 1)', () {
     test(
@@ -449,6 +590,156 @@ void main() {
     );
   });
 
+  group('stale disconnect vs queued GATT work', () {
+    Future<Object?> startWrite(int byte) => transport
+        .write(_serviceUuid, _charUuid, Uint8List.fromList([byte]))
+        .then<Object?>((_) => null, onError: (Object error) => error);
+
+    test(
+      'stale disconnect update keeps in-flight and queued GATT work alive',
+      () async {
+        final notifications = <int>[];
+        await transport.subscribe(_serviceUuid, _charUuid, (value) {
+          notifications.add(value.first);
+        });
+
+        platform.hangWrites = true;
+        final writeBlocker = Completer<void>();
+        platform.writeBlocker = writeBlocker;
+
+        final inFlight = startWrite(1);
+        await pumpEventQueue();
+        final queued = startWrite(2);
+        await pumpEventQueue();
+        expect(
+          platform.writeCalls,
+          1,
+          reason: 'the second write must stay queued behind the first',
+        );
+
+        // Late physical-id disconnect for a link the OS still reports
+        // connected: the event must not dispose the current queue.
+        platform.connectionStateResult = BleConnectionState.connected;
+        platform.updateConnection(deviceId, false);
+        await pumpEventQueue();
+
+        expect(
+          platform.writeCalls,
+          1,
+          reason:
+              'confirming a live link must not dispatch queued work while the '
+              'in-flight write is still running',
+        );
+
+        writeBlocker.complete();
+        expect(await inFlight, isNull);
+        expect(
+          await queued,
+          isNull,
+          reason: 'a stale disconnect event must not cancel queued work',
+        );
+        await pumpEventQueue();
+
+        expect(platform.writeCalls, 2);
+        expect(
+          UniversalBle.getQueueDiagnostics(deviceId).state,
+          QueueDiagnosticsState.running,
+          reason: 'the device queue must survive a stale event',
+        );
+        expect(
+          observedStates,
+          isNot(contains(device.ConnectionState.disconnected)),
+        );
+
+        platform.updateCharacteristicValue(
+          deviceId,
+          _charUuid,
+          Uint8List.fromList([7]),
+          null,
+        );
+        await pumpEventQueue();
+        expect(notifications, [7]);
+      },
+    );
+
+    test('genuine disconnect cancels queued GATT work exactly once', () async {
+      platform.hangWrites = true;
+      final writeBlocker = Completer<void>();
+      platform.writeBlocker = writeBlocker;
+
+      final inFlight = startWrite(1);
+      await pumpEventQueue();
+      final queued = startWrite(2);
+      await pumpEventQueue();
+
+      platform.connectionStateResult = BleConnectionState.disconnected;
+      platform.updateConnection(deviceId, false);
+      await pumpEventQueue();
+
+      expect(await queued, isA<DeviceNotConnectedException>());
+      expect(
+        platform.writeCalls,
+        1,
+        reason: 'no operation may start against the dead link',
+      );
+      expect(
+        observedStates.where(
+          (state) => state == device.ConnectionState.disconnected,
+        ),
+        hasLength(1),
+      );
+
+      writeBlocker.complete();
+      expect(await inFlight, isNull);
+      await pumpEventQueue();
+      expect(
+        platform.writeCalls,
+        1,
+        reason: 'a failed connection must not dispatch later work',
+      );
+
+      platform.connectionStateResult = BleConnectionState.connected;
+      platform.updateConnection(deviceId, true);
+      await pumpEventQueue();
+      expect(observedStates, contains(device.ConnectionState.connected));
+
+      platform.hangWrites = false;
+      await transport.write(_serviceUuid, _charUuid, Uint8List.fromList([3]));
+      expect(platform.writeCalls, 2);
+    });
+
+    test('genuine disconnect still cancels queued work while the link probe is '
+        'pending', () async {
+      platform.hangWrites = true;
+      final writeBlocker = Completer<void>();
+      platform.writeBlocker = writeBlocker;
+      final probe = Completer<BleConnectionState>();
+      platform.connectionStateBlocker = probe;
+
+      final inFlight = startWrite(1);
+      await pumpEventQueue();
+      final queued = startWrite(2);
+      await pumpEventQueue();
+
+      platform.updateConnection(deviceId, false);
+      await pumpEventQueue();
+
+      writeBlocker.complete();
+      expect(await inFlight, isNull);
+      await pumpEventQueue();
+      expect(
+        platform.writeCalls,
+        1,
+        reason: 'queued work must stay held until the disconnect is confirmed',
+      );
+
+      probe.complete(BleConnectionState.disconnected);
+      await pumpEventQueue();
+      expect(await queued, isA<DeviceNotConnectedException>());
+      expect(platform.writeCalls, 1);
+    });
+  });
+
   group('advertising-while-connected detection (fix 2)', () {
     test(
       'own advert + OS reporting disconnected → emits disconnected',
@@ -493,6 +784,7 @@ void main() {
     });
 
     test('advert while transport already disconnected is ignored', () async {
+      platform.connectionStateResult = BleConnectionState.disconnected;
       platform.updateConnection(deviceId, false);
       await pump(10);
       expect(observedStates, contains(device.ConnectionState.disconnected));
@@ -565,6 +857,73 @@ void main() {
   });
 
   group('re-subscribe push channel (universal_ble broadcast controller)', () {
+    test(
+      'stale disconnect update is ignored while native link is connected',
+      () async {
+        final received = <int>[];
+        await transport.subscribe(_serviceUuid, _charUuid, (value) {
+          received.add(value.first);
+        });
+        platform.connectionStateResult = BleConnectionState.connected;
+        platform.updateConnection(deviceId, false);
+        await pump();
+        expect(
+          observedStates,
+          isNot(contains(device.ConnectionState.disconnected)),
+        );
+        platform.updateCharacteristicValue(
+          deviceId,
+          _charUuid,
+          Uint8List.fromList([2]),
+          null,
+        );
+        platform.updateCharacteristicValue(
+          deviceId,
+          _charUuid,
+          Uint8List.fromList([3]),
+          null,
+        );
+        await pump();
+        expect(received, [2, 3]);
+      },
+    );
+    test(
+      'plugin replacement resets CCCD and fences old logical unsubscribe',
+      () async {
+        platform.updateConnectionStateOnLifecycle = true;
+        final events = <Map<String, dynamic>>[];
+        final session = PluginBleSession(
+          transport: transport,
+          authorized: () => true,
+          runtimeAlive: () => true,
+          eventSink: (event) async {
+            events.add(event);
+          },
+        );
+        await session.connect();
+        final args = {'service': _serviceUuid, 'characteristic': _charUuid};
+        final first = await session.call(session.id, 'subscribe', args);
+        final second = await session.call(session.id, 'subscribe', args);
+        await session.call(session.id, 'unsubscribe', {'subscription': first});
+        expect(platform.notificationProperties, [
+          BleInputProperty.notification,
+          BleInputProperty.disabled,
+          BleInputProperty.notification,
+        ]);
+        platform.updateCharacteristicValue(
+          deviceId,
+          _charUuid,
+          Uint8List.fromList([9]),
+          null,
+        );
+        await pump();
+        expect(events, hasLength(1));
+        expect(events.single['subscription'], second);
+        await session.retire();
+        await session.closed;
+      },
+    );
+
     const service = '0000a000-0000-1000-8000-00805f9b34fb';
     const chars = [
       '0000a00e-0000-1000-8000-00805f9b34fb',
@@ -850,6 +1209,7 @@ void main() {
         ),
       );
 
+      await pump(10);
       expect(
         states.where((state) => state == device.ConnectionState.disconnected),
         hasLength(1),

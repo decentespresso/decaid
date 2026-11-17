@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -9,7 +10,9 @@ import 'package:reaprime/src/services/webserver/data_export/data_export_section.
 import 'package:reaprime/src/services/webserver/data_export/data_transfer_result.dart';
 import 'package:reaprime/src/services/webserver/data_export/data_transfer_limits.dart';
 import 'package:reaprime/src/services/webserver/data_export/kv_store_export_section.dart';
-import 'package:reaprime/src/services/webserver/data_export/streaming_zip_writer.dart';
+import 'package:reaprime/src/services/webserver/data_export/settings_export_section.dart';
+import 'package:reaprime/src/services/webserver/extension_management_auth.dart';
+import 'package:reaprime/src/services/export/streaming_zip_writer.dart';
 import 'package:reaprime/src/services/webserver/data_export/streaming_zip_reader.dart';
 import 'package:reaprime/src/services/webserver/json_response.dart';
 import 'package:reaprime/src/util/incremental_json_parser.dart';
@@ -78,12 +81,10 @@ class DataExportHandler {
   final Logger _log = Logger('DataExportHandler');
 
   DataExportHandler({
-    required List<DataExportSection> sections,
-    DataTransferLimits limits = const DataTransferLimits(),
-    Directory? tempDirParent,
-  }) : _sections = sections,
-       _limits = limits,
-       _tempDirParent = tempDirParent;
+    required this._sections,
+    this._limits = const DataTransferLimits(),
+    this._tempDirParent,
+  });
 
   List<String> get sectionKeys => List.unmodifiable(_sections.map(_sectionKey));
 
@@ -98,7 +99,15 @@ class DataExportHandler {
     Directory tempDir, {
     List<String>? sections,
   }) async {
-    final writer = await StreamingZipWriter.create(tempDir, _limits);
+    final writer = await StreamingZipWriter.create(
+      destination: File('${tempDir.path}${Platform.pathSeparator}export.zip'),
+      compressionLevel: 6,
+      maxFilenameBytes: _limits.maxFilenameBytes,
+      maxEntryCount: _limits.maxEntryCount,
+      maxEntryUncompressedBytes: _limits.maxEntryUncompressedBytes,
+      maxTotalUncompressedBytes: _limits.maxTotalUncompressedBytes,
+      maxArchiveBytes: _limits.maxImportRequestBytes,
+    );
     try {
       final metadata = {
         'formatVersion': _currentFormatVersion,
@@ -200,6 +209,7 @@ class DataExportHandler {
     File zipFile,
     ConflictStrategy strategy, {
     List<String>? sections,
+    bool extensionsAuthorized = false,
   }) async {
     final StreamingZipReader reader;
     try {
@@ -263,6 +273,7 @@ class DataExportHandler {
             entriesByKey[key]!,
             strategy,
             jsonFile,
+            extensionsAuthorized: extensionsAuthorized,
           );
 
           if (section.filename == 'settings.json' &&
@@ -364,14 +375,19 @@ class DataExportHandler {
     DataExportSection section,
     ArchiveFile entry,
     ConflictStrategy strategy,
-    File jsonFile,
-  ) async {
+    File jsonFile, {
+    required bool extensionsAuthorized,
+  }) async {
     try {
       await reader.writeEntryToFile(entry, jsonFile);
-      return await section.importJson(
-        _FileJsonInput(jsonFile, _limits),
-        strategy,
-      );
+      final input = _FileJsonInput(jsonFile, _limits);
+      return section is SettingsExportSection
+          ? await section.importJson(
+              input,
+              strategy,
+              extensionsAuthorized: extensionsAuthorized,
+            )
+          : await section.importJson(input, strategy);
     } on ZipReadException catch (e) {
       throw InvalidBackupException(
         message: 'Could not read the backup ZIP archive: ${e.message}',
@@ -407,7 +423,9 @@ class DataExportHandler {
       final raf = await zipFile.open(mode: FileMode.write);
       var received = 0;
       try {
-        await for (final chunk in request.read()) {
+        await for (final chunk in request.read().timeout(
+          _limits.syncIdleTimeout,
+        )) {
           received += chunk.length;
           if (received > _limits.maxImportRequestBytes) {
             throw const InvalidBackupException(
@@ -421,7 +439,11 @@ class DataExportHandler {
         await raf.close();
       }
 
-      final outcome = await importFromZipFile(zipFile, strategy);
+      final outcome = await importFromZipFile(
+        zipFile,
+        strategy,
+        extensionsAuthorized: mayManageExtensions(request),
+      );
       return outcome.hasFailures
           ? jsonMultiStatus(outcome.toJson())
           : jsonOk(outcome.toJson());
@@ -430,6 +452,12 @@ class DataExportHandler {
       return jsonBadRequest({
         'error': 'Invalid backup archive',
         'message': e.message,
+        if (e.reason == 'too_many_entries') 'reason': e.reason,
+      });
+    } on TimeoutException {
+      return jsonRequestTimeout({
+        'error': 'Request body timed out',
+        'message': 'The import body stopped arriving.',
       });
     } catch (e, st) {
       _log.severe('Error in _handleImport', e, st);

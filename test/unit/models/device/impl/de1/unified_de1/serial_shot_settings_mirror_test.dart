@@ -87,8 +87,7 @@ void main() {
     expect(
       serial.writes.where((w) => w == '<-K>'),
       isEmpty,
-      reason:
-          'no re-arm may be issued (the connect-time <+K> subscribe is expected)',
+      reason: 'no re-arm may be issued (the connect-time <+K> subscribe is expected)',
     );
   });
 

@@ -16,6 +16,12 @@ typedef FakeBleWrite = ({
 });
 
 class FakeBleTransport extends BLETransport {
+  FakeBleTransport({this.traceEnabled = false, this.maxTraceEntries = 256})
+    : assert(maxTraceEntries >= 0);
+
+  final bool traceEnabled;
+  final int maxTraceEntries;
+
   final _connState = BehaviorSubject<ConnectionState>.seeded(
     ConnectionState.connected,
   );
@@ -28,20 +34,53 @@ class FakeBleTransport extends BLETransport {
 
   final Map<int, List<int>> _rawResponses = {};
 
-  final Map<String, Queue<Uint8List>> _readQueue = {};
+  /// Each entry is either a [Uint8List] payload to return or an error to throw.
+  final Map<String, Queue<Object>> _readQueue = {};
   final Queue<Uint8List> _firmwareMapResponses = Queue<Uint8List>();
 
   final Set<int> failMmrReadsForAddresses = {};
 
   final Set<int> failMmrWritesForAddresses = {};
 
+  Duration? requestedStateSleepWriteTimeout;
+
   final Map<int, int> failMmrWriteOrdinalForAddresses = {};
 
   final Map<int, int> _mmrWriteCounts = {};
 
+  int connectCalls = 0;
+  int disconnectCalls = 0;
+  int connectionGeneration = 0;
+  final Stopwatch traceClock = Stopwatch()..start();
+  final List<String> trace = [];
+
   final List<FakeBleWrite> writes = [];
 
+  void recordTrace(String event) {
+    if (!traceEnabled || trace.length >= maxTraceEntries) return;
+    trace.add(
+      '${traceClock.elapsedMicroseconds}us '
+      'generation=$connectionGeneration $event',
+    );
+  }
+
+  String _endpointName(String characteristicUUID) {
+    for (final endpoint in Endpoint.values) {
+      if (endpoint.uuid == characteristicUUID) return endpoint.name;
+    }
+    return characteristicUUID;
+  }
+
   int dropNextMmrResponses = 0;
+
+  final Map<int, List<int>> _wordResponses = {};
+
+  int _mmrResponseHeaderByte(int wordCount) => switch (wordCount) {
+    1 => 0x04,
+    2 => 0x08,
+    3 => 0x0C,
+    _ => 0x0A,
+  };
 
   void queueMmrResponseInt(MmrAddress item, int value) {
     _intResponses[item.address] = value;
@@ -57,12 +96,23 @@ class FakeBleTransport extends BLETransport {
     _intResponseQueues.putIfAbsent(item.address, Queue.new).addAll(values);
   }
 
+  void queueMmrResponseWords(MmrAddress startItem, List<int> values) {
+    assert(values.length <= 4, 'MMR frame holds at most 4 words');
+    _wordResponses[startItem.address] = List<int>.of(values);
+  }
+
   void queueMmrResponseRaw(MmrAddress item, List<int> payload) {
     _rawResponses[item.address] = payload;
   }
 
   void queueRead(String characteristicUUID, Uint8List bytes) {
-    _readQueue.putIfAbsent(characteristicUUID, Queue.new).add(bytes);
+    _readQueue.putIfAbsent(characteristicUUID, Queue<Object>.new).add(bytes);
+  }
+
+  /// Throws [error] from the next `read()` on [characteristicUUID], in order
+  /// with any [queueRead] payloads.
+  void queueReadError(String characteristicUUID, Object error) {
+    _readQueue.putIfAbsent(characteristicUUID, Queue<Object>.new).add(error);
   }
 
   void queueFirmwareMapResponse(List<int> bytes) {
@@ -99,14 +149,26 @@ class FakeBleTransport extends BLETransport {
   @override
   Stream<ConnectionState> get connectionState => _connState.stream;
 
-  @override
-  Future<ConnectionState> getConnectionState() async => _connState.value;
+  void emitConnectionState(ConnectionState state) => _connState.add(state);
 
   @override
-  Future<void> connect() async {}
+  Future<ConnectionState> getConnectionState() async {
+    recordTrace('stale-link-probe state=${_connState.value.name}');
+    return _connState.value;
+  }
 
   @override
-  Future<void> disconnect() async {}
+  Future<void> connect() async {
+    connectCalls++;
+    connectionGeneration++;
+    recordTrace('connect');
+  }
+
+  @override
+  Future<void> disconnect() async {
+    disconnectCalls++;
+    recordTrace('disconnect');
+  }
 
   @override
   Future<List<String>> discoverServices() async => [de1ServiceUUID];
@@ -117,8 +179,13 @@ class FakeBleTransport extends BLETransport {
     String characteristicUUID, {
     Duration? timeout,
   }) async {
+    recordTrace('read endpoint=${_endpointName(characteristicUUID)}');
     final q = _readQueue[characteristicUUID];
-    if (q != null && q.isNotEmpty) return q.removeFirst();
+    if (q != null && q.isNotEmpty) {
+      final next = q.removeFirst();
+      if (next is Uint8List) return next;
+      throw next;
+    }
     return Uint8List(20);
   }
 
@@ -128,6 +195,7 @@ class FakeBleTransport extends BLETransport {
     String characteristicUUID,
     void Function(Uint8List) callback,
   ) async {
+    recordTrace('subscribe endpoint=${_endpointName(characteristicUUID)}');
     subscribers[characteristicUUID] = callback;
   }
 
@@ -142,11 +210,23 @@ class FakeBleTransport extends BLETransport {
     bool withResponse = true,
     Duration? timeout,
   }) async {
+    recordTrace(
+      'write endpoint=${_endpointName(characteristicUUID)} '
+      'withResponse=$withResponse',
+    );
     writes.add((
       characteristicUUID: characteristicUUID,
       data: data,
       withResponse: withResponse,
     ));
+
+    if (characteristicUUID == Endpoint.requestedState.uuid &&
+        data.length == 1 &&
+        data[0] ==
+            De1StateEnum.fromMachineState(MachineState.sleeping).hexValue &&
+        requestedStateSleepWriteTimeout != null) {
+      await Completer<void>().future.timeout(requestedStateSleepWriteTimeout!);
+    }
 
     if (characteristicUUID == Endpoint.fwMapRequest.uuid &&
         _firmwareMapResponses.isNotEmpty) {
@@ -234,6 +314,34 @@ class FakeBleTransport extends BLETransport {
       return;
     }
 
+    int? matchedWordsAddr;
+    for (final addr in _wordResponses.keys) {
+      final bytes = ByteData(4)..setInt32(0, addr, Endian.big);
+      if (bytes.getUint8(1) == addrMid1 &&
+          bytes.getUint8(2) == addrMid2 &&
+          bytes.getUint8(3) == addrLow) {
+        matchedWordsAddr = addr;
+        break;
+      }
+    }
+    if (matchedWordsAddr != null) {
+      final values = _wordResponses.remove(matchedWordsAddr)!;
+      final resp = Uint8List(20);
+      final view = ByteData.sublistView(resp);
+      view.setUint8(0, _mmrResponseHeaderByte(values.length));
+      view.setUint8(1, addrMid1);
+      view.setUint8(2, addrMid2);
+      view.setUint8(3, addrLow);
+      for (var i = 0; i < values.length; i++) {
+        view.setInt32(4 + 4 * i, values[i], Endian.little);
+      }
+      final cb = subscribers[Endpoint.readFromMMR.uuid];
+      if (cb != null) {
+        scheduleMicrotask(() => cb(resp));
+      }
+      return;
+    }
+
     for (final addr in _intResponseQueues.keys) {
       final bytes = ByteData(4)..setInt32(0, addr, Endian.big);
       if (bytes.getUint8(1) == addrMid1 &&
@@ -245,7 +353,7 @@ class FakeBleTransport extends BLETransport {
           if (queue.isEmpty) _intResponseQueues.remove(addr);
           final resp = Uint8List(20);
           final view = ByteData.sublistView(resp);
-          view.setUint8(0, data[0]);
+          view.setUint8(0, _mmrResponseHeaderByte(1));
           view.setUint8(1, addrMid1);
           view.setUint8(2, addrMid2);
           view.setUint8(3, addrLow);
@@ -273,7 +381,7 @@ class FakeBleTransport extends BLETransport {
     final value = _intResponses.remove(matchedAddr)!;
     final resp = Uint8List(20);
     final view = ByteData.sublistView(resp);
-    view.setUint8(0, data[0]);
+    view.setUint8(0, _mmrResponseHeaderByte(1));
     view.setUint8(1, addrMid1);
     view.setUint8(2, addrMid2);
     view.setUint8(3, addrLow);

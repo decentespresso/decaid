@@ -4,11 +4,11 @@ class UpdateHandler {
   final UpdateCheckService _service;
   final log = Logger("UpdateHandler");
 
-  UpdateHandler({required UpdateCheckService service}) : _service = service;
+  UpdateHandler({required this._service});
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/update', _getUpdate);
-    app.get('/ws/v1/update', sws.webSocketHandler(_handleSocket));
+    app.get('/ws/v1/update', admittedWebSocketHandler(_handleSocket));
   }
 
   Response _getUpdate(Request request) {
@@ -58,6 +58,13 @@ class UpdateHandler {
 
     switch (command) {
       case 'check':
+        if (!_service.canCheck) {
+          reply({
+            'error': 'App update checks are not supported on this build',
+            'url': _service.currentState.releaseUrl,
+          });
+          return;
+        }
         _service.requestCheck();
 
       case 'install':

@@ -10,6 +10,7 @@ import 'package:reaprime/src/models/data/shot_snapshot.dart';
 import 'package:reaprime/src/models/data/shot_state_event.dart';
 import 'package:reaprime/src/models/device/bengle_interface.dart';
 import 'package:reaprime/src/models/device/machine.dart';
+import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/device.dart' as device;
 import 'package:rxdart/rxdart.dart';
 
@@ -33,6 +34,7 @@ class ShotSequencer {
   final bool _machineHasAutonomousSAW;
 
   List<int> skippedSteps = [];
+  final Set<int> _pendingSkipSteps = {};
   final StepExitArbiter _stepExitArbiter = StepExitArbiter();
   int _lastProfileFrame = -1;
 
@@ -62,16 +64,13 @@ class ShotSequencer {
     required this.persistenceController,
     required this.targetProfile,
     required this.targetYield,
-    required bool bypassSAW,
-    required bool blockOnNoScale,
-    required double weightFlowMultiplier,
-    required double volumeFlowMultiplier,
-    required bool stepExitArbiterEnabled,
-  }) : _bypassSAW = bypassSAW,
-       _blockOnNoScale = blockOnNoScale,
-       _weightFlowMultiplier = weightFlowMultiplier,
-       _volumeFlowMultiplier = volumeFlowMultiplier,
-       _stepExitArbiterEnabled = stepExitArbiterEnabled,
+    double? targetWaterVolume,
+    required this._bypassSAW,
+    required this._blockOnNoScale,
+    required this._weightFlowMultiplier,
+    required this._volumeFlowMultiplier,
+    required this._stepExitArbiterEnabled,
+  }) : targetWaterVolume = targetWaterVolume ?? targetProfile.targetVolume,
        _machineHasAutonomousSAW =
            de1controller.connectedDe1() is BengleInterface {
     _log.info(
@@ -91,8 +90,7 @@ class ShotSequencer {
         details: 'No scale connected, blocking shot',
       );
       de1controller
-          .connectedDe1()
-          .requestState(MachineState.idle)
+          .requestMachineState(MachineState.idle)
           .catchError(
             (error) =>
                 _log.warning("Failed to abort shot for blockOnNoScale: $error"),
@@ -193,8 +191,11 @@ class ShotSequencer {
   DateTime get shotStartTime => _shotStartTime;
 
   final double targetYield;
+  final double? targetWaterVolume;
   ShotState _state = ShotState.idle;
   bool _scaleLost = false;
+  bool _scaleTimerStopped = false;
+  Scale? _scaleTimerScale;
   bool _scaleConnected = false;
   bool _continueScaleless = false;
   int _scaleConnectionGeneration = 0;
@@ -343,6 +344,7 @@ class ShotSequencer {
       );
       _volumeCountingActive = false;
       dataCollectionEnabled = false;
+      _stopScaleTimer();
       _state = ShotState.finished;
       _stateStream.add(_state);
       return;
@@ -352,6 +354,8 @@ class ShotSequencer {
       case ShotState.idle:
         if (machine.state.state == MachineState.espresso &&
             machine.state.substate == MachineSubstate.preparingForShot) {
+          _scaleTimerStopped = false;
+          _scaleTimerScale = null;
           _resetCommand.add(true);
           _shotStartTime = DateTime.now();
 
@@ -363,6 +367,7 @@ class ShotSequencer {
           _settleSamples = 0;
           _prevStoppingFlow = null;
           skippedSteps.clear();
+          _pendingSkipSteps.clear();
           _stepExitArbiter.reset();
           _lastProfileFrame = -1;
           _maxFrameSeen = -1;
@@ -382,7 +387,9 @@ class ShotSequencer {
             scaleController.tare().catchError(
               (e) => _log.warning("Failed to tare scale at shot start", e),
             );
-            scaleController.connectedScale().resetTimer();
+            scaleController.connectedScale().resetTimer().catchError(
+              (e) => _log.warning('Failed to reset scale timer', e),
+            );
           }
           _state = ShotState.preheating;
           _stateStream.add(_state);
@@ -410,7 +417,10 @@ class ShotSequencer {
             scaleController.tare().catchError(
               (e) => _log.warning("Failed to tare scale for pour", e),
             );
-            scaleController.connectedScale().startTimer();
+            _scaleTimerScale = scaleController.connectedScale();
+            _scaleTimerScale!.startTimer().catchError(
+              (e) => _log.warning('Failed to start scale timer', e),
+            );
             _scaleTared = true;
           }
 
@@ -448,7 +458,7 @@ class ShotSequencer {
                 'projectedWeight': projectedWeight,
               },
             );
-            de1controller.connectedDe1().requestState(MachineState.idle);
+            de1controller.requestMachineState(MachineState.idle);
             _enterStopping(scale);
             break;
           }
@@ -456,23 +466,23 @@ class ShotSequencer {
         if (!_bypassSAW &&
             !_machineHasAutonomousSAW &&
             (scale == null || _scaleLost) &&
-            (targetProfile.targetVolume ?? 0) > 0) {
+            (targetWaterVolume ?? 0) > 0) {
           final projectedVolume =
               _accumulatedVolume + (machine.flow * _volumeFlowMultiplier);
-          if (projectedVolume > targetProfile.targetVolume!) {
+          if (projectedVolume > targetWaterVolume!) {
             _finalStopReason = ShotDecisionReason.targetVolume;
             _emitDecision(
               ShotDecisionKind.stop,
               ShotDecisionReason.targetVolume,
               details:
-                  'Target volume ${targetProfile.targetVolume}ml reached '
+                  'Target volume ${targetWaterVolume}ml reached '
                   '(projected: $projectedVolume). Stopping shot.',
               data: {
-                'targetVolume': targetProfile.targetVolume,
+                'targetVolume': targetWaterVolume,
                 'projectedVolume': projectedVolume,
               },
             );
-            de1controller.connectedDe1().requestState(MachineState.idle);
+            de1controller.requestMachineState(MachineState.idle);
             _enterStopping(scale);
             break;
           }
@@ -499,9 +509,7 @@ class ShotSequencer {
 
       case ShotState.stopping:
         _volumeCountingActive = false;
-        if (_bypassSAW == false && scale != null && !_scaleLost) {
-          scaleController.connectedScale().stopTimer();
-        }
+        _stopScaleTimer();
 
         _refineStoppingYield(scale);
         if (_stoppingYieldLocked) {
@@ -579,7 +587,8 @@ class ShotSequencer {
       return;
     }
 
-    if (skippedSteps.contains(profileFrame)) {
+    if (skippedSteps.contains(profileFrame) ||
+        _pendingSkipSteps.contains(profileFrame)) {
       return;
     }
 
@@ -599,25 +608,61 @@ class ShotSequencer {
       }
     }
 
-    _emitDecision(
-      ShotDecisionKind.advance,
-      ShotDecisionReason.profileSkip,
-      details:
-          'Step weight ${stepExitWeight}g reached '
-          '(projected: $projectedWeight), skipping frame $profileFrame',
-      data: {
-        'frame': profileFrame,
-        'stepExitWeight': stepExitWeight,
-        'projectedWeight': projectedWeight,
-      },
-    );
-    skippedSteps.add(profileFrame);
-    de1controller.connectedDe1().requestState(MachineState.skipStep);
+    _pendingSkipSteps.add(profileFrame);
+    de1controller
+        .requestShotStepSkip(
+          () =>
+              _state == ShotState.pouring && _lastProfileFrame == profileFrame,
+        )
+        .then(
+          (skipped) {
+            _pendingSkipSteps.remove(profileFrame);
+            if (!skipped) return;
+            skippedSteps.add(profileFrame);
+            _emitDecision(
+              ShotDecisionKind.advance,
+              ShotDecisionReason.profileSkip,
+              details:
+                  'Step weight ${stepExitWeight}g reached '
+                  '(projected: $projectedWeight), skipping frame $profileFrame',
+              data: {
+                'frame': profileFrame,
+                'stepExitWeight': stepExitWeight,
+                'projectedWeight': projectedWeight,
+              },
+            );
+          },
+          onError: (Object error, StackTrace stackTrace) {
+            _pendingSkipSteps.remove(profileFrame);
+            _log.warning(
+              'Failed to skip frame $profileFrame',
+              error,
+              stackTrace,
+            );
+          },
+        );
+  }
+
+  void _stopScaleTimer() {
+    if (_scaleTimerStopped || _bypassSAW) return;
+    _scaleTimerStopped = true;
+
+    final scale = _scaleTimerScale;
+    if (scale == null) return;
+
+    try {
+      scale.stopTimer().catchError(
+        (e) => _log.warning('Failed to stop scale timer', e),
+      );
+    } catch (e) {
+      _log.warning('Failed to stop scale timer', e);
+    }
   }
 
   void _enterStopping(WeightSnapshot? scale) {
     _latchTrustedFinalYield(scale);
     dataCollectionEnabled = false;
+    _stopScaleTimer();
     _state = _trustedFinalYield != null
         ? ShotState.stopping
         : ShotState.finished;

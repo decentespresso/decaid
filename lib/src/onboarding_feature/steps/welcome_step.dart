@@ -33,7 +33,7 @@ class _WelcomeStepView extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         Text(
-          'Coming from the DE1 app? You can import your data next.',
+          'Coming from De1App? You can import your data next.',
           style: theme.textTheme.muted,
           textAlign: TextAlign.center,
         ),

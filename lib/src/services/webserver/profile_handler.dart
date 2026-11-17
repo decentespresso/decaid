@@ -3,8 +3,7 @@ part of '../webserver_service.dart';
 class ProfileHandler {
   final ProfileController _controller;
 
-  ProfileHandler({required ProfileController controller})
-    : _controller = controller;
+  ProfileHandler({required this._controller});
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/profiles', _handleGetAll);
@@ -100,7 +99,11 @@ class ProfileHandler {
 
   Future<Response> _handleCreate(Request request) async {
     try {
-      final body = await request.readAsString();
+      final body = await readBoundedRequestBodyString(
+        request,
+        maxBytes: largeRequestBodyBytes,
+        timeout: largeRequestBodyTimeout,
+      );
       final json = jsonDecode(body) as Map<String, dynamic>;
 
       if (!json.containsKey('profile')) {
@@ -121,6 +124,8 @@ class ProfileHandler {
       );
 
       return jsonCreated(record.toJson());
+    } on RequestBodyReadException {
+      rethrow;
     } on ArgumentError catch (e) {
       return jsonBadRequest({'error': 'Invalid request', 'message': '$e'});
     } on FormatException catch (e) {
@@ -134,7 +139,11 @@ class ProfileHandler {
   Future<Response> _handleUpdate(Request request, String id) async {
     id = Uri.decodeComponent(id);
     try {
-      final body = await request.readAsString();
+      final body = await readBoundedRequestBodyString(
+        request,
+        maxBytes: largeRequestBodyBytes,
+        timeout: largeRequestBodyTimeout,
+      );
       final json = jsonDecode(body) as Map<String, dynamic>;
 
       Profile? profile;
@@ -156,6 +165,8 @@ class ProfileHandler {
       );
 
       return jsonOk(record.toJson());
+    } on RequestBodyReadException {
+      rethrow;
     } on ArgumentError catch (e) {
       return jsonBadRequest({'error': 'Invalid request', 'message': '$e'});
     } on FormatException catch (e) {
@@ -185,7 +196,11 @@ class ProfileHandler {
   Future<Response> _handleSetVisibility(Request request, String id) async {
     id = Uri.decodeComponent(id);
     try {
-      final body = await request.readAsString();
+      final body = await readBoundedRequestBodyString(
+        request,
+        maxBytes: smallRequestBodyBytes,
+        timeout: smallRequestBodyTimeout,
+      );
       final json = jsonDecode(body) as Map<String, dynamic>;
 
       if (!json.containsKey('visibility')) {
@@ -201,6 +216,8 @@ class ProfileHandler {
       final record = await _controller.setVisibility(id, visibility);
 
       return jsonOk(record.toJson());
+    } on RequestBodyReadException {
+      rethrow;
     } on ArgumentError catch (e) {
       return jsonBadRequest({'error': 'Invalid request', 'message': '$e'});
     } catch (e, st) {
@@ -227,7 +244,11 @@ class ProfileHandler {
 
   Future<Response> _handleImport(Request request) async {
     try {
-      final body = await request.readAsString();
+      final body = await readBoundedRequestBodyString(
+        request,
+        maxBytes: largeRequestBodyBytes,
+        timeout: largeRequestBodyTimeout,
+      );
       final json = jsonDecode(body);
 
       if (json is! List) {
@@ -241,6 +262,8 @@ class ProfileHandler {
       final result = await _controller.importProfiles(profilesJson);
 
       return jsonOk(result);
+    } on RequestBodyReadException {
+      rethrow;
     } catch (e, st) {
       log.severe('Error in _handleImport', e, st);
       return jsonError({'error': 'Internal server error', 'message': '$e'});

@@ -11,22 +11,34 @@ import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/services/firmware/bundled_firmware_catalog.dart';
 import 'package:reaprime/src/services/firmware/firmware_manifest.dart';
 import 'package:reaprime/src/services/firmware/firmware_validator.dart';
+import 'package:reaprime/src/services/webserver/bounded_request_body.dart';
 import 'package:shelf_plus/shelf_plus.dart';
+
+const _maxRawFirmwareBodyBytes = 16 * 1024 * 1024;
+const _rawFirmwareBodyReadTimeout = Duration(seconds: 60);
+const _maxManagedFirmwareBodyBytes = 64 * 1024;
+const _managedFirmwareBodyReadTimeout = Duration(seconds: 10);
 
 class FirmwareHandler {
   final De1Controller _controller;
   final BundledFirmwareCatalog _catalog;
   final FirmwareValidator _validator;
   final Logger _log;
+  final int maxRawBodyBytes;
+  final Duration rawBodyReadTimeout;
+  final int maxManagedBodyBytes;
+  final Duration managedBodyReadTimeout;
 
   FirmwareHandler({
-    required De1Controller controller,
-    required BundledFirmwareCatalog catalog,
+    required this._controller,
+    required this._catalog,
     FirmwareValidator? validator,
     Logger? logger,
-  }) : _controller = controller,
-       _catalog = catalog,
-       _validator = validator ?? const FirmwareValidator(),
+    this.maxRawBodyBytes = _maxRawFirmwareBodyBytes,
+    this.rawBodyReadTimeout = _rawFirmwareBodyReadTimeout,
+    this.maxManagedBodyBytes = _maxManagedFirmwareBodyBytes,
+    this.managedBodyReadTimeout = _managedFirmwareBodyReadTimeout,
+  }) : _validator = validator ?? const FirmwareValidator(),
        _log = logger ?? Logger('FirmwareHandler');
 
   void addRoutes(RouterPlus app) {
@@ -105,7 +117,31 @@ class FirmwareHandler {
   }
 
   Future<Response> _uploadRaw(Request request) async {
-    final bodyBytes = await request.read().expand((x) => x).toList();
+    final Uint8List bodyBytes;
+    try {
+      bodyBytes = await readBoundedRequestBody(
+        request,
+        maxBytes: maxRawBodyBytes,
+        timeout: rawBodyReadTimeout,
+      );
+    } on RequestBodyReadException catch (error) {
+      return Response(
+        error.statusCode,
+        body: jsonEncode(
+          error.statusCode == 413
+              ? {
+                  'error': 'payload_too_large',
+                  'message': 'Firmware image exceeds the 16 MiB limit',
+                }
+              : {
+                  'error': 'request_timeout',
+                  'message':
+                      'Firmware body was not received within the time limit',
+                },
+        ),
+        headers: {'Content-Type': 'application/json'},
+      );
+    }
     if (bodyBytes.isEmpty) {
       return Response.badRequest(
         body: jsonEncode({
@@ -114,18 +150,39 @@ class FirmwareHandler {
         }),
       );
     }
-    final fwImage = Uint8List.fromList(bodyBytes);
-
     final de1 = _resolveDe1();
     if (de1 == null) return _machineUnavailable();
 
-    return _streamFirmwareUpload(de1, fwImage);
+    return _streamFirmwareUpload(bodyBytes);
   }
 
   Future<Response> _applyManaged(Request request) async {
     final Object? decoded;
     try {
-      decoded = jsonDecode(await request.readAsString());
+      final bytes = await readBoundedRequestBody(
+        request,
+        maxBytes: maxManagedBodyBytes,
+        timeout: managedBodyReadTimeout,
+      );
+      decoded = jsonDecode(utf8.decode(bytes));
+    } on RequestBodyReadException catch (error) {
+      return Response(
+        error.statusCode,
+        body: jsonEncode(
+          error.statusCode == 413
+              ? {
+                  'error': 'payload_too_large',
+                  'message':
+                      'Managed firmware request exceeds the 64 KiB limit',
+                }
+              : {
+                  'error': 'request_timeout',
+                  'message':
+                      'Managed firmware request was not received in time',
+                },
+        ),
+        headers: {'Content-Type': 'application/json'},
+      );
     } on FormatException {
       return _invalidRequest('Request body must be valid JSON');
     }
@@ -143,8 +200,7 @@ class FirmwareHandler {
     }
     final force = forceValue as bool? ?? false;
 
-    final de1 = _resolveDe1();
-    if (de1 == null) return _machineUnavailable();
+    if (_resolveDe1() == null) return _machineUnavailable();
 
     final manifest = await _catalog.loadManifest();
     FirmwareManifestEntry? entry;
@@ -179,6 +235,8 @@ class FirmwareHandler {
       );
     }
 
+    final de1 = _resolveDe1();
+    if (de1 == null) return _machineUnavailable();
     final info = de1.machineInfo;
     final eligibility = _validator.evaluateEligibility(
       entry.artifact,
@@ -205,15 +263,14 @@ class FirmwareHandler {
       );
     }
 
-    return _streamFirmwareUpload(de1, image);
+    return _streamFirmwareUpload(image);
   }
 
   Future<Response> _cancelUpdate(Request _) async {
     FirmwareUpdateState state = FirmwareUpdateState.idle;
     try {
-      final de1 = _controller.connectedDe1();
-      await de1.cancelFirmwareUpload();
-      state = de1.firmwareUpdateState;
+      await _controller.cancelFirmwareUpload();
+      state = _resolveOperationState();
     } catch (_) {}
     return Response(
       202,
@@ -250,7 +307,7 @@ class FirmwareHandler {
     );
   }
 
-  Response _streamFirmwareUpload(De1Interface de1, Uint8List image) {
+  Response _streamFirmwareUpload(Uint8List image) {
     final progressController = StreamController<List<int>>();
 
     void emit(Map<String, dynamic> event) {
@@ -261,14 +318,21 @@ class FirmwareHandler {
 
     progressController.onCancel = () async {
       _log.warning('firmware upload: client disconnected, cancelling');
-      await de1.cancelFirmwareUpload();
+      try {
+        await _controller.cancelFirmwareUpload();
+      } on DeviceNotConnectedException {
+        _log.fine(
+          'firmware upload: machine already disconnected during cancellation',
+        );
+      }
     };
 
     var lastProgress = -1.0;
     try {
-      de1
+      _controller
           .updateFirmware(
             image,
+            onStart: () => emit({'status': 'erasing', 'progress': 0.0}),
             onProgress: (progress) {
               if (progress - lastProgress < 0.01) return;
               lastProgress = progress;
@@ -277,15 +341,51 @@ class FirmwareHandler {
               }
             },
           )
-          .then((_) {
-            emit({'status': 'done', 'progress': 1.0});
-            progressController.close();
-          })
-          .catchError((Object e) {
-            emit({'status': 'error', 'progress': -1.0, 'error': e.toString()});
-            progressController.close();
-          });
+          .then(
+            (_) {
+              emit({'status': 'done', 'progress': 1.0});
+              progressController.close();
+            },
+            onError: (Object error, StackTrace stackTrace) {
+              if (error is FirmwareUpdateCancelledException) {
+                emit({
+                  'status': 'error',
+                  'progress': -1.0,
+                  'error': error.toString(),
+                });
+                progressController.close();
+                return;
+              }
+              final stage = error is FirmwareUpdateStageException
+                  ? error.stage
+                  : 'firmware-upload';
+              final cause = error is FirmwareUpdateStageException
+                  ? error.cause.toString()
+                  : error.toString();
+              final logError = error is FirmwareUpdateStageException
+                  ? error.cause
+                  : error;
+              final logStackTrace = error is FirmwareUpdateStageException
+                  ? error.stackTrace
+                  : stackTrace;
+              _log.warning(
+                'firmware upload failed stage=$stage cause=$cause',
+                logError,
+                logStackTrace,
+              );
+              final event = <String, dynamic>{
+                'status': 'error',
+                'progress': -1.0,
+                'error': error.toString(),
+                'cause': cause,
+                'stage': stage,
+              };
+              emit(event);
+              progressController.close();
+            },
+          );
     } on FirmwareUpdateInProgressException {
+      unawaited(progressController.close());
       return Response(
         409,
         body: jsonEncode({
@@ -294,9 +394,17 @@ class FirmwareHandler {
         }),
         headers: {'Content-Type': 'application/json'},
       );
+    } on De1WriteQueueFullException catch (e) {
+      unawaited(progressController.close());
+      return Response(
+        503,
+        body: jsonEncode({
+          'error': 'Machine write queue is full',
+          'message': '$e',
+        }),
+        headers: {'Content-Type': 'application/json'},
+      );
     }
-
-    emit({'status': 'erasing', 'progress': 0.0});
 
     return Response.ok(
       progressController.stream,

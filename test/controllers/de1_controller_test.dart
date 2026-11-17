@@ -73,6 +73,47 @@ void main() {
     });
   });
 
+  group('adoptDevice', () {
+    test('replacing an already-adopted device does not emit an interim null '
+        'on de1', () async {
+      await runZonedGuarded(() async {
+        final deviceController = DeviceController([
+          MockDeviceDiscoveryService(),
+        ]);
+        await deviceController.initialize();
+        final de1Controller = De1Controller(controller: deviceController);
+        final first = TestDe1(deviceId: 'de1-a');
+        final second = TestDe1(deviceId: 'de1-b');
+
+        final emissions = <De1Interface?>[];
+        final sub = de1Controller.de1.listen(emissions.add);
+
+        de1Controller.adoptDevice(first);
+        first.emitShotSettings(_emptyShotSettings());
+        await Future<void>.delayed(Duration.zero);
+        expect(de1Controller.connectedDe1OrNull, same(first));
+
+        de1Controller.adoptDevice(second);
+        second.emitShotSettings(_emptyShotSettings());
+        await Future<void>.delayed(Duration.zero);
+
+        expect(de1Controller.connectedDe1OrNull, same(second));
+        expect(
+          emissions,
+          [null, first, second],
+          reason:
+              'adopting a replacement device must transition directly '
+              'from the previous device to the new one — an interim '
+              'null reads as an unexpected disconnect downstream',
+        );
+
+        await sub.cancel();
+        await first.dispose();
+        await second.dispose();
+      }, (_, _) {});
+    });
+  });
+
   group('seenSerials', () {
     test('retains serials after the device disconnects', () async {
       await runZonedGuarded(() async {

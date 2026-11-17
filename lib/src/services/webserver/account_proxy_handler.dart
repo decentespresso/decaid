@@ -4,10 +4,7 @@ class AccountProxyHandler {
   final DecentProxyService _proxy;
   final bool enableWrites;
 
-  AccountProxyHandler({
-    required DecentProxyService proxy,
-    this.enableWrites = false,
-  }) : _proxy = proxy;
+  AccountProxyHandler({required this._proxy, this.enableWrites = false});
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/account/proxy/<rest|.*>', _handleGet);
@@ -42,6 +39,11 @@ class AccountProxyHandler {
       return jsonForbidden({'error': 'Path not allowed'});
     } on DecentProxyConsentDeniedException {
       return jsonForbidden({'error': 'Account access was not granted'});
+    } catch (e, st) {
+      log.warning('Decent account proxy request failed', e, st);
+      return jsonError({
+        'error': remoteErrorMessage(e, action: 'reach your Decent account'),
+      });
     }
   }
 
@@ -59,9 +61,10 @@ class AccountProxyHandler {
   }) async {
     final rest = request.params['rest'] ?? '';
     final callerId = proxyCallerOf(request)?.id ?? 'unknown';
-    final bodyBytes = await request.read().fold<List<int>>(
-      <int>[],
-      (buffer, chunk) => buffer..addAll(chunk),
+    final bodyBytes = await readBoundedRequestBody(
+      request,
+      maxBytes: largeRequestBodyBytes,
+      timeout: largeRequestBodyTimeout,
     );
     final contentType = request.headers['content-type'];
 
@@ -89,6 +92,11 @@ class AccountProxyHandler {
       return jsonForbidden({'error': 'Path not allowed'});
     } on DecentProxyConsentDeniedException {
       return jsonForbidden({'error': 'Account access was not granted'});
+    } catch (e, st) {
+      log.warning('Decent account proxy request failed', e, st);
+      return jsonError({
+        'error': remoteErrorMessage(e, action: 'reach your Decent account'),
+      });
     }
   }
 }

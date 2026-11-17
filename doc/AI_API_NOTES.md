@@ -5,7 +5,7 @@ Read this when changing REST endpoints, WebSocket topics, API specs, auth proxy,
 ## Source Of Truth
 
 - REST spec: `assets/api/rest_v1.yml` (OpenAPI 3.0). Always read before making calls.
-- WebSocket spec: `assets/api/websocket_v1.yml` (AsyncAPI 3.0).
+- WebSocket spec: `assets/api/websocket_v1.yml` (AsyncAPI 3.1.0).
 - Full endpoint reference: `doc/Api.md`.
 - Handler implementations: `lib/src/services/webserver/`.
 - Router registration: `lib/src/services/webserver/webserver_service.dart` `_init()`.
@@ -24,6 +24,94 @@ Read this when changing REST endpoints, WebSocket topics, API specs, auth proxy,
 - Content-based hash IDs for profile deduplication (`ProfileController`).
 - ETag / `If-None-Match` support on cacheable resources (#203).
 
+### Opaque external route IDs
+
+Sensor IDs supplied by external plugins are opaque strings: clients
+percent-encode one path component once, and the sensor route boundary decodes
+it once with `decodeOpaquePathComponent` before REST lookup or WebSocket
+subscription/rebind matching. Preserve literal `%`, `%ZZ`, trailing `%`,
+reserved characters, Unicode, plus signs, and `%252F` decode-once behavior;
+invalid UTF-8 is rejected with HTTP 400 at the Shelf boundary.
+
+`Request.url.queryParameters` is already decoded and must not use the path
+helper. Plugin HTTP and WebSocket endpoint routes also decode plugin and
+endpoint IDs once before lookup or subscription matching; generated device
+surface hrefs encode both components once. Surface endpoint validation rejects
+unpaired UTF-16 surrogates because URI encoding replaces them with U+FFFD;
+valid surrogate pairs, encoded control characters, and whitespace round-trip.
+Host-assigned UUID resource IDs,
+plugin management/KV/skin/file/command paths, and account-proxy normalization
+retain their existing path-encoding contracts. Plugin and skin management
+routes additionally require an `extensions:manage` token; see Extension
+Management Authorization.
+
+### Patch Nullability
+
+`rejectExplicitNulls()` in `json_patch.dart` is the shared helper for refusing an explicit
+`null` on a PUT (`profile_handler.dart` keeps its own inline check for `profile`), and the
+refusal has to be modelled in a patch-specific schema — `SteamSettingsPatch`,
+`WorkflowContextPatch` — because a generated client reads the schema, not the handler.
+Keep a patch schema field-for-field with its model and change only the fields the handler
+names: `WorkflowContextPatch` drops `nullable` on `targetYield` alone, because that is the
+only field `WorkflowHandler` passes to `rejectExplicitNulls`, and every other context field
+is genuinely cleared by an explicit `null`. `WorkflowContext` stays nullable throughout,
+since a stored shot legitimately has no target and it is the GET and 200 response shape.
+`test/webserver/workflow_patch_schema_test.dart` pins the pair against drift.
+
+A cleared shot note is persisted as `''`, not `null`: `ShotAnnotations.toJson` omits a
+null field, so a note cleared through `PUT /api/v1/shots/:id` and a note that was never
+set reach a client as the same response, and a client that falls back to the pre-shot
+`workflow.context.extras.note` (DYE2 does, deliberately, for historical shots whose only
+note lives there) shows the old note again — decentespresso/dye2#16.
+`ShotsHandler._representClearedNoteAsEmpty` normalises the clear inside the single PUT the
+host already serialises, so no plugin event, read-modify-write or tri-state model field is
+needed. The same null-versus-absent ambiguity still applies to every other
+`ShotAnnotations` field, and `copyWith` cannot clear any of them (`??`); only the note is
+normalised, because only the note has a consumer that falls back.
+
+A nested patch object needs the refusal at both levels. `Workflow.fromJson` drops the whole
+context when `context` is `null`, so `{"context": null}` used to clear `targetYield` through
+the back door and answer `200` while the schema — a bare `$ref`, and bare `$ref` is
+non-nullable in OpenAPI 3.0.3 — said it was invalid. `WorkflowHandler` therefore names
+`context` alongside `steamSettings` in the top-level `rejectExplicitNulls()` call and rejects
+a non-object `context`, mirroring the `steamSettings` arm. A client clears individual context
+fields with an explicit `null` and turns stop-at-weight off with `0`; there is no
+whole-object clear.
+
+`rejectExplicitNulls()` pairs with `validatePatchFieldTypes()` — the idiom used by
+`beans_handler.dart` and `grinders_handler.dart` — because a wrong type is the same hole as a
+`null`. `parseOptionalDouble()` returns `null` when a value will not parse, so an unparseable
+`targetYield` silently meant no target and `BengleSawBridge` wrote `0` to the firmware, which
+is stop-at-weight off. The type check is scoped to `targetYield`: it is the field with the
+safety consequence, and widening it to the sibling numeric fields is a separate behaviour
+change. One consequence worth knowing before widening it: `validatePatchFieldTypes()` requires
+`value is num`, so a numeric *string* such as `"36"` that `parseOptionalDouble()` accepted now
+returns `400`. Nothing in this repo sends one and `type: number` never permitted it.
+## Device inventory and connected-scale metadata
+
+- `GET /api/v1/devices` and `/ws/v1/devices` are inventory-only surfaces. They must not include connection-scoped metadata such as `deviceInfo`, `firmwareVersion`, or `batteryLevel`.
+- Metadata refreshes do not emit inventory updates. Do not add a metadata WebSocket until a concrete live-update need exists.
+- `GET /api/v1/scale/info` reports only the currently connected scale. Disconnected requests return `503`; a connected scale with unknown metadata returns `{}`. `firmwareVersion` is optional and opaque. `batteryLevel` is optional/nullable where supported; unknown values are omitted, and `0`/`100` are valid.
+- Keep connected-scale metadata separate from remembered-device inventory state; use the scale-info endpoint for it.
+
+### Admission Control
+
+`/api/` requests pass through a process-local gate after authentication and inside
+the existing logging/CORS middleware. Defaults are 128 concurrent and 1024 accepted
+per second globally, 32 concurrent and 256 accepted per second per client, and 256
+tracked clients. Per-client rejection returns `429`; global rejection returns `503`.
+Both include `Retry-After: 1`. `OPTIONS`, static/WebUI, and `/ws/` requests bypass
+this gate.
+
+WebSocket upgrades use an independent gate: 128 open and 128 upgrades per second
+globally, 32 open and 32 upgrades per second per client, and 256 tracked clients.
+Every registered WebSocket uses it. A socket holds its slot until the channel sink
+finishes; rejected upgrades use the same `429`/`503` and `Retry-After: 1` contract.
+
+The raw firmware upload buffers at most 16 MiB and cancels body reading after 60
+seconds. It returns `413` for either a declared or streamed overrun and `408` for a
+stalled body. Workflow PUT retains its smaller semantic bounds.
+
 ### Backup Import and Sync Invariants
 
 - A successful backup import requires at least one recognized selected payload; metadata alone is not payload.
@@ -37,9 +125,72 @@ Read this when changing REST endpoints, WebSocket topics, API specs, auth proxy,
 - Remote sync clients accept legacy flat section maps and structured `sections` responses, but fail closed for missing sections, malformed semantic fields, contradictory declarations, or a hybrid representation.
 - In every sync mode, omitted sections mean all locally registered sections; explicit empty, unknown, or malformed section lists are rejected before network activity.
 
+## LED Strip PUT Response Shape
+
+`PUT /api/v1/machine/ledStrip` answers with the stored canonical palette rather
+than a write acknowledgement. The request value and the stored value are not the
+same thing on this endpoint: the firmware holds 8 bits per RGB channel, so the
+app quantizes before writing, and `frontSwitch` has no register of its own and is
+derived from the front strip. An acknowledgement therefore could not tell a caller
+what the machine actually holds, and a client had to issue a second GET to find
+out. The 200 body is now byte-identical to that GET.
+
+The acknowledgement survives as a defensive fallback for a machine implementation
+that reports no stored palette after the write, which is why the spec documents the
+200 as an `anyOf`. No shipped implementation produces that branch: every
+implementation populates the stored palette on the success path of the write, so a
+failed hydration is repaired by the write rather than surfaced here. Both branches
+are covered in `test/services/webserver/de1handler_led_strip_test.dart`, the
+fallback through a test double that reports no state at all.
+
+This is a deliberate divergence from the sibling `PUT /api/v1/machine/cupWarmer`,
+which still returns `{"status": "accepted"}`. Only the ledStrip endpoint moved;
+there is no repo-wide convention change. Cup-warmer writes are stored as sent, so
+an echo would carry no information the caller does not already have.
+
+The canonicalisation itself lives in one place, `LedStripState.canonical()` in
+`lib/src/models/device/led_strip.dart`. The real capability, `MockBengle` and
+`MockReplayDe1` all route their writes through it, and the replay mock seeds its
+starting palette with it too, so a mock cannot hold or store a palette the machine
+could not produce.
+
+## Water Levels GET (issue #1028)
+
+`GET /api/v1/machine/waterLevels` answers the latest `De1WaterLevels` from
+`De1Interface.waterLevels`, the stream `/ws/v1/machine/waterLevels` forwards.
+The BLE connect path subscribes to water-level notifications but never reads the
+characteristic, unlike shot settings, so between connect and the machine's first
+notification there is no value to answer with. The request waits up to 4 seconds
+for that notification, the same budget as the serial latest-frame read, then
+answers `504` through `EndpointUnavailableException`. The DE1 notifies whenever
+the reading changes, and sensor jitter keeps it changing: on a DE1Pro the
+longest measured gap was 1.9 seconds. Keep the timeout: without it a machine that
+never reports would hang the request. The timeout sits on the stream, before
+`.first`, so a timed-out request cancels its subscription; `Future.timeout` after
+`.first` would leave it listening until the next frame.
+
+`UnifiedDe1Transport.waterLevels` returns the subject's `.stream`, not
+`asBroadcastStream()`. Each `asBroadcastStream()` call builds a wrapper that keeps
+its source subscription after its last listener cancels, so every `.first` read
+left a listener on the subject until disconnect, and a polled GET grew that set
+without bound. The remaining getters, except `bengleShotSample`, still use
+`asBroadcastStream()`. `shotSettings` (`De1Controller._readShotSettings`) and
+`calibration` (the calibration GET) also have per-request `.first` readers and
+leak the same way; they are left for a follow-up.
+
 ## WebSocket Conventions
 
 - WebSocket topics are path-based: `/ws/v1/machine/state`, `/ws/v1/machine/shotState`, `/ws/v1/scale/snapshot`, etc.
+
+Scale paths are split by compatibility boundary: singular `/scale/*` routes
+remain primary-only, while `/scales/{id}/tare` and
+`/ws/v1/scales/{id}/snapshot` address a connected primary or auxiliary scale.
+Scale IDs are opaque URI path components: clients encode once and handlers use
+the shared one-decode helper. Auxiliary sessions are runtime-only and never
+enter shot sequencing or persisted preferences.
+The addressed snapshot stream uses the raw `ScaleSnapshot.toJson()` payload
+for both roles (`timestamp`, `weight`, `batteryLevel`, `timerValue`, `flow`);
+the legacy singular stream retains its existing `WeightSnapshot` payload.
 - `ShotSequencer` emits structured `ShotDecision`s (why a step advanced, why the shot stopped).
 - `SteamSequencer` manages steam session lifecycle (start on entry, finalize on exit).
 - Presence tracking via `PresenceController` — client keep-alive.
@@ -60,15 +211,84 @@ Read this when changing REST endpoints, WebSocket topics, API specs, auth proxy,
 - Plugins: must declare `proxy.decent_api` permission.
 - Consent prompt (#300): pending, client consent over active view.
 
-**Skin token bridge:** HTML served on port 3000 receives the account-proxy token only when the request host is loopback or an IP currently assigned to a local network interface. The live interface list is authoritative to avoid retaining stale DHCP addresses in the allowlist and to support Ethernet or multiple adapters. The WiFi IP cached for display is accepted only when interface enumeration fails. Hostnames remain rejected to preserve the DNS-rebinding boundary.
+**Skin token bridge:** HTML served on port 3000 receives the account-proxy token only when the request host is loopback or an IP currently assigned to a local network interface. The live interface list is authoritative to avoid retaining stale DHCP addresses in the allowlist and to support Ethernet or multiple adapters. The WiFi IP cached for display is accepted only when interface enumeration fails. Hostnames never receive the token, which is what preserves the DNS-rebinding boundary: a rebound name resolves to a device address by construction, so honouring one for the token would hand it to the attacker's origin.
+
+A hostname that resolves to a device address does pass the port-3000 entry redirect and receive the tokenless script tag (issue #699). The redirect only echoes the requested host on the current generation's port, and before 0.8.2 the entry served those requests as static files anyway; `window.decentApp` carries no secret and no-ops outside the embedded webview. Resolutions are cached per served generation under a short TTL and re-checked against the live interface list on every request, so a lookup that recovers, an address that moves, or an interface that disappears reclassifies without waiting for a restart. The cache is bounded so spoofed Host headers cannot grow it without limit or force a lookup per request.
+
+## Extension Management Authorization
+
+### Problem
+
+Plugin and skin management routes were open to any LAN client and to any
+plugin that can reach the local API (issue #1031).
+
+### Solution
+
+`lib/src/services/webserver/extension_management_auth.dart` holds the whole
+policy: `extensionManagementRoutes` (18 method + `shelf_router` patterns) and
+`extensionManagementAuthMiddleware`, installed in `buildWebServerHandler` right
+after `proxyAuthMiddleware`. A matching request needs a bearer scoped
+`extensions:manage`: 401 for a missing, malformed, unknown or revoked bearer,
+403 for a known token without the scope. Tokens come from the native API
+tokens section, or for development and automation from `--extensions-token` or
+the `DECAID_EXTENSIONS_TOKEN` environment variable at launch.
+
+### Design Choices
+
+- Matching builds a real `shelf_router` `Router` from the table, so encoding,
+  case and trailing slashes are judged as the handlers' router judges them and
+  method-specific entries leave plugin endpoints with reserved names alone.
+- The middleware is installed even without a `ProxyTokenService`; then only
+  in-process grants pass, so the routes fail closed.
+- Body-dependent gates (`POST /api/v1/settings` with `webUiPath`, a changed
+  `defaultSkinId` or `automaticUpdateCheck` turned on; import and pull-sync of a
+  changed `defaultSkinId` or `automaticUpdateCheck: true`) read the middleware's
+  recorded decision through `requireExtensionManagement` /
+  `mayManageExtensions`. A handler reached without the middleware is refused.
+- Plugins with `manage.extensions` get an in-process `ExtensionManagementGrant`
+  in the shelf request context via `host.localApi`, never a bearer. A network
+  caller cannot populate the context, and the grant's `isActive` is checked on
+  every request.
+- `host.localApi` is an allowlist, not a path prefix. `PluginLocalApiBridge`
+  dispatches only `extensionManagementRoutes`, `extensionManagementReadRoutes`
+  (the plugin, skin and skin-server `GET` routes) and `POST /api/v1/settings`
+  with a body of only `extensionManagementSettingsKeys`, matched with the same
+  `shelf_router` matcher as the middleware. Everything else is rejected before
+  dispatch, so the bridge does not stand in for `api`: it never dispatches to
+  machine control or plugin-defined endpoints, and `fetch` never carries a
+  grant. `webUiPath` is gated for token holders but is not one of the
+  bridge's keys, because it serves an arbitrary folder on the skin port. A new
+  management route must be added to one of those lists to be reachable from a
+  plugin. This bounds the plugin's own calls only: a plugin that can write
+  plugin source and approve updates can install one holding `api`, or add
+  `api` to itself with one source write, which issue #1031 accepts as the
+  delegated authority of the permission.
+- A bearer the token service recognises is removed from the request before
+  handlers run, so plugin-defined endpoints never see it.
+- The scope is independent of `account:proxy`; each middleware checks its own.
+
+When adding a plugin or skin mutation route, add it to
+`extensionManagementRoutes` and declare `security: [extensionsManage]` with
+401/403 in `rest_v1.yml`; `test/api/extension_management_spec_test.dart`
+fails until both agree or the route is listed as reviewed-open there, and
+`test/webserver/extension_management_route_coverage_test.dart` fails for any
+mutating route `PluginsHandler` or `WebUIHandler` registers that is in neither
+list, whether or not the spec mentions it.
+
+### Focused Tests
+
+```sh
+flutter test test/webserver/extension_management_auth_test.dart test/webserver/extension_management_route_coverage_test.dart test/api/extension_management_spec_test.dart
+```
 
 ## Decent Binary Protocol
 
-**Source:** Original DE1 app at `github.com/decentespresso/de1app` is the authoritative source for DE1 protocol behavior, BLE characteristics, and machine state logic.
+The protocol is DE1-specific. See
+[`device-notes/de1.md`](device-notes/de1.md#protocol-source-of-truth).
 
-**Profiles:** Use Profile JSON v2 format. See `doc/Profiles.md` for the full profile API and content-based hashing.
-
-**MMR (Memory-Mapped Register) reads:** Used for DE1 debug log buffer, firmware settings, and advanced state. Not for general profile or workflow operations.
+MMR (Memory-Mapped Register) reads serve DE1 debug logs, firmware settings, and
+advanced machine state. Use the profile and workflow APIs for general profile
+or workflow operations, not raw MMR access.
 
 ## Workflow Dual Representation
 
@@ -81,7 +301,8 @@ Workflow JSON has both `context` (new: `WorkflowContext` with `grinderModel`, `c
 3. Register in `webserver_service.dart` `_init()`.
 4. Update `assets/api/rest_v1.yml` (or `websocket_v1.yml`) in the same commit.
 5. Update `doc/Api.md` if user-facing.
-6. Smoke-test via `scripts/sb-dev.sh` + `curl`/`websocat`.
+6. A route that installs, configures or removes plugins or skins goes in `extensionManagementRoutes` and gets the `extensionsManage` security in the spec (enforced by `test/api/extension_management_spec_test.dart`).
+7. Smoke-test via `scripts/sb-dev.sh` + `curl`/`websocat`.
 
 ## Focused Tests
 
@@ -128,6 +349,69 @@ All four machine sockets: `/ws/v1/machine/snapshot`, `/ws/v1/machine/shotSetting
 
 **Full gateway mode is explicitly exempt**, checked via `settingsController.gatewayMode == GatewayMode.full` alongside the shot-state check — not left implicit. In `full` mode the skin owns the shot and `De1StateManager` normally never starts its own `ShotSequencer` for it, so `currentShotState` would usually stay idle anyway; but the launcher/home-screen path in `De1StateManager._handleEspressoState` starts an app-owned `ShotSequencer` "regardless of mode" whenever the app's own home screen is foregrounded, even under `full` gateway mode. Relying on ShotSequencer-absence alone would make the lockout accidentally engage in that edge case, which is out of scope for the setting's intent (it exists to protect app-tracked shots, not skin-owned ones) — hence the explicit gateway-mode check rather than an inferred one.
 
+## Fixed Port Already Bound
+
+### Problem
+
+`startWebServer` binds two fixed ports: 8080 for the REST and WebSocket API, and
+4001 for the API docs. `main()` wrapped the call in a bare `catch` that logged
+`failed to start web server` and carried on, so a bind failure left the app
+running with no API at all.
+
+That failure was close to invisible. The WebUI binds an ephemeral port and is
+unaffected, so the skin still loaded and the app looked normal; only every REST
+call and every WebSocket behind it was gone. `BootTiming.mark('webserver_up')`
+fired either way. The user saw an app that opened correctly and then misbehaved,
+with the reason only in the log.
+
+Two Decaid-family apps installed on one device share those fixed ports, so the
+common cause is that the other one is already running.
+
+### Solution
+
+`lib/src/services/webserver/port_binding.dart` wraps both binds.
+`serveOrReportPortInUse` raises a typed `WebServerPortInUse`; `main()` catches it
+and runs `WebServerPortConflictApp` instead of the app.
+
+Only the 8080 API bind reaches `main()`. `startApiDocsServer` catches the same
+exception for 4001, logs it, and returns null, so the docs port is best effort.
+
+### Design Choices
+
+- **Only EADDRINUSE is a port clash.** Every other `SocketException` is
+  rethrown unchanged so it keeps its own error path. A check that treated all of
+  them as a clash would tell the user to close an app that is not running.
+- **The errno set is per platform.** Dart reports the raw OS code and does not
+  normalise it: 98 on Linux and Android, 48 on macOS and iOS, 10048 on Windows.
+- **A same-process double bind carries no errno.** Dart refuses it before the OS
+  sees it and raises its own message, "The shared flag to bind() needs to be
+  `true` ...". That is the same condition for the user, so `isAddressInUse`
+  matches on `sameProcessBindClashMessage` as well. Matching a message is
+  brittle, so a test pins the wording: a Dart change fails that test rather than
+  letting the check fall through to the unknown-failure path. This is also why
+  an in-process test can exercise `serveOrReportPortInUse` at all.
+- **The boot stops for 8080, not for 4001.** Continuing without the API would
+  present a working-looking app with nothing behind it, which is the defect this
+  replaces. 4001 serves only the API docs, and it binds after 8080 has already
+  succeeded. Treating a docs conflict as fatal would abort a boot whose API was
+  running, and would leave that 8080 server open behind the conflict screen,
+  because `startWebServer` holds the only reference to it.
+- **The screen does not close the other app.** Android does not let one app stop
+  another; `killBackgroundProcesses` needs its own permission and only ever
+  touches background processes. The screen offers "Check again", which re-probes
+  the port, and "Close this app".
+- **`probePortIsFree` is injected into the screen.** A widget test drives a fake
+  clock and real socket I/O never settles under it, so the widget takes a
+  `PortProbe`. The real probe is covered separately in a plain test.
+
+### Focused Tests
+
+```
+flutter test test/unit/services/webserver/port_binding_test.dart
+flutter test test/unit/services/webserver/api_docs_server_port_test.dart
+flutter test test/unit/ui/webserver_port_conflict_app_test.dart
+```
+
 ## Keeping Notes Fresh
 
 Add protocol compatibility rules, API versioning decisions, and endpoint design rationale. Prune when specs are updated.
@@ -171,7 +455,9 @@ of records and one JSON record, never with backup size. Rationale and traps:
   for tests: request body 2 GiB, entry count 4096, per-entry uncompressed
   1 GiB, total uncompressed 2 GiB, metadata 64 KiB, per-record 64 MiB, ZIP
   header fields 256 B/64 KiB/64 KiB, sync request 1 MiB, target response
-  8 MiB; timeouts 10 s connection (TCP establishment only) / 30 s idle /
+  8 MiB; import request bodies have a 30 s idle timeout and sync command bodies
+  have a 30 s read deadline; transfer timeouts are 10 s connection (TCP
+  establishment only) / 30 s idle /
   10 min deadline per phase covering the NETWORK stages only (upload/
   download + response); local export and the pull-side import run to
   completion and report their actual results. Timeouts abort the request
@@ -193,6 +479,14 @@ of records and one JSON record, never with backup size. Rationale and traps:
   (`util/temp_archive_files.dart`), deleted in `finally` or on stream
   cancel/done. Native export defers cleanup (grace timer) because the OS
   share sheet reads the file asynchronously.
+- **Native share anchors**: full backup, recovery package, and import Share
+  Report resolve their initiating widget's bounds immediately before the mobile
+  share call, not before asynchronous file preparation. Desktop save dialogs do
+  not resolve geometry. An unmounted or offscreen action fails without a fallback
+  anchor: archive delivery cleans up and propagates to the existing UI error
+  handler; Share Report uses its existing error handler. Mounted views show the
+  error; disposed views suppress UI updates. Native iPad presentation still
+  requires hardware verification, including resize during preparation.
 - **Legacy compatibility**: entry names, JSON shapes (including
   `store.json`'s `namespaces` wrapper and beans' embedded `batches`),
   `metadata.json` semantics, conflict strategies, selected-section behavior,
@@ -202,15 +496,14 @@ of records and one JSON record, never with backup size. Rationale and traps:
 ## Workflow PUT Queue
 
 `PUT /api/v1/workflow` operations are serialized through one queue owned by
-`WorkflowHandler`. One HTTP request is exactly one queue entry. Separate requests
-must not be coalesced without a future explicit client or session contract. The
-handler reads the workflow base when a queue entry reaches execution, then applies
-only that request's deep merge. Machine side effects from workflow PUTs, profile
-sync, and Bengle workflow bridges share the `De1Controller` device-write queue.
-Each entry captures one machine and connection generation; workflow setting writes
-retry once on a replacement machine after that generation's startup initialization
-settles. Startup defaults finish before the generation barrier releases. A failure
-must not poison the queue tail.
+`WorkflowHandler`. One HTTP request is exactly one handler queue entry. The handler
+reads the workflow base when that entry reaches execution, then applies only that
+request's deep merge. Machine side effects from workflow PUTs, profile sync, Bengle
+workflow bridges, and other callers share the `De1Controller` governor: one active
+DE1 operation plus at most 32 pending operations. Pending rinse, steam, and hot-water
+workflow setting writes coalesce by setting group; the displaced caller receives
+`409 Conflict`, while unrelated and imperative writes remain FIFO. A failure must
+not poison either queue tail.
 Request bodies are read with a 30-second timeout before their queued operation
 executes; body-read failures are observed immediately and do not poison the queue.
 The body stream subscription is cancelled on completion, error, size rejection, or
@@ -228,29 +521,31 @@ remains the owner of asynchronous profile upload after controller changes.
 
 ### Device-Write Retry and Machine Replacement
 
-`De1Controller.runDeviceWrite()` is the single serialization point for all REST
-machine writes (workflow PUTs, profile, shot settings, machine settings). The write
-callback receives the machine acquired inside the retry loop, so a disconnected
-interval (controller holding no machine) is handled by waiting — bounded by
-`ConnectionTimings.machineReplacementTimeout` (10 s) — for a non-null replacement and
-that generation's startup initialization to settle, then re-running the complete
-grouped write once on the replacement. The old machine is never acquired for a new
-write after the generation changes (an already-running write may still finish on it,
-see below). If no replacement appears within the bound, the handler returns
-`503 Machine unavailable`; if there was never a machine at all, the first attempt
-fails fast with `500` (unchanged behavior). The first attempt never waits: the bounded
-wait only applies to retries after a mid-write disconnect.
+`De1Controller.runDeviceWrite()` is the single serialized boundary for imperative
+DE1 operations. It captures the connection generation and physical-machine identity
+when admitted. Imperative operations never replay: a generation change before or
+during execution fails the operation after any in-flight native write settles.
 
-A machine generation change cannot cancel an in-flight native write: the old machine
-may receive a partial or complete attempt. Only after that attempt finishes does the
-post-write generation check reject it, and the retry then re-runs the complete grouped
-operation from the start on the replacement.
+Only `runReplaceableDeviceWrite()` operations for rinse, steam, and hot-water
+workflow settings may reconcile once after a disconnect. Reconciliation waits up to
+`ConnectionTimings.machineReplacementTimeout` (10 s), then requires the replacement
+to have the same physical identity and its startup initialization to settle. Identity
+uses the machine serial number when available and otherwise the device ID. A different
+machine is rejected rather than receiving stale work. If the same machine does not
+return within the bound, the handler returns `503 Machine unavailable`.
+
+Caller cancellation or timeout does not release an active physical operation. The
+governor advances only after that operation actually settles. Firmware upload uses
+the same serialized boundary for its full duration; firmware cancellation remains a
+direct command.
 
 ### REST Route Serialization Audit
 
-All mutating machine routes in `de1handler.dart` route their physical writes through
-`runDeviceWrite` (one HTTP request = one queue entry, parse-then-write, controller
-streams published only after the grouped write succeeds):
+Mutating machine routes in `de1handler.dart` route physical writes through the DE1
+governor. Ordinary REST machine mutations enter as imperative operations; workflow
+updates use replaceable setting groups. Bodies are parsed before admission and
+controller streams are published only after the grouped write succeeds. The idle
+safety path is the exception documented below:
 
 - `PUT /api/v1/workflow` (workflow handler, device writes via `updateWorkflowSettings`)
 - `POST /api/v1/machine/profile`
@@ -261,21 +556,23 @@ streams published only after the grouped write succeeds):
 - `POST /api/v1/machine/calibration`
 - `POST /api/v1/machine/waterLevels`
 - `PUT /api/v1/machine/cupWarmer`, `PUT /api/v1/machine/ledStrip`,
+  `POST /api/v1/machine/ledStrip/preview`,
+  `POST /api/v1/machine/ledStrip/preview/clear`,
   `POST /api/v1/machine/ledStrip/commit`, `POST /api/v1/machine/ledStrip/reset`
 
-Every endpoint above can return `503` when the machine disconnects mid-write and no
-replacement appears within the bounded wait, and `400` for malformed JSON bodies
+Every endpoint above can return `503` when the 32-entry pending queue is full and
+`400` for malformed JSON bodies
 (machine settings, advanced, calibration, waterLevels, cupWarmer, ledStrip,
-profile, and shot settings parse their complete body before reserving a queue entry).
+preview, profile, and shot settings parse their complete body before reserving a queue entry).
 Machine-write failures otherwise map to `500`.
 
 Documented bypasses:
 
-- `PUT /api/v1/machine/state/<newState>`: latency-sensitive machine commands (a stop
-  request must not queue behind a settings or profile write) that target the state
-  characteristic, not the settings/MMR registers the queue serializes.
+- `PUT /api/v1/machine/state/<newState>` routes non-idle requests through the governor.
+  Only `idle` bypasses it so stop remains serviceable behind saturated or stalled work.
 - Raw low-level MMR commands via `/ws/v1/machine/raw`: intentionally unqueued (see
   the machine WebSocket re-bind section); a delayed raw read/write could be stale.
+- Diagnostic UI commands remain intentionally unqueued.
 
 ### Machine Disconnect Simulation (debug only)
 
@@ -293,7 +590,15 @@ behavior is documented.
 | 200 | Workflow updated and committed |
 | 400 | Malformed or invalid JSON |
 | 408 | Client did not finish sending the body within the timeout |
+| 409 | A pending replaceable workflow setting write was superseded by a newer value |
 | 413 | Body exceeds 1 MiB limit |
 | 429 | Admission capacity full (8 active or queued requests) |
 | 500 | A required direct machine write failed, or no machine was ever connected |
-| 503 | Mutation timed out waiting for its execution turn, or no replacement machine appeared within the bounded wait |
+| 503 | Mutation timed out waiting for its execution turn, the 32-entry DE1 pending queue is full, or the same machine did not return within the bounded wait for a replaceable workflow write |
+
+## Device inventory and connected-scale metadata
+
+- `GET /api/v1/devices` and `/ws/v1/devices` are inventory-only surfaces. They must not include connection-scoped metadata such as `deviceInfo`, `firmwareVersion`, or `batteryLevel`.
+- Metadata refreshes do not emit inventory updates. Do not add a metadata WebSocket until a concrete live-update need exists.
+- `GET /api/v1/scale/info` reports only the currently connected scale. Disconnected requests return `503`; a connected scale with unknown metadata returns `{}`. `firmwareVersion` is optional and opaque.
+- Keep connected-scale metadata separate from remembered-device inventory state; use the scale-info endpoint for it.

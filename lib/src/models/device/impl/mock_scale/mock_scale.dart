@@ -40,6 +40,12 @@ class MockScale implements Scale, SimulatedDevice {
 
   @override
   Future<void> onConnect() async {
+    if (_emissionTimer == null) {
+      _stalled = false;
+      _startEmission();
+    }
+    final machine = _machine;
+    if (machine != null) attachMachine(machine);
     _connectionSubject.add(ConnectionState.connected);
   }
 
@@ -79,7 +85,7 @@ class MockScale implements Scale, SimulatedDevice {
   }
 
   void attachMachine(MockDe1 machine) {
-    if (identical(machine, _machine)) return;
+    if (identical(machine, _machine) && _machineSub != null) return;
     _machineSub?.cancel();
     _machine = machine;
     _machineSub = machine.currentSnapshot.listen((s) {
@@ -133,7 +139,8 @@ class MockScale implements Scale, SimulatedDevice {
     _stalled = true;
     _emissionTimer?.cancel();
     _emissionTimer = null;
-    detachMachine();
+    _machineSub?.cancel();
+    _machineSub = null;
     _connectionSubject.add(ConnectionState.disconnected);
   }
 

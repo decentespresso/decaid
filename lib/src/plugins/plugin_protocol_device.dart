@@ -1,0 +1,207 @@
+import 'dart:async';
+
+import 'package:logging/logging.dart';
+import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/models/device/device_implementation.dart';
+import 'package:reaprime/src/models/device/transport/data_transport.dart';
+import 'package:rxdart/rxdart.dart';
+import 'package:uuid/uuid.dart';
+
+import 'plugin_device_contract.dart';
+import 'plugin_device_surface_authority.dart';
+import 'plugin_manifest.dart';
+
+abstract class PluginProtocolDevice extends PluginDeviceAdapter {
+  @override
+  final String deviceId;
+  @override
+  final String name;
+  @override
+  final TransportType transportType;
+  @override
+  final PluginDeviceSurfaceAuthority? surfaceAuthority;
+  final PluginDeviceInvoker invoke;
+  final Future<void> Function(String session)? prepareConnection;
+  final void Function()? onReady;
+  final Duration invocationTimeout;
+  final BehaviorSubject<ConnectionState> _state = BehaviorSubject.seeded(
+    ConnectionState.discovered,
+  );
+  final Logger _log = Logger('PluginProtocolDevice');
+  Future<void>? _connecting;
+  Future<void>? _disconnecting;
+  Completer<void>? _cancelled;
+  String? _session;
+  bool _disposed = false;
+
+  PluginProtocolDevice({
+    required this.deviceId,
+    required this.name,
+    required this.invoke,
+    String? pluginId,
+    List<PluginDeviceSurface> surfaces = const [],
+    this.transportType = TransportType.unknown,
+    this.prepareConnection,
+    this.onReady,
+    this.invocationTimeout = const Duration(seconds: 5),
+  }) : assert(pluginId != null || surfaces.isEmpty),
+       surfaceAuthority = pluginId == null
+           ? null
+           : PluginDeviceSurfaceAuthority(
+               pluginId: pluginId,
+               surfaces: surfaces,
+             );
+
+  @override
+  void publishInfo(Map<String, dynamic> info, {String? session}) {
+    checkSession(session);
+    throw const PluginDeviceException(
+      'Runtime info is unsupported',
+      code: 'unsupported_operation',
+    );
+  }
+
+  @override
+  DeviceImplementation get implementation => DeviceImplementation.plugin;
+  @override
+  Stream<ConnectionState> get connectionState => _state.stream;
+
+  void checkSession(String? session) {
+    if (_disposed ||
+        session == null ||
+        session != _session ||
+        (_state.value != ConnectionState.connecting &&
+            _state.value != ConnectionState.connected)) {
+      throw const PluginDeviceException(
+        'Stale plugin device session',
+        code: 'stale_session',
+      );
+    }
+  }
+
+  void beginSamples() {}
+  Future<void> waitForReadiness() async {}
+
+  @override
+  Future<void> onConnect() {
+    if (_disposed) {
+      return Future.error(
+        const PluginDeviceException('Plugin device disposed'),
+      );
+    }
+    if (_state.value == ConnectionState.connected) return Future.value();
+    return _connecting ??= _connect().whenComplete(() => _connecting = null);
+  }
+
+  Future<void> _connect() async {
+    final disconnecting = _disconnecting;
+    if (disconnecting != null) {
+      try {
+        await disconnecting;
+      } catch (error) {
+        _log.warning('Previous plugin device cleanup failed', error);
+      }
+    }
+    if (_disposed) throw const PluginDeviceException('Plugin device disposed');
+    final session = const Uuid().v4();
+    _session = session;
+    final cancelled = Completer<void>();
+    _cancelled = cancelled;
+    beginSamples();
+    final readiness = waitForReadiness();
+    _state.add(ConnectionState.connecting);
+    var prepared = false;
+    try {
+      final prepare = prepareConnection;
+      if (prepare != null) {
+        await prepare(session);
+        prepared = true;
+        checkSession(session);
+      }
+      final initialization = () async {
+        await invoke(PluginDeviceOperation.connect, {'session': session});
+        await readiness;
+      }();
+      final cancelledDuringStartup = await Future.any<bool>([
+        initialization.then((_) => false),
+        cancelled.future.then((_) => true),
+      ]).timeout(invocationTimeout);
+      if (cancelledDuringStartup) {
+        throw const PluginDeviceException(
+          'Plugin device connect cancelled',
+          code: 'stale_session',
+        );
+      }
+      checkSession(session);
+      onReady?.call();
+      _state.add(ConnectionState.connected);
+    } catch (error, stackTrace) {
+      if (_session == session) {
+        try {
+          await disconnect();
+        } catch (_) {}
+      } else if (prepared) {
+        try {
+          await invoke(PluginDeviceOperation.disconnect, {'session': session});
+        } catch (_) {}
+      }
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+  }
+
+  @override
+  Future<void> disconnect() {
+    if (_disposed) return Future.value();
+    final existing = _disconnecting;
+    if (existing != null) return existing;
+    final session = _session;
+    _session = null;
+    _state.add(ConnectionState.disconnecting);
+    final cancelled = _cancelled;
+    if (cancelled != null && !cancelled.isCompleted) cancelled.complete();
+    return _disconnecting = () async {
+      try {
+        await invoke(PluginDeviceOperation.disconnect, {'session': session});
+      } finally {
+        _disconnecting = null;
+        if (!_disposed) _state.add(ConnectionState.disconnected);
+      }
+    }();
+  }
+
+  Future<void> command(
+    PluginDeviceOperation operation, [
+    Map<String, dynamic> payload = const {},
+  ]) async {
+    final session = _session;
+    checkSession(session);
+    if (_state.value != ConnectionState.connected) {
+      throw const PluginDeviceException('Plugin device is not ready');
+    }
+    await invoke(operation, {
+      ...payload,
+      'session': session,
+    }).timeout(invocationTimeout);
+    checkSession(session);
+  }
+
+  @override
+  void reportDisconnected({String? session}) {
+    checkSession(session);
+    unawaited(
+      disconnect().catchError((Object error) {
+        _log.warning('Plugin protocol failure cleanup device=$deviceId', error);
+      }),
+    );
+  }
+
+  @override
+  Future<void> dispose() async {
+    if (_disposed) return;
+    _disposed = true;
+    _session = null;
+    final cancelled = _cancelled;
+    if (cancelled != null && !cancelled.isCompleted) cancelled.complete();
+    await _state.close();
+  }
+}

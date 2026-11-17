@@ -24,6 +24,7 @@ void main() {
     },
     'settings.reaplugin': {PluginPermissions.log, PluginPermissions.api},
     'dye2.reaplugin': {PluginPermissions.log, PluginPermissions.api},
+    'dcamp.reaplugin': {PluginPermissions.log, PluginPermissions.api},
     'decent-profile.reaplugin': {
       PluginPermissions.log,
       PluginPermissions.api,
@@ -66,9 +67,8 @@ void main() {
 
   test('shot upload bundled copy upgrades existing 0.2.0 installs', () async {
     final manifestJson = jsonDecode(
-      await File(
-        'assets/plugins/shot-upload.reaplugin/manifest.json',
-      ).readAsString(),
+      await File('assets/plugins/shot-upload.reaplugin/manifest.json')
+          .readAsString(),
     );
     final manifest = PluginManifest.fromJson(
       manifestJson as Map<String, dynamic>,

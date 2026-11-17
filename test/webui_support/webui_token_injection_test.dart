@@ -1,9 +1,17 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
+
+Future<int> reservePort() async {
+  final server = await ServerSocket.bind(InternetAddress.anyIPv4, 0);
+  final port = server.port;
+  await server.close();
+  return port;
+}
 
 void main() {
   const token = 'abc.123';
@@ -97,12 +105,13 @@ const bodyExample = "</body>";
   group('serveFolderAtPath offline', () {
     late Directory tempDir;
     late WebUIService service;
+    late int entryPort;
 
     setUp(() async {
+      entryPort = await reservePort();
       tempDir = await Directory.systemTemp.createTemp('webui_offline_test');
-      await File(
-        '${tempDir.path}/index.html',
-      ).writeAsString('<html><body>test</body></html>');
+      await File('${tempDir.path}/index.html')
+          .writeAsString('<html><body>test</body></html>');
       service = WebUIService();
     });
 
@@ -112,6 +121,8 @@ const bodyExample = "</body>";
         await tempDir.delete(recursive: true);
       }
       WebUIService.resolveWifiIP = NetworkInfo().getWifiIP;
+      WebUIService.resolveHost = InternetAddress.lookup;
+      WebUIService.hostResolutionTtl = const Duration(seconds: 30);
     });
 
     Future<String> getBodyForHost(String host) async {
@@ -209,9 +220,8 @@ const bodyExample = "</body>";
         'webui_second_skin',
       );
       addTearDown(() => secondDir.delete(recursive: true));
-      await File(
-        '${secondDir.path}/index.html',
-      ).writeAsString('<html><body>second</body></html>');
+      await File('${secondDir.path}/index.html')
+          .writeAsString('<html><body>second</body></html>');
       var generation = 0;
       service.skinProxyTokenProvider = (_) => 'token-${++generation}';
 
@@ -225,9 +235,16 @@ const bodyExample = "</body>";
 
       final client = HttpClient();
       addTearDown(client.close);
-      await expectLater(
-        client.getUrl(Uri.parse('http://localhost:$firstPort/')),
-        throwsA(isA<SocketException>()),
+      final aliasRequest = await client.getUrl(
+        Uri.parse('http://localhost:$firstPort/'),
+      );
+      aliasRequest.followRedirects = false;
+      final aliasResponse = await aliasRequest.close();
+      await aliasResponse.drain<void>();
+      expect(aliasResponse.statusCode, HttpStatus.temporaryRedirect);
+      expect(
+        aliasResponse.headers.value(HttpHeaders.locationHeader),
+        'http://localhost:3000/',
       );
       final entryRequest = await client.getUrl(
         Uri.parse('http://localhost:3000/'),
@@ -266,7 +283,7 @@ const bodyExample = "</body>";
       WebUIService.resolveWifiIP = () async => wifiIp;
       service = WebUIService(listLocalAddresses: () async => [ethernetIp]);
       service.skinProxyToken = token;
-      await service.serveFolderAtPath(tempDir.path, port: 3001);
+      await service.serveFolderAtPath(tempDir.path, port: entryPort);
 
       final body = await getBodyForHost(ethernetIp);
 
@@ -285,7 +302,7 @@ const bodyExample = "</body>";
       WebUIService.resolveWifiIP = () async => staleWifiIp;
       service = WebUIService(listLocalAddresses: () async => ['10.0.0.7']);
       service.skinProxyToken = token;
-      await service.serveFolderAtPath(tempDir.path, port: 3001);
+      await service.serveFolderAtPath(tempDir.path, port: entryPort);
 
       final body = await getBodyForHost(staleWifiIp);
 
@@ -300,7 +317,7 @@ const bodyExample = "</body>";
         listLocalAddresses: () async => throw Exception('unavailable'),
       );
       service.skinProxyToken = token;
-      await service.serveFolderAtPath(tempDir.path, port: 3001);
+      await service.serveFolderAtPath(tempDir.path, port: entryPort);
 
       final body = await getBodyForHost(wifiIp);
 
@@ -312,7 +329,7 @@ const bodyExample = "</body>";
       WebUIService.resolveWifiIP = () async => '192.168.50.20';
       service = WebUIService(listLocalAddresses: () async => ['10.0.0.7']);
       service.skinProxyToken = token;
-      await service.serveFolderAtPath(tempDir.path, port: 3001);
+      await service.serveFolderAtPath(tempDir.path, port: entryPort);
 
       final body = await getBodyForHost('example.invalid');
 
@@ -320,8 +337,141 @@ const bodyExample = "</body>";
       expect(body, isNot(contains(skinApiScriptPath)));
     });
 
+    test(
+      'serves a resolving LAN hostname the script without the token',
+      () async {
+        const lanIp = '10.0.0.7';
+        WebUIService.resolveWifiIP = () async => lanIp;
+        WebUIService.resolveHost = (host) async => host == 'decent'
+            ? [InternetAddress(lanIp)]
+            : throw const SocketException('unresolvable');
+        service = WebUIService(listLocalAddresses: () async => [lanIp]);
+        service.skinProxyToken = token;
+        await service.serveFolderAtPath(tempDir.path, port: entryPort);
+
+        final body = await getBodyForHost('decent');
+
+        expect(
+          body,
+          contains(
+            '<script src="http://decent:${service.port}$skinApiScriptPath">'
+            '</script>',
+          ),
+        );
+        expect(body, isNot(contains('reaprime-proxy-token')));
+        expect(body, isNot(contains(token)));
+      },
+    );
+
+    test('keeps the token for a literal device address', () async {
+      const lanIp = '10.0.0.7';
+      WebUIService.resolveWifiIP = () async => lanIp;
+      WebUIService.resolveHost = (_) async => [InternetAddress(lanIp)];
+      service = WebUIService(listLocalAddresses: () async => [lanIp]);
+      service.skinProxyToken = token;
+      await service.serveFolderAtPath(tempDir.path, port: entryPort);
+
+      final body = await getBodyForHost(lanIp);
+
+      expect(body, contains('content="$token"'));
+      expect(body, contains(skinApiScriptPath));
+    });
+
+    test('re-resolves a hostname after its cached entry expires', () async {
+      const lanIp = '10.0.0.7';
+      var resolves = false;
+      WebUIService.resolveWifiIP = () async => lanIp;
+      WebUIService.hostResolutionTtl = Duration.zero;
+      WebUIService.resolveHost = (_) async => resolves
+          ? [InternetAddress(lanIp)]
+          : throw const SocketException('temporary failure');
+      service = WebUIService(listLocalAddresses: () async => [lanIp]);
+      await service.serveFolderAtPath(tempDir.path, port: entryPort);
+
+      expect(
+        await getBodyForHost('decent'),
+        isNot(contains(skinApiScriptPath)),
+      );
+
+      resolves = true;
+
+      expect(await getBodyForHost('decent'), contains(skinApiScriptPath));
+    });
+
+    test('rechecks cached addresses against the current interfaces', () async {
+      const lanIp = '10.0.0.7';
+      var interfaces = [lanIp];
+      WebUIService.resolveWifiIP = () async => lanIp;
+      WebUIService.resolveHost = (_) async => [InternetAddress(lanIp)];
+      service = WebUIService(listLocalAddresses: () async => interfaces);
+      await service.serveFolderAtPath(tempDir.path, port: entryPort);
+
+      expect(await getBodyForHost('decent'), contains(skinApiScriptPath));
+
+      interfaces = ['10.0.0.9'];
+
+      expect(
+        await getBodyForHost('decent'),
+        isNot(contains(skinApiScriptPath)),
+      );
+    });
+
+    test('rejects a hostname that resolves elsewhere', () async {
+      WebUIService.resolveWifiIP = () async => '10.0.0.7';
+      WebUIService.resolveHost = (_) async => [
+        InternetAddress('93.184.216.34'),
+      ];
+      service = WebUIService(listLocalAddresses: () async => ['10.0.0.7']);
+      service.skinProxyToken = token;
+      await service.serveFolderAtPath(tempDir.path, port: entryPort);
+
+      final body = await getBodyForHost('rebound.example');
+
+      expect(body, isNot(contains('reaprime-proxy-token')));
+      expect(body, isNot(contains(skinApiScriptPath)));
+    });
+
+    test(
+      'entry redirect follows a LAN hostname that resolves to this device',
+      () async {
+        const lanIp = '10.0.0.7';
+        WebUIService.resolveWifiIP = () async => lanIp;
+        WebUIService.resolveHost = (_) async => [InternetAddress(lanIp)];
+        service = WebUIService(listLocalAddresses: () async => [lanIp]);
+        await service.serveFolderAtPath(tempDir.path, port: entryPort);
+
+        final client = HttpClient();
+        addTearDown(client.close);
+        final request = await client.getUrl(
+          Uri.parse('http://localhost:$entryPort/'),
+        );
+        request.followRedirects = false;
+        request.headers.set(HttpHeaders.hostHeader, 'decent:$entryPort');
+        final response = await request.close();
+        await response.drain<void>();
+
+        expect(response.statusCode, HttpStatus.temporaryRedirect);
+        expect(
+          response.headers.value(HttpHeaders.locationHeader),
+          'http://decent:${service.port}/',
+        );
+      },
+    );
+
     test('falls back to localhost when getWifiIP throws (gh#337)', () async {
       WebUIService.resolveWifiIP = () async => throw Exception('no wifi');
+
+      await service.serveFolderAtPath(tempDir.path);
+
+      expect(service.isServing, isTrue);
+      expect(service.deviceIp(), 'localhost');
+    });
+
+    test('falls back to localhost when getWifiIP does not return', () async {
+      WebUIService.resolveWifiIP = () => Completer<String?>().future;
+      service = WebUIService(
+        wifiIpResolutionTimeout: const Duration(milliseconds: 10),
+      );
 
       await service.serveFolderAtPath(tempDir.path);
 
@@ -336,6 +486,20 @@ const bodyExample = "</body>";
 
       expect(service.isServing, isTrue);
       expect(service.deviceIp(), 'localhost');
+    });
+
+    test('re-resolves the WiFi address after an offline start', () async {
+      const lanIp = '10.0.0.7';
+      var online = false;
+      WebUIService.resolveWifiIP = () async => online ? lanIp : null;
+
+      await service.serveFolderAtPath(tempDir.path);
+      expect(service.deviceIp(), 'localhost');
+
+      online = true;
+      await service.serveFolderAtPath(tempDir.path);
+
+      expect(service.deviceIp(), lanIp);
     });
 
     test(

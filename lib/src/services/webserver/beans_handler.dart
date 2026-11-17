@@ -1,7 +1,9 @@
 import 'dart:convert';
+
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/data/bean.dart';
 import 'package:reaprime/src/services/storage/bean_storage_service.dart';
+import 'package:reaprime/src/services/webserver/bounded_request_body.dart';
 import 'package:reaprime/src/services/webserver/json_patch.dart';
 import 'package:reaprime/src/services/webserver/json_response.dart';
 import 'package:shelf_plus/shelf_plus.dart';
@@ -10,7 +12,7 @@ class BeansHandler {
   final BeanStorageService _storage;
   final Logger _log = Logger('BeansHandler');
 
-  BeansHandler({required BeanStorageService storage}) : _storage = storage;
+  BeansHandler({required this._storage});
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/beans', _getBeans);
@@ -57,7 +59,10 @@ class BeansHandler {
 
   Future<Response> _createBean(Request req) async {
     try {
-      final body = await req.body.asString;
+      final body = await readBoundedRequestBodyString(
+        req,
+        maxBytes: largeRequestBodyBytes,
+      );
       final json = jsonDecode(body) as Map<String, dynamic>;
       final bean = Bean.create(
         roaster: json['roaster'] as String,
@@ -76,6 +81,8 @@ class BeansHandler {
       );
       await _storage.insertBean(bean);
       return jsonCreated(bean.toJson());
+    } on RequestBodyReadException {
+      rethrow;
     } catch (e, st) {
       _log.severe('Error creating bean', e, st);
       return jsonBadRequest({'error': e.toString()});
@@ -90,7 +97,10 @@ class BeansHandler {
         return jsonNotFound({'error': 'Bean not found'});
       }
 
-      final body = await req.body.asString;
+      final body = await readBoundedRequestBodyString(
+        req,
+        maxBytes: largeRequestBodyBytes,
+      );
       final json = jsonDecode(body) as Map<String, dynamic>;
 
       rejectExplicitNulls(json, const ['roaster', 'name', 'decaf', 'archived']);
@@ -109,6 +119,8 @@ class BeansHandler {
 
       await _storage.updateBean(updated);
       return jsonOk(updated.toJson());
+    } on RequestBodyReadException {
+      rethrow;
     } on FormatException catch (e) {
       return jsonBadRequest({'error': e.toString()});
     } on TypeError catch (e) {
@@ -163,7 +175,10 @@ class BeansHandler {
   Future<Response> _createBatch(Request req, String beanId) async {
     beanId = Uri.decodeComponent(beanId);
     try {
-      final body = await req.body.asString;
+      final body = await readBoundedRequestBodyString(
+        req,
+        maxBytes: largeRequestBodyBytes,
+      );
       final json = jsonDecode(body) as Map<String, dynamic>;
       final batch = BeanBatch.create(
         beanId: beanId,
@@ -197,6 +212,8 @@ class BeansHandler {
       );
       await _storage.insertBatch(batch);
       return jsonCreated(batch.toJson());
+    } on RequestBodyReadException {
+      rethrow;
     } catch (e, st) {
       _log.severe('Error creating batch for bean $beanId', e, st);
       return jsonBadRequest({'error': e.toString()});
@@ -225,7 +242,10 @@ class BeansHandler {
         return jsonNotFound({'error': 'Batch not found'});
       }
 
-      final body = await req.body.asString;
+      final body = await readBoundedRequestBodyString(
+        req,
+        maxBytes: largeRequestBodyBytes,
+      );
       final json = jsonDecode(body) as Map<String, dynamic>;
 
       rejectExplicitNulls(json, const ['frozen', 'archived']);
@@ -249,6 +269,8 @@ class BeansHandler {
 
       await _storage.updateBatch(updated);
       return jsonOk(updated.toJson());
+    } on RequestBodyReadException {
+      rethrow;
     } on FormatException catch (e) {
       return jsonBadRequest({'error': e.toString()});
     } on TypeError catch (e) {

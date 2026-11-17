@@ -10,10 +10,9 @@ class KvStoreExportSection implements DataExportSection {
   final DataTransferLimits _limits;
 
   KvStoreExportSection({
-    required KeyValueStoreService store,
-    DataTransferLimits limits = const DataTransferLimits(),
-  }) : _store = store,
-       _limits = limits;
+    required this._store,
+    this._limits = const DataTransferLimits(),
+  });
 
   @override
   String get filename => 'store.json';

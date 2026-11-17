@@ -20,6 +20,7 @@ class MockSettingsService extends SettingsService {
   bool _stopHotWaterAtWeight = true;
   String? _preferredMachineId;
   String? _preferredScaleId;
+  String? _preferredGrinderDeviceId;
   String _defaultSkinId = 'streamline.js';
   bool _automaticUpdateCheck = true;
   UpdateChannel _updateChannel = UpdateChannel.stable;
@@ -39,6 +40,9 @@ class MockSettingsService extends SettingsService {
   bool _lowBatteryBrightnessLimit = false;
   bool _keepAwake = true;
   bool _onboardingCompleted = true;
+  bool _shotUploadStepSeen = true;
+  bool _shotUploadOptIn = false;
+  bool? _shotUploadPendingDecision;
   bool _accountStepSeen = true;
   bool _androidWarningDismissed = true;
   bool _showSkinExitInstructions = false;
@@ -99,16 +103,30 @@ class MockSettingsService extends SettingsService {
   @override
   Future<void> setStopHotWaterAtWeight(bool value) async =>
       _stopHotWaterAtWeight = value;
+  final List<String?> preferredMachineIdWrites = [];
+  bool failSetPreferredMachineId = false;
+
   @override
   Future<String?> preferredMachineId() async => _preferredMachineId;
   @override
-  Future<void> setPreferredMachineId(String? machineId) async =>
-      _preferredMachineId = machineId;
+  Future<void> setPreferredMachineId(String? machineId) async {
+    preferredMachineIdWrites.add(machineId);
+    if (failSetPreferredMachineId) {
+      throw Exception('simulated preference persist failure');
+    }
+    _preferredMachineId = machineId;
+  }
+
   @override
   Future<String?> preferredScaleId() async => _preferredScaleId;
   @override
   Future<void> setPreferredScaleId(String? scaleId) async =>
       _preferredScaleId = scaleId;
+  @override
+  Future<String?> preferredGrinderDeviceId() async => _preferredGrinderDeviceId;
+  @override
+  Future<void> setPreferredGrinderDeviceId(String? deviceId) async =>
+      _preferredGrinderDeviceId = deviceId;
   @override
   Future<String> defaultSkinId() async => _defaultSkinId;
   @override
@@ -218,6 +236,28 @@ class MockSettingsService extends SettingsService {
   @override
   Future<void> setOnboardingCompleted(bool value) async =>
       _onboardingCompleted = value;
+  @override
+  Future<bool> shotUploadStepSeen() async => _shotUploadStepSeen;
+  @override
+  Future<void> setShotUploadStepSeen(bool value) async =>
+      _shotUploadStepSeen = value;
+  @override
+  Future<bool> shotUploadOptIn() async => _shotUploadOptIn;
+  @override
+  Future<void> setShotUploadOptIn(bool value) async => _shotUploadOptIn = value;
+  @override
+  Future<void> clearShotUploadOptIn() async => _shotUploadOptIn = false;
+  @override
+  Future<bool?> shotUploadPendingDecision() async => _shotUploadPendingDecision;
+  @override
+  Future<void> setShotUploadDecision(bool value) async {
+    _shotUploadPendingDecision = value;
+    _shotUploadStepSeen = true;
+  }
+
+  @override
+  Future<void> clearShotUploadPendingDecision() async =>
+      _shotUploadPendingDecision = null;
   @override
   Future<bool> accountStepSeen() async => _accountStepSeen;
   @override

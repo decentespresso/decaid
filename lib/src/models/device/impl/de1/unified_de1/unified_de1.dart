@@ -8,8 +8,10 @@ import 'package:reaprime/src/controllers/connection/connection_timings.dart';
 import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/device/de1_firmwaremodel.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
+import 'package:reaprime/src/models/device/bengle_interface.dart';
 import 'package:reaprime/src/models/device/de1_rawmessage.dart';
 import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/models/device/device_identity.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/firmware_update_state.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
@@ -55,15 +57,17 @@ final class _FirmwareCancellationToken {
   }
 }
 
-class UnifiedDe1 implements De1Interface {
+class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
   static final BleServiceIdentifier advertisingIdentifier =
       BleServiceIdentifier.short('ffff');
   final UnifiedDe1Transport _transport;
+  final CanonicalDeviceIdentity? _transportIdentity;
   final _firmwareMmrGate = _FirmwareMmrGate();
   final Duration firmwareEraseTimeout;
   final Duration firmwareVerificationTimeout;
   final Duration calibrationTimeout;
   Future<void> _calibrationQueue = Future<void>.value();
+  Future<void> _flowEstimationQueue = Future<void>.value();
 
   final Logger _log = Logger("DE1");
 
@@ -71,10 +75,13 @@ class UnifiedDe1 implements De1Interface {
 
   UnifiedDe1({
     required DataTransport transport,
-    this.firmwareEraseTimeout = const Duration(seconds: 30),
-    this.firmwareVerificationTimeout = const Duration(seconds: 30),
+    this.firmwareEraseTimeout = const Duration(seconds: 60),
+    this.firmwareVerificationTimeout = const Duration(seconds: 120),
     this.calibrationTimeout = const Duration(seconds: 4),
-  }) : _transport = UnifiedDe1Transport(transport: transport);
+  }) : _transport = UnifiedDe1Transport(transport: transport),
+       _transportIdentity = transport is CanonicalDeviceIdentity
+           ? transport as CanonicalDeviceIdentity
+           : null;
 
   @override
   Stream<ConnectionState> get connectionState => _transport.connectionState;
@@ -121,8 +128,19 @@ class UnifiedDe1 implements De1Interface {
   Stream<MachineSnapshot> get currentSnapshot =>
       implementation == .bengle ? _bengleSnapshot : _de1Snapshot;
 
+  MachineState? get latestMachineState {
+    final stateInfo = _transport.latestStateInfo;
+    if (stateInfo == null || stateInfo.lengthInBytes == 0) return null;
+    return mapDe1ToMachineState(
+      De1StateEnum.fromHexValue(stateInfo.getUint8(0)),
+    );
+  }
+
   @override
   String get deviceId => _transport.id;
+
+  @override
+  String? get canonicalDeviceId => _transportIdentity?.canonicalDeviceId;
 
   @override
   DeviceImplementation get implementation => DeviceImplementation.unifiedDe1;
@@ -131,6 +149,12 @@ class UnifiedDe1 implements De1Interface {
   TransportType get transportType => _transport.transportType;
 
   MachineInfo? _info;
+  MachineInfo? _rawInfo;
+
+  MachineInfo get rawMachineInfo => _rawInfo ?? machineInfo;
+
+  int? get rawModelValue => _connectedModelValue;
+
   @override
   MachineInfo get machineInfo =>
       _info ??
@@ -141,6 +165,24 @@ class UnifiedDe1 implements De1Interface {
         groupHeadControllerPresent: false,
         extra: {},
       );
+
+  void applyEffectiveIdentity({required String serial, required String model}) {
+    final info = _info;
+    if (info == null) return;
+    _rawInfo ??= info;
+    _info = MachineInfo(
+      version: info.version,
+      model: model,
+      serialNumber: serial,
+      groupHeadControllerPresent: info.groupHeadControllerPresent,
+      extra: info.extra,
+    );
+  }
+
+  void clearEffectiveIdentity() {
+    _info = _rawInfo ?? _info;
+    _rawInfo = null;
+  }
 
   @override
   Future<void> disconnect() async {
@@ -223,8 +265,11 @@ class UnifiedDe1 implements De1Interface {
 
   @override
   Future<double> getFlowEstimation() async {
+    final epoch = _flowEstimationEpoch;
     final value = await _readMMRScaled(MMRItem.calFlowEst);
-    _cachedFlowEstimation = value;
+    if (epoch == _flowEstimationEpoch) {
+      _cachedFlowEstimation = value;
+    }
     return value;
   }
 
@@ -236,12 +281,129 @@ class UnifiedDe1 implements De1Interface {
     return await _readMMRInt(MMRItem.steamPurgeMode);
   }
 
+  Future<De1MachineSettings> getCoalescedMachineSettings({
+    bool fanTank = true,
+    bool flush = true,
+    bool purgeUsb = false,
+  }) async {
+    assert(
+      MMRItem.tankTemp.address == MMRItem.fanThreshold.address + 4,
+      'fanThreshold/tankTemp are no longer consecutive MMR words',
+    );
+    assert(
+      MMRItem.flushTemp.address == MMRItem.flushFlowRate.address + 4 &&
+          MMRItem.flushTimeout.address == MMRItem.flushFlowRate.address + 8 &&
+          MMRItem.hotWaterFlowRate.address ==
+              MMRItem.flushFlowRate.address + 12,
+      'flush/hot-water words are no longer consecutive MMR words',
+    );
+    assert(
+      MMRItem.allowUSBCharging.address == MMRItem.steamPurgeMode.address + 4,
+      'steam-purge/USB words are no longer consecutive MMR words',
+    );
+    final fanWords = fanTank
+        ? await _mmrReadWords(
+            MMRItem.fanThreshold.address,
+            wordCount: 2,
+            label: 'machineSettings/fan',
+          )
+        : null;
+    final fanThreshold = fanWords?[0] ?? await getFanThreshhold();
+    final tankTempThreshold = fanWords?[1] ?? await getTankTempThreshold();
+    final steamWords = await _mmrReadWords(
+      MMRItem.targetSteamFlow.address,
+      wordCount: 1,
+      label: 'machineSettings/steam',
+    );
+    final steamFlow = steamWords[0] * MMRItem.targetSteamFlow.readScale;
+    final flushWords = flush
+        ? await _mmrReadWords(
+            MMRItem.flushFlowRate.address,
+            wordCount: 4,
+            label: 'machineSettings/flush',
+          )
+        : null;
+    final flushFlow = flushWords == null
+        ? await getFlushFlow()
+        : flushWords[0] * MMRItem.flushFlowRate.readScale;
+    final flushTemperature = flushWords == null
+        ? await getFlushTemperature()
+        : flushWords[1] * MMRItem.flushTemp.readScale;
+    final flushTimeout = flushWords == null
+        ? await getFlushTimeout()
+        : flushWords[2] * MMRItem.flushTimeout.readScale;
+    final hotWaterFlow = flushWords == null
+        ? await getHotWaterFlow()
+        : flushWords[3] * MMRItem.hotWaterFlowRate.readScale;
+    final purgeWords = purgeUsb
+        ? await _mmrReadWords(
+            MMRItem.steamPurgeMode.address,
+            wordCount: 2,
+            label: 'machineSettings/purgeUsb',
+          )
+        : null;
+    final steamPurgeMode = purgeWords?[0] ?? await getSteamPurgeMode();
+    final usbChargerMode = purgeWords == null
+        ? await getUsbChargerMode()
+        : purgeWords[1] == 1;
+    return De1MachineSettings(
+      fanThreshold: fanThreshold,
+      tankTempThreshold: tankTempThreshold,
+      steamFlow: steamFlow,
+      flushFlow: flushFlow,
+      flushTemperature: flushTemperature,
+      flushTimeout: flushTimeout,
+      hotWaterFlow: hotWaterFlow,
+      steamPurgeMode: steamPurgeMode,
+      usbChargerMode: usbChargerMode,
+    );
+  }
+
+  Future<De1AdvancedMachineSettings> getCoalescedAdvancedMachineSettings({
+    bool heater = true,
+  }) async {
+    assert(
+      MMRItem.heaterUp2Flow.address == MMRItem.heaterUp1Flow.address + 4 &&
+          MMRItem.waterHeaterIdleTemp.address ==
+              MMRItem.heaterUp1Flow.address + 8,
+      'heater phase/idle words are no longer consecutive MMR words',
+    );
+    final heaterWords = heater
+        ? await _mmrReadWords(
+            MMRItem.heaterUp1Flow.address,
+            wordCount: 3,
+            label: 'advancedSettings/heater',
+          )
+        : null;
+    final heaterPhase1Flow = heaterWords == null
+        ? await getHeaterPhase1Flow()
+        : heaterWords[0] * MMRItem.heaterUp1Flow.readScale;
+    final heaterPhase2Flow = heaterWords == null
+        ? await getHeaterPhase2Flow()
+        : heaterWords[1] * MMRItem.heaterUp2Flow.readScale;
+    final heaterIdleTemp = heaterWords == null
+        ? await getHeaterIdleTemp()
+        : heaterWords[2] * MMRItem.waterHeaterIdleTemp.readScale;
+    final timeoutWords = await _mmrReadWords(
+      MMRItem.heaterUp2Timeout.address,
+      wordCount: 1,
+      label: 'advancedSettings/heaterTimeout',
+    );
+    return De1AdvancedMachineSettings(
+      heaterPhase1Flow: heaterPhase1Flow,
+      heaterPhase2Flow: heaterPhase2Flow,
+      heaterIdleTemp: heaterIdleTemp,
+      heaterPhase2Timeout: timeoutWords[0] * MMRItem.heaterUp2Timeout.readScale,
+    );
+  }
+
   @override
   String get name => "DE1";
   int _voltage = -1;
   int _refillKitDetected = -1;
   De1RefillKitSettings _refillKitSetting = De1RefillKitSettings.auto;
   double? _cachedFlowEstimation;
+  int _flowEstimationEpoch = 0;
   int? _connectedModelValue;
 
   @protected
@@ -253,6 +415,7 @@ class UnifiedDe1 implements De1Interface {
     await _transport.connect();
 
     _currentProfile = null;
+    clearEffectiveIdentity();
 
     if (_info != null) {
       return;
@@ -463,9 +626,22 @@ class UnifiedDe1 implements De1Interface {
   }
 
   @override
-  Future<void> setFlowEstimation(double multiplier) async {
+  Future<void> setFlowEstimation(double multiplier) {
+    ++_flowEstimationEpoch;
+    final operation = _flowEstimationQueue.then(
+      (_) => _setFlowEstimationLocked(multiplier),
+    );
+    _flowEstimationQueue = operation.catchError((_) {});
+    return operation;
+  }
+
+  Future<void> _setFlowEstimationLocked(double multiplier) async {
+    final effective =
+        _scaledClampedMMRInt(MMRItem.calFlowEst, multiplier).toDouble() *
+        MMRItem.calFlowEst.readScale;
     await _writeMMRScaled(MMRItem.calFlowEst, multiplier);
-    _cachedFlowEstimation = multiplier;
+    ++_flowEstimationEpoch;
+    _cachedFlowEstimation = effective;
   }
 
   @override

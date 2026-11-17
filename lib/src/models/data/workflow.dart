@@ -27,7 +27,13 @@ class Workflow {
     this.machine,
   });
 
-  factory Workflow.fromJson(Map<String, dynamic> json) {
+  factory Workflow.fromJson(Map<String, dynamic> json) =>
+      Workflow._parse(json, recorded: false);
+
+  factory Workflow.fromRecordedJson(Map<String, dynamic> json) =>
+      Workflow._parse(json, recorded: true);
+
+  static Workflow _parse(Map<String, dynamic> json, {required bool recorded}) {
     WorkflowContext? ctx;
     if (json['context'] != null) {
       ctx = WorkflowContext.fromJson(json['context'] as Map<String, dynamic>);
@@ -44,6 +50,7 @@ class Workflow {
         targetYield: ctx.targetYield ?? parseOptionalDouble(dose?['doseOut']),
         grinderSetting: ctx.grinderSetting ?? grinder?['setting'] as String?,
         grinderModel: ctx.grinderModel ?? grinder?['model'] as String?,
+        grinderBurrs: ctx.grinderBurrs ?? grinder?['burrs'] as String?,
         coffeeName: ctx.coffeeName ?? coffee?['name'] as String?,
         coffeeRoaster: ctx.coffeeRoaster ?? coffee?['roaster'] as String?,
       );
@@ -56,6 +63,7 @@ class Workflow {
         targetYield: dose != null ? parseOptionalDouble(dose['doseOut']) : null,
         grinderSetting: grinder?['setting'] as String?,
         grinderModel: grinder?['model'] as String?,
+        grinderBurrs: grinder?['burrs'] as String?,
         coffeeName: coffee?['name'] as String?,
         coffeeRoaster: coffee?['roaster'] as String?,
       );
@@ -65,7 +73,9 @@ class Workflow {
       id: json['id'],
       name: json['name'],
       description: json['description'],
-      profile: Profile.fromJson(json['profile']),
+      profile: recorded
+          ? Profile.fromRecordedJson(json['profile'])
+          : Profile.fromJson(json['profile']),
       context: ctx,
       steamSettings: json['steamSettings'] != null
           ? SteamSettings.fromJson(json['steamSettings'])

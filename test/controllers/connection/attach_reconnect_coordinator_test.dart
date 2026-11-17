@@ -208,6 +208,93 @@ void main() {
     });
   });
 
+  test(
+    'onLatched fires once when the settle timer arms, not per burst event',
+    () {
+      fakeAsync((async) {
+        final events = StreamController<DeviceAttachedEvent>.broadcast(
+          sync: true,
+        );
+        var latches = 0;
+        final coordinator = AttachReconnectCoordinator(
+          attachEvents: events.stream,
+          settleDelay: settleDelay,
+          shouldAttempt: () => true,
+          attempt: (_) async => true,
+          recover: () {},
+          onLatched: () => latches++,
+        );
+
+        events
+          ..add(const DeviceAttachedEvent())
+          ..add(const DeviceAttachedEvent())
+          ..add(const DeviceAttachedEvent());
+        async.elapse(settleDelay);
+        async.flushMicrotasks();
+
+        expect(latches, 1);
+        coordinator.dispose();
+        events.close();
+      });
+    },
+  );
+
+  test('onLatched does not fire when a machine is already connected', () {
+    fakeAsync((async) {
+      final events = StreamController<DeviceAttachedEvent>.broadcast(
+        sync: true,
+      );
+      var latches = 0;
+      final coordinator = AttachReconnectCoordinator(
+        attachEvents: events.stream,
+        settleDelay: settleDelay,
+        shouldAttempt: () => false,
+        attempt: (_) async => true,
+        recover: () {},
+        onLatched: () => latches++,
+      );
+
+      events.add(const DeviceAttachedEvent());
+      async.elapse(settleDelay);
+
+      expect(latches, 0);
+      coordinator.dispose();
+      events.close();
+    });
+  });
+
+  test('onSettled fires when settle expiry skips the attempt', () {
+    fakeAsync((async) {
+      final events = StreamController<DeviceAttachedEvent>.broadcast(
+        sync: true,
+      );
+      var settled = 0;
+      var attempts = 0;
+      var shouldAttempt = true;
+      final coordinator = AttachReconnectCoordinator(
+        attachEvents: events.stream,
+        settleDelay: settleDelay,
+        shouldAttempt: () => shouldAttempt,
+        attempt: (_) async {
+          attempts++;
+          return true;
+        },
+        recover: () {},
+        onSettled: () => settled++,
+      );
+
+      events.add(const DeviceAttachedEvent());
+      shouldAttempt = false;
+      async.elapse(settleDelay);
+      async.flushMicrotasks();
+
+      expect(attempts, 0);
+      expect(settled, 1);
+      coordinator.dispose();
+      events.close();
+    });
+  });
+
   test('attempt receives the latest event of a coalesced burst', () {
     fakeAsync((async) {
       final events = StreamController<DeviceAttachedEvent>.broadcast(

@@ -1,0 +1,273 @@
+# Bengle Device Notes
+
+## External auxiliary scale
+
+BengleVirtualScale remains the primary ScaleController scale. When Bengle is
+connected, automatic external primary-scale discovery is skipped as before.
+An explicit auxiliary request may still select an externally discovered scale;
+the request uses the generic device connection operation with
+connectionRole=auxiliary. The auxiliary registry owns that session and its
+snapshot/tare stream, while shot sequencing and stop-at-weight continue to read
+only the integrated primary scale.
+
+Domain knowledge for the Bengle machine implementation
+(`lib/src/models/device/impl/bengle/`,
+`lib/src/models/device/impl/de1/unified_de1/*_capability.dart`,
+`lib/src/models/device/{bengle_interface,scale_calibration,cup_warmer}.dart`,
+`lib/src/models/firmware_wake_window.dart`,
+`lib/src/controllers/presence_controller.dart` Bengle sync,
+`lib/src/services/webserver/de1handler.dart` Bengle endpoints).
+
+The original Bengle MMR surface below was verified against
+`BengleMainCPUFirmware` at tadelv/Bengle master `2377c7e0`
+(`src/Classes/Data/MMR.def` rows 39-61 and the consuming C++:
+`System.cpp`/`System.hpp`, `APIView.cpp`, `ShotMachine.cpp`,
+`CLoadCellCal.hpp`). LED persistence was updated for rheasman/Bengle#114
+(merge `57e97b1445`); no released firmware build is required by the app.
+
+## Settings MMR coalescing
+
+Bengle settings use the individually validated fan/tank, flush, and heater groups
+across transports; steam-purge/USB stays sequential. Firmware 472 is the measured
+reference, not a runtime firmware check: selection relies on the existing
+single-supported-firmware assumption below. A future firmware change must
+re-validate the groups before trusting these defaults, because multi-word
+responses can silently return wrong settings rather than an error or crash.
+BLE was not separately physically measured, and no BLE hardware run is claimed.
+The model-level `purgeUsb` parameter exists for protocol testing; the handler
+ignores that selector token and cannot enable the failed pair. Measurements and
+the accepted selector names are recorded in
+[settings coalescing validation](bengle-settings-coalescing.md).
+
+## Supported firmware surface
+
+Decaid supports exactly ONE Bengle firmware surface: the current one (MMR
+rows 39+): scale calibration, LED palette, cup-warmer mode/current
+temperature, preheat, inactivity timeout, wake scheduling. Every Bengle is
+assumed to run it — there is no firmware probe, no per-endpoint gating and
+no reduced capability set (old-firmware support was removed 2026-08-15: no
+pre-`2377c7e0` Bengles exist in the field). The capability list is the
+full 7-item set for every Bengle and empty for plain DE1s; Bengle
+endpoints 404 only on non-Bengle machines.
+
+## MMR surface map (rows 39+)
+
+| Row | Register | Address | Kind | Notes |
+|-----|----------|---------|------|-------|
+| 39 | ScaleCalCmd | 0x00803880 | int32 0..5 | calibration command |
+| 40 | ScaleCalState | 0x00803884 | int32 | packed state u32 |
+| 41 | ScaleCalWeight | 0x00803888 | float | 0.1 g units |
+| 45 | FrontLEDAwake | 0x00803898 | int32 | 0x00RRGGBB, persisted |
+| 46 | RearLEDAwake | 0x0080389C | int32 | persisted |
+| 47 | FrontLEDSleep | 0x008038A0 | int32 | persisted |
+| 48 | RearLEDSleep | 0x008038A4 | int32 | persisted |
+| 50 | CupWarmerMode | 0x008038AC | int32 0..1 | RAM-only, boots to 0 |
+| 54 | InactivitySleepTimeout | 0x008038BC | int32 0..240 | persisted, minutes |
+| 55 | SetLocalTimeOfWeek | 0x008038C0 | int32 0..604800 | RAM-only clock |
+| 56 | ScheduleEntry | 0x008038C4 | int32 | packed window, RAM-only |
+| 57 | ScheduleControl | 0x008038C8 | int32 0..255 | 0 clear+disable, 1 enable |
+| 58 | MatCurrentTemp | 0x008038CC | float | deg C x 10; 0 = no valid reading |
+| 59 | MatPreheatEnable | 0x008038D0 | int32 0..1 | persisted |
+| 60 | MatPreheatLeadMin | 0x008038D4 | int32 0..120 | persisted |
+| 61 | MatPreheatActive | 0x008038D8 | int32 0..1 | read-only |
+
+## Scale calibration (rows 39-41)
+
+- Engine is order-free: platform removed, a known mass placed directly on
+  either load cell, `latch` run once per cell; the firmware auto-detects the
+  loaded cell and the second distinct-cell latch solves and persists the
+  calibration.
+- Commands are staged asynchronously; a non-zero command is ignored while
+  the cal machine is busy or a shot is in progress. Acceptance is therefore
+  observed: the polled step leaving its previous value (abort always lands
+  on Idle and is never rejected).
+- ScaleCalState packing: step bits 31-24, cell bits 23-20 (0 none, 1 A,
+  2 B), sub-state bits 19-16, seconds remaining bits 15-8, status bits 7-0
+  (0xFF = none/in-progress; mirrors C_LoadCellCal::E_CalStatus).
+- Wire value 3 was the old explicit point-2 step, never emitted by current
+  firmware; unknown values decode as idle. Commands 4/5 (explicit
+  left/right latches) are retired.
+- Quick tare (3) is deliberately not exposed: Decaid already has the
+  integrated-scale tare path (ScaleTare 0x0080388C).
+- weightGrams is required for latch, clamped 1..10000 g; the firmware
+  stores it as a float, so fractional grams are preserved.
+- Client submissions are serialized so concurrent submissions cannot
+  interleave their acceptance reads.
+
+## LED palette (rows 45-48)
+
+- The four palette registers are persisted (PERM_RWD); writes are
+  write-through and the firmware applies the colour immediately when the
+  machine is currently in the matching state and on every sleep/wake
+  transition (APIView.cpp F_LEDStoreColor / applyLEDsForGivenState /
+  sendLEDColors).
+- There is no independent frontSwitch register: the HV switch palette is
+  derived from the FRONT strip palette; a black strip colour falls back to
+  product defaults (kSwitchDefaultAwake 0xFFF0C8 / kSwitchDefaultAsleep
+  0x555043 in APIView.cpp — keep in sync) so an "LEDs off" strip never
+  blanks a lit switch.
+- After rheasman/Bengle#114 (merge `57e97b1445`), the live
+  FrontLEDColor (0x00803890) / RearLEDColor (0x00803894) registers are
+  volatile (PERM_RW), not persisted snapshots. The four stored rows above
+  remain PERM_RWD and persist. The firmware rewrites the live pair from the
+  stored palette at boot and on every sleep/wake transition.
+- Writing the live pair applies the colour immediately (APIView.cpp
+  F_LEDStripColor); writing a preview to a stored register would instead change
+  the persisted palette.
+- `previewLedStrip` writes only the live pair, never the four stored rows.
+  Firmware #114 guarantees that a preview is volatile display state and
+  cannot become a stored decision by accident; choosing the live addresses
+  alone did not guarantee volatility on older firmware. No firmware-build
+  gate is required: on pre-#114 firmware, every changed preview frame still
+  flash-writes the live registers. The addresses and 4-byte payloads are
+  unchanged. A preview can show an asleep colour on an awake machine,
+  unlike a stored colour, which is applied only in its matching state.
+- `setLedStrip` always writes all four stored registers. Its cached palette
+  cannot prove what the firmware currently holds after another client writes;
+  a full save must restore the requested palette even when the cache is stale.
+  Per-frame flash-write avoidance belongs to preview, not to this single save.
+  `previewLedStrip` remembers what each live register was last sent and drops
+  a repeated frame. Sleep/wake phase changes and capability reinitialization
+  invalidate that memory. `setLedStrip` invalidates it before the first stored
+  write, since even a partially failed save can change the live output.
+  The state subscription is canceled when the capability is disposed.
+- The firmware stores 8 bits per RGB channel, so the app quantizes
+  (`& 0xFF00`) before writing and publishes exactly the quantized
+  representation that was written.
+- The Dart home of the quantization and the switch derivation is the single
+  `LedStripState.canonical()` in `lib/src/models/device/led_strip.dart`, which
+  also holds the only copies of the two default constants. The real
+  `LedStripCapability`, `MockBengle` and `MockReplayDe1` all route through it,
+  so "keep in sync" with APIView.cpp means one Dart site, not three. The
+  derivation reads the QUANTIZED front strip: a colour whose low byte alone is
+  non-zero is black on the wire, and the firmware default applies.
+- Hydration happens once per connection; a failed hydration (or a partial
+  multi-register write failure) leaves the state unknown (null), never
+  fabricated black. commit is a compatibility no-op; reset re-reads the
+  palette (truthful reload, not a rollback — the firmware cannot undo a
+  persisted write) and returns null on failure even if an older cached
+  state exists.
+
+### Preview restoration
+
+The live `FrontLEDColor` / `RearLEDColor` pair is volatile (PERM_RW on
+firmware #114); the four stored awake/sleep registers remain PERM_RWD.
+Firmware re-applies the stored colours on every sleep/wake transition.
+Writing the live pair therefore lets a picker show a sleep colour on an awake
+machine without changing its stored palette. A preview otherwise remains until
+the next transition, so leaving the picker must explicitly clear it.
+
+Clear refreshes the stored palette, restores both live registers for the current
+phase, then re-checks the phase after writing. A transition during either write
+requires another restore pass. Clear holds the exclusive machine-write queue
+slot, so it stops after five passes and reports that the phase did not settle
+rather than blocking other writes indefinitely or claiming success.
+
+## Cup warmer (rows 50, 58-61)
+
+- Manual mode requires CupWarmerMode=1 AND machine Idle AND
+  MatSetPoint > 0 (System.cpp controlMatTemp). CupWarmerMode is RAM-only
+  and boots to 0 on every power cycle — deliberately NOT persisted, so the
+  heater can never reactivate unattended after a power cut. The app never
+  re-enables it on reconnect.
+- MatCurrentTemp is deg C x 10 on the wire; raw 0 means no valid reading
+  (NTC out of band), surfaced as null.
+- Backwards-compatible PUT contract: a temperature-only cupWarmer request
+  also enables manual heating (the original endpoint behavior); an explicit
+  `enabled` field never passes through an intermediate enable write
+  (explicit false disables without destroying the persisted setpoint, which
+  scheduled pre-warm needs).
+- Preheat runs the mat from MatPreheatLeadMin before a scheduled wake
+  window until it closes, with the machine still ASLEEP (only the 24 V rail
+  runs), as long as the schedule is enabled, the clock is valid and
+  MatSetPoint > 0. MatPreheatEnable/MatPreheatLeadMin are persisted;
+  MatPreheatActive is 1 only when the schedule (not manual mode) drives the
+  mat. Write order is direction-aware: lead first when enabling (scheduled
+  heating must never start with a stale persisted lead between the two
+  writes), disable first when disabling (never leave heating enabled while
+  the lead is being updated).
+
+## Wake schedule + presence sync (rows 54-57)
+
+- InactivitySleepTimeout: persisted; the firmware sleeps only when NO
+  tablet is connected (while a tablet is connected the tablet owns sleep).
+  Decaid's `sleepTimeoutMinutes` maps 1:1 (0 -> 0). Pushed on connect and
+  on setting change, never continuously.
+- SetLocalTimeOfWeek expects LOCAL time as seconds since Sunday 00:00:00,
+  computed from calendar fields so a DST transition cannot skew the value
+  at push time. The clock and table are RAM-only (no RTC): re-pushed on
+  every connect. DST/timezone change during a long-lived connection is
+  picked up at the next connect or settings change; unattended wake/preheat
+  can shift by an hour if the tablet drops before that.
+- ScheduleEntry packing: `(dow << 22) | (startMin << 11) | endMin`; dow is
+  0=Sunday..6=Saturday, startMin inclusive (0..1439), endMin exclusive
+  (1..1440); the firmware rejects startMin >= endMin, so midnight-crossing
+  windows are split into two entries app-side; 32-entry cap
+  (MAX_AWAKE_WINDOWS).
+- Rewrite sequence: ScheduleControl=0 (clear + disable) -> clock ->
+  entries -> ScheduleControl=1 (enable only when entries exist). The old
+  table is disabled BEFORE the clock moves, so a clock correction can never
+  land inside a window from the table being replaced; currentAwakeWindowKey
+  reports NOT_READY mid-rewrite and preserves LastWokenWindowKey, so a
+  manual mid-window sleep is never re-woken by the re-push (ShotMachine.cpp
+  checkSchedule).
+- Translation rules (app WakeSchedule -> firmware windows):
+  - disabled schedules are dropped;
+  - `keepAwakeFor=N` -> window [start, start+N);
+  - no `keepAwakeFor` -> [start, start+240) (the longest unattended awake
+    stretch the firmware can represent; product decision 2026-02-14);
+  - an empty `daysOfWeek` means every day (matches WakeSchedule.matchesTime);
+  - Dart weekday (Mon=1..Sun=7) -> firmware dow (`weekday % 7`);
+  - windows crossing midnight split into [start, 1440) on day D and
+    [0, end) on day D+1; durations beyond a day keep splitting;
+  - result truncated to 32 entries.
+- Presence sync (`presence_controller.dart`): pushes are serialized and
+  coalescing — every trigger bumps a generation, a single drain applies the
+  newest desired state, and the pushed cache commits only after a complete
+  successful transaction. A failed push is retried automatically up to 3
+  attempts with 2 s backoff, and each desired generation receives its own
+  retry budget (the attempt counter resets when the generation changes); a
+  newer generation arriving during the backoff supersedes the failed
+  attempt (the stale state is never pushed on its own); after the bound
+  the state stays dirty until the next trigger (settings change or
+  reconnect). A mid-flight machine replacement must not
+  mark the new machine synchronized, so the cache commits only when the
+  device is still the one pushed to.
+- Master toggle (userPresenceEnabled): when off, firmware must not own any
+  timeout or wake table, so it receives timeout 0 and a cleared, disabled
+  table (the wake table runs without the tablet).
+
+## Integrated scale
+
+When Bengle is connected, `BengleVirtualScale` is attached automatically and
+automatic external primary-scale selection is skipped. Explicit discovery and
+connection of external auxiliary scales remain supported; see
+[scale connection ownership](../DeviceManagement.md#scale-connection-ownership).
+The virtual scale appears in REST and
+WebSocket inventory, but connect and disconnect commands reject its ID because
+its lifecycle follows the machine.
+
+The 28-byte `0xA013` packet supplies machine telemetry, signed weight, firmware
+`GFlow`, and `MilkTemp`. Weight and flow feed `BengleVirtualScale`; `MilkTemp`
+drives the Bengle milk-probe sensor. Tare writes `ScaleTare`; autonomous
+stop-at-weight and stop-at-temperature use `EndOfShotWeight` and
+`TargetMilkTemp`.
+
+`GET /api/v1/machine/capabilities` includes `integratedScale` for Bengle and is
+empty for plain DE1 machines.
+
+## EBus tap
+
+Bengle composite devices with VID `0x2e8a`, PID `0x000a`, product name
+`Bengle`, and logical USB interface 2 expose the EBus tap sensor. Interface 0
+retains the machine identity; Android opens paired bulk-data interface 3 while
+preserving logical interface-2 identity.
+
+Each serial read chunk is emitted as base64 bytes without framing,
+compression, capture, or upload behavior. Writes send decoded bytes unchanged.
+The transport asserts DTR, permits one reader, and reports errors as
+disconnection rather than owning reconnects.
+
+Hardware checks must confirm concurrent machine and tap discovery, independent
+detach/replug behavior, duplicate-descriptor disambiguation on Android, and
+byte-exact raw snapshots without discovery writes.

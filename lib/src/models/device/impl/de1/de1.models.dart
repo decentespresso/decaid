@@ -151,7 +151,7 @@ enum De1SubState {
   cleanFillGroup(0x0E, 'Fill the group.'),
   cleanSoak(0x0F, 'Wait for 60 seconds to soak the group head.'),
   cleanGroup(0x10, 'Flush through group.'),
-  refill(0x11, 'Have we given up on a refill?'),
+  refillStopped(0x11, 'Have we given up on a refill?'),
   pausedSteam(0x12, 'Are we paused in steam?'),
   userNotPresent(0x13, 'User is not present.'),
   puffing(0x14, 'Puffing.'),
@@ -386,27 +386,28 @@ enum MMRItem implements MmrAddress {
 bool isBengleModelValue(int value) => value >= 128;
 
 enum DecentMachineModel {
-  DE1Pro,
-  DE1XL,
-  DE1XXL,
-  DE1XXXL,
-  Bengle,
-  Unknown;
+  Unknown(0),
+  DE1(1),
+  DE1Plus(2),
+  DE1Pro(3),
+  DE1XL(4),
+  DE1Cafe(5),
+  DE1XXL(6),
+  DE1XXXL(7),
+  Bengle(128);
+
+  final int value;
+
+  const DecentMachineModel(this.value);
+
+  String get displayName => this == DE1Plus ? 'DE1+' : name;
 
   static DecentMachineModel fromInt(int model) {
-    switch (model) {
-      case 3:
-        return DecentMachineModel.DE1Pro;
-      case 4:
-        return DecentMachineModel.DE1XL;
-      case 5:
-        return DecentMachineModel.DE1XXL;
-      case 6:
-        return DecentMachineModel.DE1XXXL;
-      default:
-        return isBengleModelValue(model)
-            ? DecentMachineModel.Bengle
-            : DecentMachineModel.Unknown;
+    for (final m in values) {
+      if (m.value == model) return m;
     }
+    return isBengleModelValue(model)
+        ? DecentMachineModel.Bengle
+        : DecentMachineModel.Unknown;
   }
 }

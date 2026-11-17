@@ -9,6 +9,12 @@ import 'package:path/path.dart' as p;
 import 'package:reaprime/src/services/storage/app_directories.dart';
 import 'package:reaprime/src/services/storage/kv_store_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:reaprime/src/plugins/plugin_device_service.dart';
+
+import 'plugin_ble_registry.dart';
+import '../notifications/notification_center.dart';
+import '../notifications/native_notification.dart';
+
 import 'package:reaprime/src/plugins/plugin_manager.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
 import 'package:reaprime/src/plugins/plugin_package.dart';
@@ -18,6 +24,23 @@ import 'package:reaprime/src/services/account/decent_account_service.dart'
     show CredentialStore;
 import 'package:reaprime/src/services/account/decent_proxy_service.dart';
 import 'package:reaprime/src/util/safe_path.dart';
+import 'package:reaprime/src/util/user_facing_exception.dart';
+
+const shotUploadPluginSettingsPreferenceKey =
+    'plugin.settings.shot-upload.reaplugin';
+
+Future<bool> persistedShotUploadAutoUploadEnabled() async {
+  try {
+    final raw = (await SharedPreferences.getInstance()).getString(
+      shotUploadPluginSettingsPreferenceKey,
+    );
+    if (raw == null) return false;
+    final decoded = jsonDecode(raw);
+    return decoded is Map && decoded['AutoUpload'] == true;
+  } catch (_) {
+    return false;
+  }
+}
 
 class PluginSettingsValidationException implements Exception {
   final String message;
@@ -27,7 +50,8 @@ class PluginSettingsValidationException implements Exception {
   String toString() => message;
 }
 
-class PluginDowngradeException implements Exception {
+class PluginDowngradeException implements UserFacingException {
+  @override
   final String message;
   PluginDowngradeException(this.message);
 
@@ -46,6 +70,7 @@ class PluginLoaderService {
 
   final PluginManager pluginManager;
   final CredentialStore? _credentialStore;
+  late final StreamSubscription<void>? _accountSubscription;
   final _log = Logger('PluginLoaderService');
 
   late Directory _pluginsDir;
@@ -61,13 +86,24 @@ class PluginLoaderService {
 
   PluginLoaderService({
     required KeyValueStoreService kvStore,
+    NotificationCenter? notifications,
     DecentProxyService? decentProxyService,
-    CredentialStore? credentialStore,
-  }) : _credentialStore = credentialStore,
-       pluginManager = PluginManager(
+    this._credentialStore,
+    PluginDeviceService? deviceService,
+    Stream<void>? decentAccountChanges,
+  }) : pluginManager = PluginManager(
          kvStore: kvStore,
+         notifications: notifications,
          decentProxyService: decentProxyService,
-       );
+         deviceService: deviceService,
+         bleRegistry: PluginBleRegistry(initiallyReady: false),
+       ) {
+    _accountSubscription = decentAccountChanges?.listen((_) {
+      if (_lifecycle == PluginLoaderLifecycle.active) {
+        pluginManager.broadcastEvent('decentAccountChanged', const {});
+      }
+    });
+  }
 
   bool _initialized = false;
   PluginLoaderLifecycle get lifecycle => _lifecycle;
@@ -77,6 +113,19 @@ class PluginLoaderService {
       throw StateError('PluginLoaderService is ${_lifecycle.name}');
     }
   }
+
+  /// Late settings that must reach registered plugins before they load.
+  ///
+  /// Awaited between the manifest scan and the autoload pass so a plugin never
+  /// starts with a value the user has already replaced.
+  Future<void> Function()? applyPendingSettings;
+
+  final Set<String> _loadSuppressed = {};
+
+  /// Refuses every later load of [pluginId] for this session.
+  void suppressLoad(String pluginId) => _loadSuppressed.add(pluginId);
+
+  bool isLoadSuppressed(String pluginId) => _loadSuppressed.contains(pluginId);
 
   Future<void> initialize() {
     _ensureActive();
@@ -93,6 +142,8 @@ class PluginLoaderService {
     } catch (_) {
       _initialization = null;
       rethrow;
+    } finally {
+      pluginManager.bleService.registry.finishInitialLoading();
     }
   }
 
@@ -111,7 +162,31 @@ class PluginLoaderService {
 
     await _scanAvailablePlugins();
 
+    for (final manifest in _availablePluginsCache.values) {
+      await _reconcileNotificationPermission(manifest);
+    }
+
+    try {
+      await applyPendingSettings?.call();
+    } catch (e) {
+      _log.warning('applyPendingSettings failed', e);
+    }
+
     await _loadAutoLoadPlugins();
+
+    final retainedSources = pluginManager.notifications.value
+        .where((notice) => notice.namespace == NotificationNamespace.plugin)
+        .map((notice) => notice.sourceId)
+        .toSet();
+    for (final source in retainedSources) {
+      if (!_availablePluginsCache.containsKey(source) ||
+          (!isPluginLoaded(source) && !await shouldAutoLoad(source))) {
+        await pluginManager.notifications.removeSource(
+          NotificationNamespace.plugin,
+          source,
+        );
+      }
+    }
 
     _initialized = true;
   }
@@ -149,7 +224,7 @@ class PluginLoaderService {
       final wasLoaded = isPluginLoaded(pluginId);
 
       if (wasLoaded) {
-        await _unloadPlugin(pluginId);
+        await _unloadPlugin(pluginId, preserveNotifications: true);
       }
 
       if (backupDir.existsSync()) backupDir.deleteSync(recursive: true);
@@ -164,6 +239,7 @@ class PluginLoaderService {
         if (wasLoaded) {
           await _queuedLoad(pluginId);
         }
+        await _reconcileNotificationPermission(manifest);
       } catch (e) {
         _log.warning('Rolling back failed install of plugin $pluginId', e);
         // Restore settings before the previous version reloads: the reload
@@ -256,7 +332,7 @@ class PluginLoaderService {
       }
 
       if (wasLoaded) {
-        await _unloadPlugin(pluginId);
+        await _unloadPlugin(pluginId, preserveNotifications: true);
       }
 
       try {
@@ -267,6 +343,7 @@ class PluginLoaderService {
         if (wasLoaded) {
           await _queuedLoad(pluginId);
         }
+        await _reconcileNotificationPermission(manifest);
       } catch (e) {
         _log.warning('Rolling back failed update of plugin $pluginId', e);
         _deleteQuietly(stagedManifest);
@@ -326,6 +403,15 @@ class PluginLoaderService {
     }
   }
 
+  Future<void> _reconcileNotificationPermission(PluginManifest manifest) async {
+    if (!manifest.permissions.contains(PluginPermissions.notifications)) {
+      await pluginManager.notifications.removeSource(
+        NotificationNamespace.plugin,
+        manifest.id,
+      );
+    }
+  }
+
   static void _deleteQuietly(File file) {
     try {
       if (file.existsSync()) file.deleteSync();
@@ -361,6 +447,8 @@ class PluginLoaderService {
       _ensureActive();
       if (isPluginLoaded(pluginId)) {
         await _unloadPlugin(pluginId);
+      } else {
+        await pluginManager.unloadPlugin(pluginId);
       }
       await _removePluginState(pluginId);
     });
@@ -399,6 +487,9 @@ class PluginLoaderService {
 
   Future<void> _loadPlugin(String pluginId) async {
     _ensureActive();
+    if (_loadSuppressed.contains(pluginId)) {
+      throw Exception('Loading $pluginId is suppressed for this session');
+    }
     if (!_availablePluginsCache.containsKey(pluginId)) {
       throw Exception('Plugin not found: $pluginId');
     }
@@ -440,9 +531,15 @@ class PluginLoaderService {
     return _withPluginMutationLock(pluginId, () => _unloadPlugin(pluginId));
   }
 
-  Future<void> _unloadPlugin(String pluginId) async {
+  Future<void> _unloadPlugin(
+    String pluginId, {
+    bool preserveNotifications = false,
+  }) async {
     _ensureActive();
-    await pluginManager.unloadPlugin(pluginId);
+    await pluginManager.unloadPlugin(
+      pluginId,
+      preserveNotifications: preserveNotifications,
+    );
     _log.info('Plugin unloaded: $pluginId');
   }
 
@@ -465,7 +562,7 @@ class PluginLoaderService {
 
   Future<void> _reloadPluginLocked(String pluginId) async {
     _log.info('Reloading plugin: $pluginId');
-    await _unloadPlugin(pluginId);
+    await _unloadPlugin(pluginId, preserveNotifications: true);
     await _queuedLoad(pluginId);
     _log.info('Plugin reloaded: $pluginId');
   }
@@ -517,6 +614,8 @@ class PluginLoaderService {
       _ensureActive();
       if (isPluginLoaded(pluginId)) {
         await _unloadPlugin(pluginId);
+      } else {
+        await pluginManager.unloadPlugin(pluginId);
       }
       await _setPluginAutoLoad(pluginId, false);
     });
@@ -918,9 +1017,8 @@ class PluginLoaderService {
           final manifestAsset = await rootBundle.loadString(
             '$pluginPath/manifest.json',
           );
-          File(
-            '${destDir.path}/manifest.json',
-          ).writeAsStringSync(manifestAsset);
+          File('${destDir.path}/manifest.json')
+              .writeAsStringSync(manifestAsset);
 
           final pluginAsset = await rootBundle.loadString(
             '$pluginPath/plugin.js',
@@ -934,24 +1032,26 @@ class PluginLoaderService {
         final manifestAsset = await rootBundle.loadString(
           '$pluginPath/manifest.json',
         );
-        if (kReleaseMode) {
-          final newManifest = PluginManifest.fromJson(
-            jsonDecode(manifestAsset),
+        final newManifest = PluginManifest.fromJson(jsonDecode(manifestAsset));
+        final existingManifestFile = File('${destDir.path}/manifest.json');
+        final existingManifest = PluginManifest.fromJson(
+          jsonDecode(await existingManifestFile.readAsString()),
+        );
+        final existingScriptFile = File('${destDir.path}/plugin.js');
+        if (!existingScriptFile.existsSync()) {
+          throw FileSystemException(
+            'Missing plugin.js',
+            existingScriptFile.path,
           );
-          final existingManifestFile = File('${destDir.path}/manifest.json');
-          final existingManifest = PluginManifest.fromJson(
-            jsonDecode(await existingManifestFile.readAsString()),
+        }
+        if (!shouldReplaceBundledPlugin(
+          newManifest.version,
+          existingManifest.version,
+        )) {
+          _log.fine(
+            "not overriding bundled plugin: [bundled: ${newManifest.version}], [existing: ${existingManifest.version}]",
           );
-          if (comparePluginVersions(
-                newManifest.version,
-                existingManifest.version,
-              ) <=
-              0) {
-            _log.fine(
-              "not overriding bundled plugin: [bundled: ${newManifest.version}], [existing: ${existingManifest.version}]",
-            );
-            continue;
-          }
+          continue;
         }
         File('${destDir.path}/manifest.json').writeAsStringSync(manifestAsset);
 
@@ -962,7 +1062,10 @@ class PluginLoaderService {
 
         _log.fine('Updated bundled plugin: $pluginName');
       } catch (e) {
-        _log.warning('Failed to copy bundled plugins', e);
+        _log.warning(
+          'Failed to copy bundled plugin $pluginPath; manual reinstallation may be required',
+          e,
+        );
       }
     }
   }
@@ -975,6 +1078,7 @@ class PluginLoaderService {
       'assets/plugins/dye2.reaplugin',
       'assets/plugins/decent-profile.reaplugin',
       'assets/plugins/shot-upload.reaplugin',
+      'assets/plugins/dcamp.reaplugin',
     ];
   }
 
@@ -1143,6 +1247,7 @@ class PluginLoaderService {
     }
 
     try {
+      await waitFor('account subscription', _accountSubscription?.cancel());
       await waitFor('initialization', _initialization);
       await waitFor('plugin load queue', _pluginLoadQueue);
       await waitFor('manager disposal', pluginManager.dispose());

@@ -25,9 +25,8 @@ import 'package:reaprime/src/services/simulated_shot_library.dart';
 import 'package:rxdart/subjects.dart';
 
 class MockReplayDe1 implements BengleInterface, SimulatedDevice {
-  MockReplayDe1({required SimulatedShotLibrary library, Random? random})
-    : _library = library,
-      _random = random ?? Random();
+  MockReplayDe1({required this._library, Random? random})
+    : _random = random ?? Random();
 
   final SimulatedShotLibrary _library;
   final Random _random;
@@ -291,14 +290,21 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
   }) async {}
 
   final BehaviorSubject<LedStripState> _led = BehaviorSubject.seeded(
-    const LedStripState(),
+    const LedStripState().canonical(),
   );
   @override
   Stream<LedStripState> get ledStripState => _led.stream;
   @override
   Future<LedStripState> getLedStripState() async => _led.value;
   @override
-  Future<void> setLedStrip(LedStripState state) async => _led.add(state);
+  Future<void> setLedStrip(LedStripState state) async =>
+      _led.add(state.canonical());
+  @override
+  Future<void> previewLedStrip({Color16? front, Color16? back}) async {}
+
+  @override
+  Future<void> clearLedStripPreview() async {}
+
   @override
   Future<void> commitLedStrip() async {}
   @override

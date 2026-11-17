@@ -1,3 +1,4 @@
+import 'package:reaprime/src/models/device/device_identity.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
@@ -42,6 +43,8 @@ class SettingsController with ChangeNotifier {
 
   String? _preferredScaleId;
 
+  String? _preferredGrinderDeviceId;
+
   String _defaultSkinId = 'streamline.js';
 
   bool _automaticUpdateCheck = true;
@@ -66,11 +69,15 @@ class SettingsController with ChangeNotifier {
   bool _keepAwake = true;
   bool _onboardingCompleted = false;
   bool _accountStepSeen = false;
+  bool _shotUploadStepSeen = false;
+  bool _shotUploadOptIn = false;
+  bool? _shotUploadPendingDecision;
   bool _androidWarningDismissed = false;
   bool _showSkinExitInstructions = true;
   bool _enableSimulatedWebViews = false;
 
   final Map<FeatureFlag, bool> _featureFlags = {};
+  Future<void> _featureFlagSave = Future.value();
 
   TelemetryService? _telemetryService;
 
@@ -87,6 +94,7 @@ class SettingsController with ChangeNotifier {
   bool get stopHotWaterAtWeight => _stopHotWaterAtWeight;
   String? get preferredMachineId => _preferredMachineId;
   String? get preferredScaleId => _preferredScaleId;
+  String? get preferredGrinderDeviceId => _preferredGrinderDeviceId;
   String get defaultSkinId => _defaultSkinId;
   bool get automaticUpdateCheck => _automaticUpdateCheck;
   UpdateChannel get updateChannel => _updateChannel;
@@ -103,6 +111,9 @@ class SettingsController with ChangeNotifier {
   bool get lowBatteryBrightnessLimit => _lowBatteryBrightnessLimit;
   bool get keepAwake => _keepAwake;
   bool get onboardingCompleted => _onboardingCompleted;
+  bool get shotUploadStepSeen => _shotUploadStepSeen;
+  bool get shotUploadOptIn => _shotUploadOptIn;
+  bool? get shotUploadPendingDecision => _shotUploadPendingDecision;
   bool get accountStepSeen => _accountStepSeen;
   bool get androidWarningDismissed => _androidWarningDismissed;
   bool get showSkinExitInstructions => _showSkinExitInstructions;
@@ -127,6 +138,8 @@ class SettingsController with ChangeNotifier {
     _stopHotWaterAtWeight = await _settingsService.stopHotWaterAtWeight();
     _preferredMachineId = await _settingsService.preferredMachineId();
     _preferredScaleId = await _settingsService.preferredScaleId();
+    _preferredGrinderDeviceId = await _settingsService
+        .preferredGrinderDeviceId();
     _defaultSkinId = await _settingsService.defaultSkinId();
     _automaticUpdateCheck = await _settingsService.automaticUpdateCheck();
     _updateChannel = await _settingsService.updateChannel();
@@ -151,6 +164,10 @@ class SettingsController with ChangeNotifier {
     _keepAwake = await _settingsService.keepAwake();
     _onboardingCompleted = await _settingsService.onboardingCompleted();
     _accountStepSeen = await _settingsService.accountStepSeen();
+    _shotUploadStepSeen = await _settingsService.shotUploadStepSeen();
+    _shotUploadOptIn = await _settingsService.shotUploadOptIn();
+    _shotUploadPendingDecision = await _settingsService
+        .shotUploadPendingDecision();
     _androidWarningDismissed = await _settingsService.androidWarningDismissed();
     _showSkinExitInstructions = await _settingsService
         .showSkinExitInstructions();
@@ -303,20 +320,35 @@ class SettingsController with ChangeNotifier {
   }
 
   Future<void> setPreferredMachineId(String? machineId) async {
+    if (machineId != null && isEphemeralDeviceIdentity(machineId)) return;
     if (machineId == _preferredMachineId) {
       return;
     }
+    final previous = _preferredMachineId;
     _preferredMachineId = machineId;
-    await _settingsService.setPreferredMachineId(machineId);
+    try {
+      await _settingsService.setPreferredMachineId(machineId);
+    } catch (_) {
+      _preferredMachineId = previous;
+      rethrow;
+    }
     notifyListeners();
   }
 
   Future<void> setPreferredScaleId(String? scaleId) async {
+    if (scaleId != null && isEphemeralDeviceIdentity(scaleId)) return;
     if (scaleId == _preferredScaleId) {
       return;
     }
     _preferredScaleId = scaleId;
     await _settingsService.setPreferredScaleId(scaleId);
+    notifyListeners();
+  }
+
+  Future<void> setPreferredGrinderDeviceId(String? deviceId) async {
+    if (deviceId == _preferredGrinderDeviceId) return;
+    _preferredGrinderDeviceId = deviceId;
+    await _settingsService.setPreferredGrinderDeviceId(deviceId);
     notifyListeners();
   }
 
@@ -453,6 +485,44 @@ class SettingsController with ChangeNotifier {
     notifyListeners();
   }
 
+  // Persistence before mutation on purpose: if the write throws, the field must
+  // not already hold the new value, or the onboarding retry short-circuits on
+  // the equality guard above and the write is skipped forever.
+  Future<void> setShotUploadStepSeen(bool value) async {
+    if (value == _shotUploadStepSeen) return;
+    await _settingsService.setShotUploadStepSeen(value);
+    _shotUploadStepSeen = value;
+    notifyListeners();
+  }
+
+  Future<void> setShotUploadOptIn(bool value) async {
+    if (value == _shotUploadOptIn) return;
+    await _settingsService.setShotUploadOptIn(value);
+    _shotUploadOptIn = value;
+    notifyListeners();
+  }
+
+  Future<void> setShotUploadDecision(bool value) async {
+    await _settingsService.setShotUploadDecision(value);
+    _shotUploadPendingDecision = value;
+    _shotUploadStepSeen = true;
+    _shotUploadOptIn = value;
+    notifyListeners();
+  }
+
+  Future<void> clearShotUploadPendingDecision() async {
+    await _settingsService.clearShotUploadPendingDecision();
+    _shotUploadPendingDecision = null;
+    _shotUploadOptIn = false;
+    notifyListeners();
+  }
+
+  Future<void> clearShotUploadOptIn() async {
+    await _settingsService.clearShotUploadOptIn();
+    _shotUploadOptIn = false;
+    notifyListeners();
+  }
+
   Future<void> setAndroidWarningDismissed(bool value) async {
     if (value == _androidWarningDismissed) return;
     _androidWarningDismissed = value;
@@ -474,10 +544,14 @@ class SettingsController with ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setFeatureFlag(FeatureFlag flag, bool value) async {
-    if (value == _featureFlags[flag]) return;
-    _featureFlags[flag] = value;
-    await _settingsService.setFeatureFlag(flag, value);
-    notifyListeners();
+  Future<void> setFeatureFlag(FeatureFlag flag, bool value) {
+    final save = _featureFlagSave.then((_) async {
+      if (value == _featureFlags[flag]) return;
+      await _settingsService.setFeatureFlag(flag, value);
+      _featureFlags[flag] = value;
+      notifyListeners();
+    });
+    _featureFlagSave = save.catchError((Object _) {});
+    return save;
   }
 }

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
+import 'package:reaprime/src/controllers/auxiliary_scale_registry.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/models/data/shot_state_event.dart';
 import 'package:reaprime/src/settings/gateway_mode.dart';
@@ -38,11 +39,14 @@ void main() {
 
     testScale = TestScale();
     final scaleController = TestScaleController(testScale);
+    final registry = AuxiliaryScaleRegistry();
+    addTearDown(registry.dispose);
 
     final scaleHandler = ScaleHandler(
       controller: scaleController,
       de1Controller: de1Controller,
       settingsController: settingsController,
+      auxiliaryScaleRegistry: registry,
     );
     final app = Router().plus;
     scaleHandler.addRoutes(app);

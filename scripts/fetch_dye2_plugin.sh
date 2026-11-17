@@ -1,14 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-pinned_version="v0.1.4"
-pinned_sha256="fd8e43afa7d953c48ad23ca74aa76cb5314fde5602d07149f954e8e3497b81a6"
 pinned_api_version="1"
 
 repo="${DYE2_REPO:-decentespresso/dye2}"
-version="${DYE2_VERSION:-$pinned_version}"
-expected_sha256="${DYE2_SHA256:-$pinned_sha256}"
+version="${DYE2_VERSION:-}"
 expected_api_version="${DYE2_API_VERSION:-$pinned_api_version}"
+
+if [ -z "$version" ]; then
+  version="$(gh release view --repo "$repo" --json tagName -q .tagName)"
+  if [ -z "$version" ]; then
+    echo "fetch_dye2_plugin: could not resolve the latest release of $repo" >&2
+    exit 1
+  fi
+fi
+
 plugins_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/assets/plugins"
 
 tmp="$(mktemp -d)"
@@ -20,18 +26,6 @@ gh release download "$version" \
 zip="$(ls "$tmp"/*.zip 2>/dev/null | head -n 1)"
 if [ -z "$zip" ]; then
   echo "fetch_dye2_plugin: no dye2.reaplugin-*.zip asset in $repo $version" >&2
-  exit 1
-fi
-
-if command -v shasum >/dev/null 2>&1; then
-  actual_sha256="$(shasum -a 256 "$zip" | cut -d ' ' -f 1)"
-else
-  actual_sha256="$(sha256sum "$zip" | cut -d ' ' -f 1)"
-fi
-if [ "$actual_sha256" != "$expected_sha256" ]; then
-  echo "fetch_dye2_plugin: checksum mismatch for $(basename "$zip")" >&2
-  echo "  expected: $expected_sha256" >&2
-  echo "  actual:   $actual_sha256" >&2
   exit 1
 fi
 

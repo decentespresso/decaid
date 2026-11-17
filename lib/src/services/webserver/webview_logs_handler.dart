@@ -3,8 +3,7 @@ part of '../webserver_service.dart';
 class WebViewLogsHandler {
   final WebViewLogService _webViewLogService;
 
-  WebViewLogsHandler({required WebViewLogService webViewLogService})
-    : _webViewLogService = webViewLogService;
+  WebViewLogsHandler({required this._webViewLogService});
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/webview/logs', _handleGetLogs);
@@ -24,7 +23,10 @@ class WebViewLogsHandler {
   }
 
   Future<Response> _handleWebSocketLogs(Request req) async {
-    return sws.webSocketHandler((WebSocketChannel socket, String? protocol) {
+    return admittedWebSocketHandler((
+      WebSocketChannel socket,
+      String? protocol,
+    ) {
       StreamSubscription? sub;
       sub = _webViewLogService.stream.listen((entry) {
         socket.sink.add(entry);

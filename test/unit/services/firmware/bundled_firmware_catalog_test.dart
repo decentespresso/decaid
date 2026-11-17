@@ -20,6 +20,9 @@ void main() {
 
     for (final entry in manifest.entries) {
       expect(entry.artifact.supportedModels, {
+        'DE1',
+        'DE1Plus',
+        'DE1Cafe',
         'DE1Pro',
         'DE1XL',
         'DE1XXL',

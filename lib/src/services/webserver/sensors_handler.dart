@@ -4,8 +4,7 @@ final class SensorsHandler {
   final SensorController _controller;
   final Logger _log = Logger("Sensor handler");
 
-  SensorsHandler({required SensorController controller})
-    : _controller = controller;
+  SensorsHandler({required this._controller});
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/sensors', (Request req) {
@@ -17,7 +16,7 @@ final class SensorsHandler {
     });
 
     app.get('/api/v1/sensors/<id>', (Request req, String id) async {
-      final sensor = _controller.sensors[id];
+      final sensor = _controller.sensors[decodeOpaquePathComponent(id)];
       if (sensor == null) {
         return jsonNotFound({'error': 'Sensor not found: $id'});
       }
@@ -27,12 +26,16 @@ final class SensorsHandler {
     app.get('/ws/v1/sensors/<id>/snapshot', _handleSensorSnapshot);
 
     app.post('/api/v1/sensors/<id>/execute', (Request req, String id) async {
-      final sensor = _controller.sensors[id];
+      final sensor = _controller.sensors[decodeOpaquePathComponent(id)];
       if (sensor == null) {
         return jsonNotFound({'error': 'Sensor not found: $id'});
       }
 
-      final body = await req.readAsString();
+      final body = await readBoundedRequestBodyString(
+        req,
+        maxBytes: smallRequestBodyBytes,
+        timeout: smallRequestBodyTimeout,
+      );
       final jsonBody = jsonDecode(body);
       final cmdId = jsonBody['commandId'] as String;
       final params = jsonBody['params'] as Map<String, dynamic>?;
@@ -47,9 +50,9 @@ final class SensorsHandler {
 
   FutureOr<Response> _handleSensorSnapshot(Request req) {
     _log.info("Handling: $req");
-    final id = req.params['id'];
+    final id = decodeOpaquePathComponent(req.params['id']!);
     _log.info("got id: $id");
-    return sws.webSocketHandler((socket, protocol) {
+    return admittedWebSocketHandler((socket, protocol) {
       _log.info("upgraded to socket");
       final sensor = _controller.sensors[id];
       if (sensor == null) {

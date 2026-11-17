@@ -2,17 +2,22 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reaprime/src/controllers/de1_controller.dart';
+import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/impl/bengle/mock_bengle.dart';
 import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
 import 'package:reaprime/src/debug_feature/debug_item_details_view.dart';
+import 'package:rxdart/subjects.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
+import '../helpers/mock_device_discovery_service.dart';
 import '../helpers/test_de1.dart';
 
 class _CalibrationDe1 extends TestDe1 {
   var reads = <(De1CalibrationTarget, De1CalibrationSource)>[];
   var writes = <De1Calibration>[];
+  Completer<void>? writeRecorded;
   var failReads = false;
   var failWrites = false;
 
@@ -59,6 +64,7 @@ class _CalibrationDe1 extends TestDe1 {
   Future<void> writeCalibration(De1Calibration calibration) async {
     if (failWrites) throw Exception('write failed');
     writes = [...writes, calibration];
+    writeRecorded?.complete();
     final previous = current[calibration.target]!.measuredValue;
     final measuredValue = calibration.target == De1CalibrationTarget.temperature
         ? previous + (calibration.measuredValue - calibration.de1ReportedValue)
@@ -73,6 +79,30 @@ class _CalibrationDe1 extends TestDe1 {
         measuredValue: measuredValue,
       ),
     };
+  }
+}
+
+class _GovernedCalibrationDe1 extends _CalibrationDe1 {
+  final _settings = BehaviorSubject.seeded(
+    De1ShotSettings(
+      steamSetting: 0,
+      targetSteamTemp: 150,
+      targetSteamDuration: 30,
+      targetHotWaterTemp: 75,
+      targetHotWaterVolume: 50,
+      targetHotWaterDuration: 30,
+      targetShotVolume: 36,
+      groupTemp: 94,
+    ),
+  );
+
+  @override
+  Stream<De1ShotSettings> get shotSettings => _settings.stream;
+
+  @override
+  Future<void> dispose() async {
+    await _settings.close();
+    await super.dispose();
   }
 }
 
@@ -114,11 +144,16 @@ void main() {
       WidgetTester tester,
       _CalibrationDe1 machine, {
       bool scrollToCalibration = true,
+      De1Controller? de1Controller,
     }) async {
       await tester.pumpWidget(
         ScaffoldMessenger(
           child: ShadApp(
-            home: De1DebugView(key: ValueKey(machine), machine: machine),
+            home: De1DebugView(
+              key: ValueKey(machine),
+              machine: machine,
+              de1Controller: de1Controller,
+            ),
           ),
         ),
       );
@@ -132,6 +167,55 @@ void main() {
         await tester.pumpAndSettle();
       }
     }
+
+    testWidgets('queues calibration writes with connected machine work', (
+      tester,
+    ) async {
+      late final DeviceController devices;
+      late final De1Controller controller;
+      late final _CalibrationDe1 machine;
+      late final Completer<void> release;
+      late final Future<void> active;
+      await tester.runAsync(() async {
+        devices = DeviceController([MockDeviceDiscoveryService()]);
+        await devices.initialize();
+        controller = De1Controller(controller: devices);
+        machine = _GovernedCalibrationDe1();
+        machine.writeRecorded = Completer<void>();
+        await controller.connectToDe1(machine);
+        await controller.initSettled.firstWhere(
+          (generation) => generation != null,
+        );
+
+        final started = Completer<void>();
+        release = Completer<void>();
+        active = controller.runDeviceWrite((_) async {
+          started.complete();
+          await release.future;
+        });
+        await started.future;
+      });
+      addTearDown(controller.dispose);
+      addTearDown(devices.dispose);
+
+      await pumpView(tester, machine, de1Controller: controller);
+      final write = find.byKey(const Key('calibration-write-flow'));
+      await tester.ensureVisible(write);
+      await tester.tap(write);
+      await tester.pump();
+
+      expect(machine.writes, isEmpty);
+      expect(controller.pendingDeviceWriteCount, 1);
+
+      await tester.runAsync(() async {
+        release.complete();
+        await active;
+        await machine.writeRecorded!.future;
+      });
+      await tester.pump();
+      expect(machine.writes, hasLength(1));
+      expect(controller.pendingDeviceWriteCount, 0);
+    });
 
     testWidgets('reads current and factory values for every target', (
       tester,
@@ -167,7 +251,9 @@ void main() {
 
       await tester.pumpWidget(
         ScaffoldMessenger(
-          child: ShadApp(home: De1DebugView(machine: machine)),
+          child: ShadApp(
+            home: De1DebugView(machine: machine, de1Controller: null),
+          ),
         ),
       );
       await tester.pump();

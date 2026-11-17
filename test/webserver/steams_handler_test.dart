@@ -89,14 +89,12 @@ void main() {
 
     test('GET /api/v1/steams/latest returns the most recent record', () async {
       await persistence.persistSteam(
-        makeRecord(
-          's1',
-        ).copyWith(timestamp: DateTime.utc(2026, 5, 18, 11, 0, 0)),
+        makeRecord('s1')
+            .copyWith(timestamp: DateTime.utc(2026, 5, 18, 11, 0, 0)),
       );
       await persistence.persistSteam(
-        makeRecord(
-          's2',
-        ).copyWith(timestamp: DateTime.utc(2026, 5, 18, 13, 0, 0)),
+        makeRecord('s2')
+            .copyWith(timestamp: DateTime.utc(2026, 5, 18, 13, 0, 0)),
       );
 
       final response = await sendGet('/api/v1/steams/latest');

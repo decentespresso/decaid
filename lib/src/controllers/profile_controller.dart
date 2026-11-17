@@ -14,8 +14,7 @@ class ProfileController {
   final BehaviorSubject<int> _profileCountStream = BehaviorSubject.seeded(0);
   Stream<int> get profileCount => _profileCountStream.stream;
 
-  ProfileController({required ProfileStorageService storage})
-    : _storage = storage;
+  ProfileController({required this._storage});
 
   Future<void> initialize() async {
     _log.info('Initializing ProfileController');
@@ -87,6 +86,7 @@ class ProfileController {
       }
 
       await _retireStaleDefaults(currentFilenames, currentIdByFilename);
+      await _linkDefaultParents(currentIdByFilename);
 
       _log.info(
         'Default profiles: $loaded new, $refreshed refreshed, '
@@ -97,6 +97,37 @@ class ProfileController {
         'Failed to load default profiles (this is okay if manifest doesn\'t exist yet)',
         e,
       );
+    }
+  }
+
+  Future<void> _linkDefaultParents(
+    Map<String, String> currentIdByFilename,
+  ) async {
+    for (final filename in currentIdByFilename.keys) {
+      try {
+        final profileJson = jsonDecode(
+          await rootBundle.loadString('assets/defaultProfiles/$filename'),
+        ) as Map<String, dynamic>;
+        final parentId = profileJson['parent_id'] as String?;
+        if (parentId == null) continue;
+
+        final id = currentIdByFilename[filename];
+        if (id == null || id == parentId) continue;
+
+        final parent = await _storage.get(parentId);
+        if (parent == null) {
+          _log.warning(
+            'Parent for default profile not found: $filename -> $parentId',
+          );
+          continue;
+        }
+        final record = await _storage.get(id);
+        if (record == null || record.parentId == parentId) continue;
+        await _storage.update(record.copyWith(parentId: parentId));
+        _log.fine('Linked default profile to parent: $id -> $parentId');
+      } catch (e) {
+        _log.warning('Failed to link default profile parent: $filename', e);
+      }
     }
   }
 

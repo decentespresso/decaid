@@ -1,8 +1,11 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reaprime/src/controllers/persistence_controller.dart';
 import 'package:reaprime/src/import/de1app_importer.dart';
 import 'package:reaprime/src/import/import_result.dart';
+import 'package:reaprime/src/import/parsers/shot_v2_json_parser.dart';
 import 'package:reaprime/src/models/data/bean.dart';
 import 'package:reaprime/src/models/data/grinder.dart';
 import 'package:reaprime/src/models/data/profile.dart';
@@ -10,6 +13,7 @@ import 'package:reaprime/src/models/data/profile_record.dart';
 import 'package:reaprime/src/models/data/shot_record.dart';
 import 'package:reaprime/src/models/data/steam_record.dart';
 import 'package:reaprime/src/models/data/workflow.dart';
+import 'package:reaprime/src/models/data/workflow_context.dart';
 import 'package:reaprime/src/models/wake_schedule.dart';
 import 'package:reaprime/src/services/storage/bean_storage_service.dart';
 import 'package:reaprime/src/services/storage/grinder_storage_service.dart';
@@ -23,15 +27,18 @@ import '../helpers/mock_settings_service.dart';
 
 class FakeStorageService implements StorageService {
   final shots = <String, ShotRecord>{};
+  final failedIds = <String>{};
   final List<String> _existingIds;
   Workflow? _currentWorkflow;
 
-  FakeStorageService({List<String>? existingIds, Workflow? currentWorkflow})
-    : _existingIds = existingIds ?? [],
-      _currentWorkflow = currentWorkflow;
+  FakeStorageService({List<String>? existingIds, this._currentWorkflow})
+    : _existingIds = existingIds ?? [];
 
   @override
-  Future<void> storeShot(ShotRecord record) async => shots[record.id] = record;
+  Future<void> storeShot(ShotRecord record) async {
+    if (failedIds.contains(record.id)) throw StateError('write failed');
+    shots[record.id] = record;
+  }
 
   @override
   Future<List<String>> getShotIds() async => List.unmodifiable(_existingIds);
@@ -61,6 +68,7 @@ class FakeStorageService implements StorageService {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
     bool ascending = false,
   }) => throw UnimplementedError();
   @override
@@ -73,6 +81,7 @@ class FakeStorageService implements StorageService {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
     bool ascending = false,
   }) => throw UnimplementedError();
   @override
@@ -154,12 +163,25 @@ class FakeProfileStorageService implements ProfileStorageService {
 class FakeBeanStorageService implements BeanStorageService {
   final beans = <String, Bean>{};
   final batches = <String, BeanBatch>{};
+  final failedBeanNames = <String>{};
+  final failedBatchBeanNames = <String>{};
 
   @override
-  Future<void> insertBean(Bean bean) async => beans[bean.id] = bean;
+  Future<void> insertBean(Bean bean) async {
+    if (failedBeanNames.contains(bean.name)) {
+      throw StateError('bean write failed');
+    }
+    beans[bean.id] = bean;
+  }
 
   @override
-  Future<void> insertBatch(BeanBatch batch) async => batches[batch.id] = batch;
+  Future<void> insertBatch(BeanBatch batch) async {
+    final bean = beans[batch.beanId];
+    if (failedBatchBeanNames.contains(bean?.name)) {
+      throw StateError('batch write failed');
+    }
+    batches[batch.id] = batch;
+  }
 
   @override
   Future<List<Bean>> getAllBeans({bool includeArchived = false}) async =>
@@ -212,10 +234,15 @@ class FakeBeanStorageService implements BeanStorageService {
 
 class FakeGrinderStorageService implements GrinderStorageService {
   final grinders = <String, Grinder>{};
+  final failedModels = <String>{};
 
   @override
-  Future<void> insertGrinder(Grinder grinder) async =>
-      grinders[grinder.id] = grinder;
+  Future<void> insertGrinder(Grinder grinder) async {
+    if (failedModels.contains(grinder.model)) {
+      throw StateError('grinder write failed');
+    }
+    grinders[grinder.id] = grinder;
+  }
 
   @override
   Future<List<Grinder>> getAllGrinders({bool includeArchived = false}) async =>
@@ -238,47 +265,748 @@ class FakeGrinderStorageService implements GrinderStorageService {
 
 De1appImporter makeImporter({
   FakeStorageService? storage,
+  PersistenceController? controller,
   FakeProfileStorageService? profileStorage,
   FakeBeanStorageService? beanStorage,
   FakeGrinderStorageService? grinderStorage,
   SettingsController? settingsController,
+  ParsedShot Function(Map<String, dynamic>) parseV2Shot =
+      ShotV2JsonParser.parse,
 }) {
   return De1appImporter(
-    storageService: storage ?? FakeStorageService(),
+    controller:
+        controller ??
+        PersistenceController(storageService: storage ?? FakeStorageService()),
     profileStorageService: profileStorage ?? FakeProfileStorageService(),
     beanStorageService: beanStorage ?? FakeBeanStorageService(),
     grinderStorageService: grinderStorage ?? FakeGrinderStorageService(),
     settingsController: settingsController,
+    parseV2Shot: parseV2Shot,
   );
 }
 
 const _fixturesPath = 'test/fixtures/de1app';
 
+String get _legacyFixture =>
+    File('$_fixturesPath/history/20231108T091544.shot').readAsStringSync();
+
+String get _v2Fixture =>
+    File('$_fixturesPath/history_v2/20240315T143022.json').readAsStringSync();
+
+String _v2FixtureWithoutMetadata({int? clock}) {
+  final json = jsonDecode(_v2Fixture) as Map<String, dynamic>;
+  json.remove('meta');
+  ((json['app'] as Map<String, dynamic>)['data'] as Map<String, dynamic>)
+      .remove('settings');
+  if (clock != null) {
+    json['clock'] = clock;
+    json['timestamp'] = clock;
+  }
+  return jsonEncode(json);
+}
+
+const _legacyClock = 1699432544;
+
+String _v2FixtureWithClock(int clock) {
+  final json = jsonDecode(_v2Fixture) as Map<String, dynamic>;
+  json['clock'] = clock;
+  json['timestamp'] = clock;
+  return jsonEncode(json);
+}
+
+Future<FakeStorageService> _importLegacyFiles(Map<String, String> files) async {
+  final tempDir = await Directory.systemTemp.createTemp('de1app_dupe_');
+  try {
+    final directory = Directory('${tempDir.path}/history');
+    await directory.create();
+    for (final entry in files.entries) {
+      await File('${directory.path}/${entry.key}').writeAsString(entry.value);
+    }
+
+    final storage = FakeStorageService();
+    await makeImporter(storage: storage).import(
+      ScanResult(
+        shotCount: files.length,
+        profileCount: 0,
+        hasDyeGrinders: false,
+        hasSettings: false,
+        sourcePath: tempDir.path,
+        shotSource: 'legacy',
+      ),
+    );
+    return storage;
+  } finally {
+    await tempDir.delete(recursive: true);
+  }
+}
+
+String _legacyWithGrinder(String model) => _legacyFixture.replaceAll(
+  'grinder_model {Eureka Mignon}',
+  'grinder_model {$model}',
+);
+
+Future<FakeStorageService> _importShots({
+  String? legacy,
+  String? v2,
+  String legacyBasename = 'same-basename',
+  String v2Basename = 'same-basename',
+  DateTime? legacyModified,
+  DateTime? v2Modified,
+}) async {
+  final tempDir = await Directory.systemTemp.createTemp('de1app_merge_');
+  try {
+    if (legacy != null) {
+      final directory = Directory('${tempDir.path}/history');
+      await directory.create();
+      final file = File('${directory.path}/$legacyBasename.shot');
+      await file.writeAsString(legacy);
+      if (legacyModified != null) await file.setLastModified(legacyModified);
+    }
+    if (v2 != null) {
+      final directory = Directory('${tempDir.path}/history_v2');
+      await directory.create();
+      final file = File('${directory.path}/$v2Basename.json');
+      await file.writeAsString(v2);
+      if (v2Modified != null) await file.setLastModified(v2Modified);
+    }
+
+    final storage = FakeStorageService();
+    await makeImporter(storage: storage).import(
+      ScanResult(
+        shotCount: 1,
+        profileCount: 0,
+        hasDyeGrinders: false,
+        hasSettings: false,
+        sourcePath: tempDir.path,
+        shotSource: 'both',
+      ),
+    );
+    return storage;
+  } finally {
+    await tempDir.delete(recursive: true);
+  }
+}
+
+Future<ImportResult> importEntityShots({
+  required FakeStorageService storage,
+  required FakeBeanStorageService beans,
+  required FakeGrinderStorageService grinders,
+  List<Map<String, dynamic>> identities = const [{}],
+  String? dye,
+  WorkflowContext? inputContext,
+}) async {
+  final directory = await Directory.systemTemp.createTemp('de1app_entities_');
+  try {
+    await Directory('${directory.path}/history_v2').create();
+    final fixture = jsonDecode(
+      await File('$_fixturesPath/history_v2/20240315T143022.json')
+          .readAsString(),
+    ) as Map<String, dynamic>;
+    for (var i = 0; i < identities.length; i++) {
+      final identity = identities[i];
+      final meta = fixture['meta'] as Map<String, dynamic>;
+      final shot = {
+        ...fixture,
+        'clock': 1710510622 + i,
+        'app': <String, dynamic>{},
+        'meta': {
+          ...meta,
+          'bean': {...meta['bean'] as Map<String, dynamic>, ...identity},
+          'grinder': {
+            ...meta['grinder'] as Map<String, dynamic>,
+            'model': identity['model'] ?? 'Niche Zero',
+          },
+        },
+      };
+      await File('${directory.path}/history_v2/$i.json')
+          .writeAsString(jsonEncode(shot));
+    }
+    if (dye != null) {
+      await Directory('${directory.path}/plugins/DYE').create(recursive: true);
+      await File('${directory.path}/plugins/DYE/grinders.tdb')
+          .writeAsString(dye);
+    }
+    return await makeImporter(
+      storage: storage,
+      beanStorage: beans,
+      grinderStorage: grinders,
+      parseV2Shot: (json) {
+        final parsed = ShotV2JsonParser.parse(json);
+        if (inputContext == null) return parsed;
+        return ParsedShot(
+          shot: parsed.shot.copyWith(
+            workflow: parsed.shot.workflow.copyWith(context: inputContext),
+          ),
+          beanBrand: parsed.beanBrand,
+          beanType: parsed.beanType,
+          beanNotes: parsed.beanNotes,
+          roastDate: parsed.roastDate,
+          roastLevel: parsed.roastLevel,
+          grinderModel: parsed.grinderModel,
+          grinderSetting: parsed.grinderSetting,
+        );
+      },
+    ).import(
+      ScanResult(
+        shotCount: identities.length,
+        profileCount: 0,
+        hasDyeGrinders: dye != null,
+        hasSettings: false,
+        sourcePath: directory.path,
+        shotSource: 'history_v2',
+      ),
+    );
+  } finally {
+    await directory.delete(recursive: true);
+  }
+}
+
+Future<void> expectResolvedReferences(
+  FakeStorageService storage,
+  FakeBeanStorageService beans,
+  FakeGrinderStorageService grinders,
+) async {
+  expect(storage.shots, isNotEmpty);
+  for (final shot in storage.shots.values) {
+    final context = shot.workflow.context!;
+    if (context.beanBatchId != null) {
+      final batch = await beans.getBatchById(context.beanBatchId!);
+      expect(batch, isNotNull, reason: 'unresolved batch on ${shot.id}');
+      expect(await beans.getBeanById(batch!.beanId), isNotNull);
+    }
+    if (context.grinderId != null) {
+      expect(
+        await grinders.getGrinderById(context.grinderId!),
+        isNotNull,
+        reason: 'unresolved grinder on ${shot.id}',
+      );
+    }
+  }
+}
+
 void main() {
   group('De1appImporter', () {
-    group('imports shots from history_v2', () {
+    group('reconciles stored entity references', () {
+      for (final resolved in ['neither', 'batch', 'grinder']) {
+        test('replaces stale IDs when $resolved resolves', () async {
+          final storage = FakeStorageService();
+          final beans = FakeBeanStorageService();
+          final grinders = FakeGrinderStorageService();
+          const inputContext = WorkflowContext(
+            beanBatchId: 'stale-batch',
+            grinderId: 'stale-grinder',
+            targetDoseWeight: 18,
+            targetYield: 36,
+            targetWaterVolume: 55,
+            grinderModel: 'Original grinder',
+            grinderBurrs: 'Original burrs',
+            grinderSetting: '12',
+            coffeeName: 'Original coffee',
+            coffeeRoaster: 'Original roaster',
+            finalBeverageType: 'espresso',
+            baristaName: 'Barista',
+            drinkerName: 'Drinker',
+            extras: {'source': 'original'},
+          );
+          final bean = Bean.create(
+            roaster: 'Banibeans',
+            name: 'Ethiopia Yirgacheffe',
+          );
+          final batch = BeanBatch.create(
+            beanId: bean.id,
+            roastDate: DateTime(2024, 3, 1),
+          );
+          final grinder = Grinder.create(model: 'Niche Zero');
+          if (resolved == 'batch') {
+            await beans.insertBean(bean);
+            await beans.insertBatch(batch);
+          } else {
+            beans.failedBatchBeanNames.add(bean.name);
+          }
+          if (resolved == 'grinder') {
+            await grinders.insertGrinder(grinder);
+          } else {
+            grinders.failedModels.add(grinder.model);
+          }
+          final result = await importEntityShots(
+            storage: storage,
+            beans: beans,
+            grinders: grinders,
+            inputContext: inputContext,
+          );
+          expect(result.shotsImported, 1);
+          expect(result.errors, hasLength(resolved == 'neither' ? 2 : 1));
+          final context = storage.shots.values.single.workflow.context!;
+          expect(context.beanBatchId, resolved == 'batch' ? batch.id : isNull);
+          expect(
+            context.grinderId,
+            resolved == 'grinder' ? grinder.id : isNull,
+          );
+          final expected = inputContext.toJson()
+            ..remove('beanBatchId')
+            ..remove('grinderId');
+          if (resolved == 'batch') expected['beanBatchId'] = batch.id;
+          if (resolved == 'grinder') expected['grinderId'] = grinder.id;
+          expect(context.toJson(), expected);
+          await expectResolvedReferences(storage, beans, grinders);
+        });
+      }
+
+      for (final variant in [
+        'exact',
+        'incoming whitespace',
+        'stored whitespace',
+        'case',
+      ]) {
+        test('reuses persisted IDs for $variant identities', () async {
+          final storage = FakeStorageService();
+          final beans = FakeBeanStorageService();
+          final grinders = FakeGrinderStorageService();
+          String value(String text, bool incoming) {
+            if (variant == 'case' && incoming) return text.toUpperCase();
+            if (variant ==
+                (incoming ? 'incoming whitespace' : 'stored whitespace')) {
+              return '  $text  ';
+            }
+            return text;
+          }
+
+          final bean = Bean.create(
+            roaster: value('Banibeans', false),
+            name: value('Ethiopia Yirgacheffe', false),
+          );
+          final batch = BeanBatch.create(
+            beanId: bean.id,
+            roastDate: DateTime(2024, 3, 1),
+          );
+          final grinder = Grinder.create(model: value('Niche Zero', false));
+          await beans.insertBean(bean);
+          await beans.insertBatch(batch);
+          await grinders.insertGrinder(grinder);
+          final result = await importEntityShots(
+            storage: storage,
+            beans: beans,
+            grinders: grinders,
+            identities: [
+              {
+                'brand': value('Banibeans', true),
+                'type': value('Ethiopia Yirgacheffe', true),
+                'model': value('Niche Zero', true),
+              },
+            ],
+          );
+          expect(result.errors, isEmpty);
+          expect(result.beansCreated, 0);
+          expect(result.beansSkipped, 1);
+          expect(result.grindersCreated, 0);
+          expect(result.grindersSkipped, 1);
+          expect(beans.beans, hasLength(1));
+          expect(beans.batches, hasLength(1));
+          expect(grinders.grinders, hasLength(1));
+          final context = storage.shots.values.single.workflow.context!;
+          expect(context.beanBatchId, batch.id);
+          expect(context.grinderId, grinder.id);
+          await expectResolvedReferences(storage, beans, grinders);
+        });
+      }
+
+      for (final entity in ['Bean', 'BeanBatch', 'Grinder']) {
+        test(
+          '$entity insert failure is reported without dangling references',
+          () async {
+            final storage = FakeStorageService();
+            final beans = FakeBeanStorageService();
+            final grinders = FakeGrinderStorageService();
+            if (entity == 'Bean') {
+              beans.failedBeanNames.add('Ethiopia Yirgacheffe');
+            }
+            if (entity == 'BeanBatch') {
+              beans.failedBatchBeanNames.add('Ethiopia Yirgacheffe');
+            }
+            if (entity == 'Grinder') grinders.failedModels.add('Niche Zero');
+            final result = await importEntityShots(
+              storage: storage,
+              beans: beans,
+              grinders: grinders,
+              identities: [
+                {},
+                {
+                  'brand': 'Other Roaster',
+                  'type': 'Other Bean',
+                  'model': 'Other Grinder',
+                },
+              ],
+            );
+            expect(result.shotsImported, 2);
+            final failedContext =
+                storage.shots['de1app-1710510622']!.workflow.context!;
+            if (entity == 'Grinder') {
+              expect(failedContext.grinderId, isNull);
+              expect(failedContext.beanBatchId, isNotNull);
+            } else {
+              expect(failedContext.beanBatchId, isNull);
+              expect(failedContext.grinderId, isNotNull);
+            }
+            final otherContext =
+                storage.shots['de1app-1710510623']!.workflow.context!;
+            expect(otherContext.beanBatchId, isNotNull);
+            expect(otherContext.grinderId, isNotNull);
+            await expectResolvedReferences(storage, beans, grinders);
+            expect(result.hasErrors, isTrue);
+            expect(result.errors, hasLength(1));
+            expect(result.errors.single.reason, contains(entity));
+            expect(
+              result.errors.single.filename,
+              contains(
+                entity == 'Grinder' ? 'Niche Zero' : 'Ethiopia Yirgacheffe',
+              ),
+            );
+            expect(result.errors.single.details, contains('write failed'));
+            if (entity == 'Bean') expect(beans.batches, hasLength(1));
+          },
+        );
+      }
+
+      test(
+        'DYE enriches linked grinders and imports DYE-only presets',
+        () async {
+          final storage = FakeStorageService();
+          final beans = FakeBeanStorageService();
+          final grinders = FakeGrinderStorageService();
+          final result = await importEntityShots(
+            storage: storage,
+            beans: beans,
+            grinders: grinders,
+            dye: await File('$_fixturesPath/plugins/DYE/grinders.tdb')
+                .readAsString(),
+          );
+          expect(result.errors, isEmpty);
+          final linked = await grinders.getGrinderById(
+            storage.shots.values.single.workflow.context!.grinderId!,
+          );
+          expect(linked!.model, 'Niche Zero');
+          expect(linked.settingType, GrinderSettingType.numeric);
+          expect(linked.settingSmallStep, 1);
+          expect(linked.settingBigStep, 10);
+          final preset = grinders.grinders.values.singleWhere(
+            (g) => g.model == 'Baratza Encore',
+          );
+          expect(preset.settingType, GrinderSettingType.preset);
+          expect(preset.settingValues, ['Coarse', 'Fine', 'Medium']);
+          expect(preset.settingBigStep, 5);
+          expect(
+            grinders.grinders.values.any((g) => g.model == 'EK43'),
+            isTrue,
+          );
+          await expectResolvedReferences(storage, beans, grinders);
+        },
+      );
+    });
+
+    test('DYE preset merge matches case variants and keeps unmatched shot grinders', () async {
+      final storage = FakeStorageService();
+      final beans = FakeBeanStorageService();
+      final grinders = FakeGrinderStorageService();
+      final result = await importEntityShots(
+        storage: storage,
+        beans: beans,
+        grinders: grinders,
+        identities: [
+          {'model': 'baratza encore'},
+          {'model': 'Unknown Grinder'},
+        ],
+        dye: 'Baratza\\ Encore {is_numeric 0 default Medium big_step 5 values {Coarse Fine Medium}}',
+      );
+      expect(result.errors, isEmpty);
+      expect(grinders.grinders, hasLength(2));
+      final context = storage.shots['de1app-1710510622']!.workflow.context!;
+      final preset = await grinders.getGrinderById(context.grinderId!);
+      expect(preset!.model, 'baratza encore');
+      expect(preset.settingType, GrinderSettingType.preset);
+      expect(preset.settingValues, ['Coarse', 'Fine', 'Medium']);
+      expect(preset.settingBigStep, 5);
+      expect(
+        grinders.grinders.values.any((g) => g.model == 'Unknown Grinder'),
+        isTrue,
+      );
+      await expectResolvedReferences(storage, beans, grinders);
+    });
+
+    group('merges shots that exist in both legacy and v2 form', () {
+      final older = DateTime.utc(2024, 1, 1);
+      final newer = DateTime.utc(2024, 2, 1);
+
+      test('the v2 shot supplies the profile', () async {
+        final storage = await _importShots(
+          legacy: _legacyFixture,
+          v2: _v2FixtureWithClock(_legacyClock),
+        );
+        final profile = storage.shots.values.single.workflow.profile;
+        expect(profile.title, equals('Best Practice'));
+        expect(profile.steps.length, equals(2));
+      });
+
+      test('a newer legacy file no longer wins', () async {
+        final storage = await _importShots(
+          legacy: _legacyFixture,
+          v2: _v2FixtureWithClock(_legacyClock),
+          legacyModified: newer,
+          v2Modified: older,
+        );
+        expect(
+          storage.shots.values.single.workflow.profile.title,
+          equals('Best Practice'),
+        );
+      });
+
+      test('legacy fills metadata the v2 shot lacks', () async {
+        final storage = await _importShots(
+          legacy: _legacyFixture,
+          v2: _v2FixtureWithoutMetadata(clock: _legacyClock),
+        );
+        final shot = storage.shots.values.single;
+        expect(shot.workflow.context?.grinderModel, equals('Eureka Mignon'));
+        expect(shot.workflow.context?.coffeeName, equals('Colombia Huila'));
+        expect(shot.workflow.context?.coffeeRoaster, equals('Banibeans'));
+        expect(shot.annotations?.actualDoseWeight, equals(18.5));
+        expect(shot.annotations?.actualYield, equals(38.0));
+        expect(shot.annotations?.enjoyment, equals(8.0));
+        expect(
+          shot.annotations?.espressoNotes,
+          equals('Balanced, good sweetness'),
+        );
+      });
+
+      test('a gap-filled shot keeps the v2 profile and id', () async {
+        final storage = await _importShots(
+          legacy: _legacyFixture,
+          v2: _v2FixtureWithoutMetadata(clock: _legacyClock),
+        );
+        final shot = storage.shots.values.single;
+        expect(shot.id, equals('de1app-$_legacyClock'));
+        expect(shot.workflow.profile.title, equals('Best Practice'));
+        expect(shot.workflow.profile.steps.length, equals(2));
+      });
+
+      test('legacy never overwrites metadata the v2 shot has', () async {
+        final storage = await _importShots(
+          legacy: _legacyFixture,
+          v2: _v2FixtureWithClock(_legacyClock),
+          legacyModified: newer,
+        );
+        final shot = storage.shots.values.single;
+        expect(shot.workflow.context?.grinderModel, equals('Niche Zero'));
+        expect(
+          shot.workflow.context?.coffeeName,
+          equals('Ethiopia Yirgacheffe'),
+        );
+        expect(shot.annotations?.enjoyment, equals(7.5));
+      });
+
+      test('an unreadable v2 file falls back to its legacy sibling', () async {
+        final storage = await _importShots(
+          legacy: _legacyFixture,
+          v2: '{ not json',
+        );
+        final shot = storage.shots.values.single;
+        expect(shot.id, equals('de1app-1699432544'));
+        expect(shot.workflow.context?.grinderModel, equals('Eureka Mignon'));
+      });
+
+      test(
+        'one shot in two formats under different names stores once',
+        () async {
+          final storage = await _importShots(
+            legacy: _legacyFixture,
+            legacyBasename: '20231108T091544',
+            v2: _v2FixtureWithClock(_legacyClock),
+            v2Basename: '20231108T091544-v2',
+          );
+          expect(storage.shots.keys, equals(['de1app-1699432544']));
+          expect(
+            storage.shots.values.single.workflow.profile.title,
+            equals('Best Practice'),
+          );
+        },
+      );
+
+      test(
+        'two legacy files for one shot merge instead of dropping one',
+        () async {
+          final tempDir = await Directory.systemTemp.createTemp('de1app_dupe_');
+          try {
+            final directory = Directory('${tempDir.path}/history');
+            await directory.create();
+            await File('${directory.path}/20231108T091544.shot').writeAsString(
+              _legacyFixture.replaceAll(
+                'espresso_notes {Balanced, good sweetness}',
+                'espresso_notes {}',
+              ),
+            );
+            await File('${directory.path}/renamed-copy.shot').writeAsString(
+              _legacyFixture.replaceAll(
+                'grinder_model {Eureka Mignon}',
+                'grinder_model {}',
+              ),
+            );
+
+            final storage = FakeStorageService();
+            await makeImporter(storage: storage).import(
+              ScanResult(
+                shotCount: 2,
+                profileCount: 0,
+                hasDyeGrinders: false,
+                hasSettings: false,
+                sourcePath: tempDir.path,
+                shotSource: 'legacy',
+              ),
+            );
+
+            expect(storage.shots.keys, equals(['de1app-1699432544']));
+            final shot = storage.shots.values.single;
+            expect(
+              shot.workflow.context?.grinderModel,
+              equals('Eureka Mignon'),
+            );
+            expect(
+              shot.annotations?.espressoNotes,
+              equals('Balanced, good sweetness'),
+            );
+          } finally {
+            await tempDir.delete(recursive: true);
+          }
+        },
+      );
+
+      test('files sharing a basename but not a clock stay separate', () async {
+        final storage = await _importShots(
+          legacy: _legacyFixture,
+          v2: _v2Fixture,
+        );
+
+        expect(
+          storage.shots.keys.toSet(),
+          equals({'de1app-1699432544', 'de1app-1710510622'}),
+        );
+        final legacyShot = storage.shots['de1app-1699432544']!;
+        final v2Shot = storage.shots['de1app-1710510622']!;
+        expect(
+          legacyShot.workflow.context?.grinderModel,
+          equals('Eureka Mignon'),
+        );
+        expect(legacyShot.workflow.profile.title, equals('Default'));
+        expect(v2Shot.workflow.context?.grinderModel, equals('Niche Zero'));
+        expect(v2Shot.workflow.profile.title, equals('Best Practice'));
+      });
+
+      test(
+        'a basename collision does not leak metadata between shots',
+        () async {
+          final storage = await _importShots(
+            legacy: _legacyFixture,
+            v2: _v2FixtureWithoutMetadata(),
+          );
+
+          final v2Shot = storage.shots['de1app-1710510622']!;
+          expect(v2Shot.workflow.context?.grinderModel, isNull);
+          expect(v2Shot.annotations?.espressoNotes, isNull);
+        },
+      );
+
+      test('conflicting duplicates resolve by filename', () async {
+        final first = await _importLegacyFiles({
+          'aaa.shot': _legacyWithGrinder('Alpha'),
+          'bbb.shot': _legacyWithGrinder('Beta'),
+        });
+        expect(
+          first.shots.values.single.workflow.context?.grinderModel,
+          equals('Alpha'),
+        );
+
+        final second = await _importLegacyFiles({
+          'aaa.shot': _legacyWithGrinder('Beta'),
+          'bbb.shot': _legacyWithGrinder('Alpha'),
+        });
+        expect(
+          second.shots.values.single.workflow.context?.grinderModel,
+          equals('Beta'),
+        );
+      });
+
+      test('legacy-only and v2-only shots still import', () async {
+        final legacyOnly = await _importShots(legacy: _legacyFixture);
+        expect(
+          legacyOnly.shots.values.single.workflow.context?.grinderModel,
+          equals('Eureka Mignon'),
+        );
+        final v2Only = await _importShots(v2: _v2Fixture);
+        expect(
+          v2Only.shots.values.single.workflow.context?.grinderModel,
+          equals('Niche Zero'),
+        );
+      });
+    });
+
+    test('profiles keep preferring v2 when legacy profile is newer', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'de1app_profile_merge_',
+      );
+      try {
+        final legacyDirectory = Directory('${tempDir.path}/profiles');
+        final v2Directory = Directory('${tempDir.path}/profiles_v2');
+        await legacyDirectory.create();
+        await v2Directory.create();
+        final legacy = await File('$_fixturesPath/profiles/legacy_lever.tcl')
+            .copy('${legacyDirectory.path}/same-basename.tcl');
+        final v2 = await File('$_fixturesPath/profiles_v2/best_practice.json')
+            .copy('${v2Directory.path}/same-basename.json');
+        await legacy.setLastModified(DateTime.utc(2024, 2, 1));
+        await v2.setLastModified(DateTime.utc(2024, 1, 1));
+
+        final profileStorage = FakeProfileStorageService();
+        await makeImporter(profileStorage: profileStorage).import(
+          ScanResult(
+            shotCount: 0,
+            profileCount: 1,
+            hasDyeGrinders: false,
+            hasSettings: false,
+            sourcePath: tempDir.path,
+            shotSource: null,
+          ),
+        );
+
+        expect(
+          profileStorage.profiles.values.single.profile.title,
+          'Londinium',
+        );
+      } finally {
+        await tempDir.delete(recursive: true);
+      }
+    });
+
+    group('imports shots merged from history and history_v2', () {
       late FakeStorageService storage;
       late ImportResult result;
 
       setUpAll(() async {
         storage = FakeStorageService();
         final scanResult = ScanResult(
-          shotCount: 1,
-          profileCount: 1,
+          shotCount: 2,
+          profileCount: 2,
           hasDyeGrinders: true,
           hasSettings: false,
           sourcePath: _fixturesPath,
-          shotSource: 'history_v2',
+          shotSource: 'both',
         );
         result = await makeImporter(storage: storage).import(scanResult);
       });
 
-      test('imports exactly 1 shot', () {
-        expect(result.shotsImported, equals(1));
+      test('imports both the legacy and v2 shot', () {
+        expect(result.shotsImported, equals(2));
       });
 
-      test('shot is stored in storage service', () {
-        expect(storage.shots, hasLength(1));
+      test('both shots are stored in storage service', () {
+        expect(storage.shots, hasLength(2));
       });
 
       test('no shots skipped', () {
@@ -286,7 +1014,7 @@ void main() {
       });
     });
 
-    group('imports profiles from profiles_v2', () {
+    group('imports profiles merged from profiles and profiles_v2', () {
       late FakeProfileStorageService profileStorage;
       late ImportResult result;
 
@@ -294,23 +1022,31 @@ void main() {
         profileStorage = FakeProfileStorageService();
         final scanResult = ScanResult(
           shotCount: 0,
-          profileCount: 1,
+          profileCount: 2,
           hasDyeGrinders: false,
           hasSettings: false,
           sourcePath: _fixturesPath,
           shotSource: null,
         );
-        result = await makeImporter(
-          profileStorage: profileStorage,
-        ).import(scanResult);
+        result = await makeImporter(profileStorage: profileStorage)
+            .import(scanResult);
       });
 
-      test('imports exactly 1 profile', () {
-        expect(result.profilesImported, equals(1));
+      test('imports both the legacy and v2 profile', () {
+        expect(result.profilesImported, equals(2));
       });
 
-      test('profile is stored in profile storage service', () {
-        expect(profileStorage.profiles, hasLength(1));
+      test('both profiles are stored in profile storage service', () {
+        expect(profileStorage.profiles, hasLength(2));
+      });
+
+      test('the legacy .tcl-only profile was parsed and stored', () {
+        expect(
+          profileStorage.profiles.values.any(
+            (record) => record.profile.title == 'Legacy Lever',
+          ),
+          isTrue,
+        );
       });
 
       test('no profiles skipped', () {
@@ -362,12 +1098,12 @@ void main() {
       setUpAll(() async {
         storage = FakeStorageService(existingIds: ['de1app-1710510622']);
         final scanResult = ScanResult(
-          shotCount: 1,
+          shotCount: 2,
           profileCount: 0,
           hasDyeGrinders: false,
           hasSettings: false,
           sourcePath: _fixturesPath,
-          shotSource: 'history_v2',
+          shotSource: 'both',
         );
         result = await makeImporter(storage: storage).import(scanResult);
       });
@@ -376,12 +1112,13 @@ void main() {
         expect(result.shotsSkipped, equals(1));
       });
 
-      test('does not import the duplicate', () {
-        expect(result.shotsImported, equals(0));
+      test('imports the shot that was not already present', () {
+        expect(result.shotsImported, equals(1));
       });
 
-      test('nothing written to storage', () {
-        expect(storage.shots, isEmpty);
+      test('only the new shot is written to storage', () {
+        expect(storage.shots, hasLength(1));
+        expect(storage.shots.containsKey('de1app-1699432544'), isTrue);
       });
     });
 
@@ -399,9 +1136,8 @@ void main() {
         await historyV2.create();
         await validFile.copy('${tempDir.path}/history_v2/valid.json');
 
-        await File(
-          '${tempDir.path}/history_v2/bad.json',
-        ).writeAsString('THIS IS NOT JSON {{{');
+        await File('${tempDir.path}/history_v2/bad.json')
+            .writeAsString('THIS IS NOT JSON {{{');
 
         final scanResult = ScanResult(
           shotCount: 2,
@@ -433,27 +1169,27 @@ void main() {
       test('fires shot progress callbacks', () async {
         final progressEvents = <ImportProgress>[];
         final scanResult = ScanResult(
-          shotCount: 1,
+          shotCount: 2,
           profileCount: 0,
           hasDyeGrinders: false,
           hasSettings: false,
           sourcePath: _fixturesPath,
-          shotSource: 'history_v2',
+          shotSource: 'both',
         );
 
         await makeImporter().import(scanResult, onProgress: progressEvents.add);
 
         final shotEvents = progressEvents.where((e) => e.phase == 'shots');
         expect(shotEvents, isNotEmpty);
-        expect(shotEvents.last.current, equals(1));
-        expect(shotEvents.last.total, equals(1));
+        expect(shotEvents.last.current, equals(2));
+        expect(shotEvents.last.total, equals(2));
       });
 
       test('fires profile progress callbacks', () async {
         final progressEvents = <ImportProgress>[];
         final scanResult = ScanResult(
           shotCount: 0,
-          profileCount: 1,
+          profileCount: 2,
           hasDyeGrinders: false,
           hasSettings: false,
           sourcePath: _fixturesPath,
@@ -466,8 +1202,8 @@ void main() {
           (e) => e.phase == 'profiles',
         );
         expect(profileEvents, isNotEmpty);
-        expect(profileEvents.last.current, equals(1));
-        expect(profileEvents.last.total, equals(1));
+        expect(profileEvents.last.current, equals(2));
+        expect(profileEvents.last.total, equals(2));
       });
     });
 
@@ -485,9 +1221,8 @@ void main() {
           sourcePath: _fixturesPath,
           shotSource: 'history_v2',
         );
-        result = await makeImporter(
-          grinderStorage: grinderStorage,
-        ).import(scanResult);
+        result = await makeImporter(grinderStorage: grinderStorage)
+            .import(scanResult);
       });
 
       test('stores grinders after DYE merge', () {
@@ -642,9 +1377,8 @@ void main() {
         tempDir = await Directory.systemTemp.createTemp(
           'de1app_importer_nosettings_',
         );
-        await File(
-          '${tempDir.path}/settings.tdb',
-        ).writeAsString('keep_scale_on 1\n');
+        await File('${tempDir.path}/settings.tdb')
+            .writeAsString('keep_scale_on 1\n');
 
         final scanResult = ScanResult(
           shotCount: 0,
@@ -669,33 +1403,189 @@ void main() {
 
     group('links shots to bean batch and grinder IDs', () {
       late FakeStorageService storage;
+      late FakeBeanStorageService beans;
+      late FakeGrinderStorageService grinders;
 
       setUpAll(() async {
         storage = FakeStorageService();
+        beans = FakeBeanStorageService();
+        grinders = FakeGrinderStorageService();
         final scanResult = ScanResult(
-          shotCount: 1,
+          shotCount: 2,
           profileCount: 0,
           hasDyeGrinders: false,
           hasSettings: false,
           sourcePath: _fixturesPath,
+          shotSource: 'both',
+        );
+        await makeImporter(
+          storage: storage,
+          beanStorage: beans,
+          grinderStorage: grinders,
+        ).import(scanResult);
+      });
+
+      test(
+        'every stored shot has a persisted beanBatchId in workflow context',
+        () async {
+          expect(storage.shots, hasLength(2));
+          for (final shot in storage.shots.values) {
+            final context = shot.workflow.context;
+            expect(context, isNotNull);
+            expect(context!.beanBatchId, isNotNull);
+            expect(await beans.getBatchById(context.beanBatchId!), isNotNull);
+          }
+        },
+      );
+
+      test(
+        'every stored shot has a persisted grinderId in workflow context',
+        () async {
+          for (final shot in storage.shots.values) {
+            final context = shot.workflow.context;
+            expect(context, isNotNull);
+            expect(context!.grinderId, isNotNull);
+            expect(
+              await grinders.getGrinderById(context.grinderId!),
+              isNotNull,
+            );
+          }
+        },
+      );
+    });
+
+    group('notifies plugin shot events', () {
+      late Directory tempDir;
+      late ScanResult scanResult;
+
+      setUpAll(() async {
+        tempDir = await Directory.systemTemp.createTemp(
+          'de1app_importer_events_',
+        );
+        await Directory('${tempDir.path}/history_v2').create();
+        await File('$_fixturesPath/history_v2/20240315T143022.json')
+            .copy('${tempDir.path}/history_v2/20240315T143022.json');
+        scanResult = ScanResult(
+          shotCount: 1,
+          profileCount: 0,
+          hasDyeGrinders: false,
+          hasSettings: false,
+          sourcePath: tempDir.path,
           shotSource: 'history_v2',
         );
-        await makeImporter(storage: storage).import(scanResult);
       });
 
-      test('stored shot has beanBatchId in workflow context', () {
-        expect(storage.shots, hasLength(1));
-        final shot = storage.shots.values.first;
-        final context = shot.workflow.context;
-        expect(context, isNotNull);
-        expect(context!.beanBatchId, isNotNull);
+      tearDownAll(() async {
+        await tempDir.delete(recursive: true);
       });
 
-      test('stored shot has grinderId in workflow context', () {
-        final shot = storage.shots.values.first;
-        final context = shot.workflow.context;
-        expect(context, isNotNull);
-        expect(context!.grinderId, isNotNull);
+      test(
+        'bulk import keeps per-shot plugin events and one refresh',
+        () async {
+          final bulkDir = await Directory.systemTemp.createTemp('de1app_bulk_');
+          addTearDown(() => bulkDir.delete(recursive: true));
+          await Directory('${bulkDir.path}/history_v2').create();
+          final fixture = jsonDecode(
+            await File('$_fixturesPath/history_v2/20240315T143022.json')
+                .readAsString(),
+          ) as Map<String, dynamic>;
+          for (var i = 0; i < 3; i++) {
+            await File(
+              '${bulkDir.path}/history_v2/shot-$i.json',
+            ).writeAsString(jsonEncode({...fixture, 'clock': 1710510622 + i}));
+          }
+          final received = <String>[];
+          final controller = PersistenceController(
+            storageService: FakeStorageService(),
+          )..onShotStored = received.add;
+          addTearDown(controller.dispose);
+          var changes = 0;
+          final subscription = controller.shotsChanged.listen((_) => changes++);
+          addTearDown(subscription.cancel);
+          final result = await makeImporter(controller: controller).import(
+            ScanResult(
+              shotCount: 3,
+              profileCount: 0,
+              hasDyeGrinders: false,
+              hasSettings: false,
+              sourcePath: bulkDir.path,
+              shotSource: 'history_v2',
+            ),
+          );
+          await Future<void>.delayed(Duration.zero);
+          expect(result.shotsImported, 3);
+          expect(received.toSet(), {
+            'de1app-1710510622',
+            'de1app-1710510623',
+            'de1app-1710510624',
+          });
+          expect(received, hasLength(3));
+          expect(changes, 1);
+        },
+      );
+
+      test('emits exactly one shotStored per stored shot', () async {
+        final received = <String>[];
+        final controller = PersistenceController(
+          storageService: FakeStorageService(),
+        )..onShotStored = received.add;
+
+        addTearDown(controller.dispose);
+        var changes = 0;
+        final subscription = controller.shotsChanged.listen((_) => changes++);
+        addTearDown(subscription.cancel);
+
+        final result = await makeImporter(controller: controller)
+            .import(scanResult);
+
+        expect(result.shotsImported, equals(1));
+        expect(received, equals(['de1app-1710510622']));
+        await Future<void>.delayed(Duration.zero);
+        expect(changes, 1);
+      });
+
+      test('emits nothing for a shot skipped as already present', () async {
+        final received = <String>[];
+        final controller = PersistenceController(
+          storageService: FakeStorageService(
+            existingIds: ['de1app-1710510622'],
+          ),
+        )..onShotStored = received.add;
+
+        addTearDown(controller.dispose);
+        var changes = 0;
+        final subscription = controller.shotsChanged.listen((_) => changes++);
+        addTearDown(subscription.cancel);
+
+        final result = await makeImporter(controller: controller)
+            .import(scanResult);
+
+        expect(result.shotsSkipped, equals(1));
+        expect(received, isEmpty);
+        await Future<void>.delayed(Duration.zero);
+        expect(changes, 0);
+      });
+
+      test('emits nothing for a shot whose store fails', () async {
+        final received = <String>[];
+        final controller = PersistenceController(
+          storageService: FakeStorageService()
+            ..failedIds.add('de1app-1710510622'),
+        )..onShotStored = received.add;
+
+        addTearDown(controller.dispose);
+        var changes = 0;
+        final subscription = controller.shotsChanged.listen((_) => changes++);
+        addTearDown(subscription.cancel);
+
+        final result = await makeImporter(controller: controller)
+            .import(scanResult);
+
+        expect(result.shotsImported, equals(0));
+        expect(result.errors, hasLength(1));
+        expect(received, isEmpty);
+        await Future<void>.delayed(Duration.zero);
+        expect(changes, 0);
       });
     });
   });

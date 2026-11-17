@@ -5,9 +5,8 @@ import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
 import 'package:reaprime/src/models/data/profile.dart';
-import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
-import 'package:reaprime/src/models/errors.dart';
+import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
 import 'package:shelf_plus/shelf_plus.dart';
@@ -17,21 +16,24 @@ import '../../helpers/mock_settings_service.dart';
 import '../../helpers/test_scale.dart';
 import '../../helpers/test_scale_controller.dart';
 
-class _FixedDe1Controller extends De1Controller {
-  _FixedDe1Controller({required super.controller, this.device});
-
-  De1Interface? device;
+final class _RecordingMockDe1 extends MockDe1 {
+  final List<MachineState> requestedStates = [];
 
   @override
-  De1Interface connectedDe1() {
-    final d = device;
-    if (d == null) throw const DeviceNotConnectedException.machine();
-    return d;
+  Future<void> requestState(MachineState newState) async {
+    requestedStates.add(newState);
+    await super.requestState(newState);
   }
 }
 
 void main() {
   late Handler handler;
+  late De1Controller controller;
+  late _RecordingMockDe1 machine;
+
+  tearDown(() async {
+    await controller.dispose();
+  });
 
   Future<void> wire({
     required bool blockOnNoScale,
@@ -40,10 +42,10 @@ void main() {
   }) async {
     final deviceController = DeviceController([MockDeviceDiscoveryService()]);
     await deviceController.initialize();
-    final controller = _FixedDe1Controller(
-      controller: deviceController,
-      device: MockDe1(),
-    );
+    controller = De1Controller(controller: deviceController);
+    machine = _RecordingMockDe1();
+    controller.adoptDevice(machine);
+    await controller.initSettled.firstWhere((generation) => generation != null);
 
     final mockSettings = MockSettingsService();
     await mockSettings.setBlockOnNoScale(blockOnNoScale);
@@ -88,6 +90,7 @@ void main() {
       expect(res.statusCode, 400);
       final body = jsonDecode(await res.readAsString());
       expect(body['type'], 'block_no_scale');
+      expect(machine.requestedStates, isEmpty);
     });
 
     test(
@@ -100,6 +103,7 @@ void main() {
         );
         final res = await requestEspresso();
         expect(res.statusCode, 200);
+        expect(machine.requestedStates, [MachineState.espresso]);
       },
     );
   });
