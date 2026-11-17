@@ -317,6 +317,180 @@ void main() {
     );
   });
 
+  group('extractArchiveToDirectory strict mode', () {
+    late Directory tempDir;
+    late Logger testLog;
+    late List<LogRecord> logged;
+
+    setUp(() {
+      tempDir = Directory.systemTemp.createTempSync(
+        'reaprime_zip_strict_test_',
+      );
+      testLog = Logger.detached('ExtractStrictTest');
+      logged = <LogRecord>[];
+      testLog.onRecord.listen(logged.add);
+    });
+
+    tearDown(() {
+      if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+    });
+
+    test('rejects an entry whose content does not match its CRC', () {
+      final archive = Archive()
+        ..addFile(ArchiveFile.string('index.html', 'body')..crc32 = 0x12345678);
+
+      expect(
+        () => extractArchiveToDirectory(
+          archive,
+          tempDir,
+          sanitize: true,
+          strict: true,
+          log: testLog,
+        ),
+        throwsFormatException,
+      );
+      expect(File(p.join(tempDir.path, 'index.html')).existsSync(), isFalse);
+    });
+
+    test('accepts an entry whose content matches its CRC', () {
+      final content = utf8.encode('body');
+      final archive = Archive()
+        ..addFile(
+          ArchiveFile.string('index.html', 'body')..crc32 = getCrc32(content),
+        );
+
+      final result = extractArchiveToDirectory(
+        archive,
+        tempDir,
+        sanitize: true,
+        strict: true,
+        log: testLog,
+      );
+
+      expect(result.extracted, 1);
+      expect(
+        File(p.join(tempDir.path, 'index.html')).readAsStringSync(),
+        'body',
+      );
+    });
+
+    test('rejects the archive when a file cannot be written', () {
+      final archive = Archive()
+        ..addFile(ArchiveFile.string('index.html', 'file'))
+        ..addFile(ArchiveFile.string('index.html/child.txt', 'conflict'));
+
+      expect(
+        () => extractArchiveToDirectory(
+          archive,
+          tempDir,
+          sanitize: true,
+          strict: true,
+          log: testLog,
+        ),
+        throwsFormatException,
+      );
+      expect(
+        logged.where((record) => record.level >= Level.WARNING),
+        isNotEmpty,
+      );
+    });
+
+    test('rejects the archive when an entry directory cannot be created', () {
+      final archive = Archive()
+        ..addFile(ArchiveFile.string('skin', 'file'))
+        ..addFile(ArchiveFile.directory('skin/'));
+
+      expect(
+        () => extractArchiveToDirectory(
+          archive,
+          tempDir,
+          sanitize: true,
+          strict: true,
+          log: testLog,
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('keeps skipping unreadable entries when strict mode is off', () {
+      final archive = Archive()
+        ..addFile(ArchiveFile.string('index.html', 'file'))
+        ..addFile(ArchiveFile.string('index.html/child.txt', 'conflict'))
+        ..addFile(ArchiveFile.string('style.css', 'body'));
+
+      final result = extractArchiveToDirectory(
+        archive,
+        tempDir,
+        sanitize: true,
+        log: testLog,
+      );
+
+      expect(result.extracted, 2);
+      expect(result.skipped, 1);
+      expect(File(p.join(tempDir.path, 'style.css')).existsSync(), isTrue);
+    });
+
+    test('rejects an entry whose path is empty instead of skipping it', () {
+      final archive = Archive()
+        ..addFile(ArchiveFile.string('index.html', '<html></html>'))
+        ..addFile(ArchiveFile.string('', 'junk'));
+
+      expect(
+        () => extractArchiveToDirectory(
+          archive,
+          tempDir,
+          sanitize: false,
+          strict: true,
+          log: testLog,
+        ),
+        throwsFormatException,
+      );
+      expect(
+        tempDir.listSync(),
+        isEmpty,
+        reason: 'a rejected archive must not leave a partial extraction',
+      );
+    });
+
+    test('rejects an entry that sanitises to an empty path', () {
+      final archive = Archive()
+        ..addFile(ArchiveFile.string('index.html', '<html></html>'))
+        ..addFile(ArchiveFile.string('   ', 'junk'));
+
+      expect(
+        () => extractArchiveToDirectory(
+          archive,
+          tempDir,
+          sanitize: true,
+          strict: true,
+          log: testLog,
+        ),
+        throwsFormatException,
+      );
+      expect(tempDir.listSync(), isEmpty);
+    });
+
+    test('keeps skipping empty-path entries when strict mode is off', () {
+      final archive = Archive()
+        ..addFile(ArchiveFile.string('index.html', '<html></html>'))
+        ..addFile(ArchiveFile.string('', 'junk'));
+
+      final result = extractArchiveToDirectory(
+        archive,
+        tempDir,
+        sanitize: false,
+        log: testLog,
+      );
+
+      expect(result.extracted, 1);
+      expect(result.skipped, 1);
+      expect(
+        File(p.join(tempDir.path, 'index.html')).readAsStringSync(),
+        '<html></html>',
+      );
+    });
+  });
+
   group('installBundledSkinList', () {
     late Logger testLog;
     late List<LogRecord> logged;

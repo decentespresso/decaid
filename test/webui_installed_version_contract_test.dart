@@ -40,12 +40,21 @@ Uint8List _skinZip({
   required String name,
   String? version,
   String manifestName = 'skin-manifest.json',
+  String? root,
+  bool includeManifest = true,
 }) {
+  final directory = root ?? id;
   final manifest = <String, dynamic>{'id': id, 'name': name};
   if (version != null) manifest['version'] = version;
-  final archive = Archive()
-    ..addFile(ArchiveFile.string('$id/$manifestName', jsonEncode(manifest)))
-    ..addFile(ArchiveFile.string('$id/index.html', '<html>$name</html>'));
+  final archive = Archive();
+  if (includeManifest) {
+    archive.addFile(
+      ArchiveFile.string('$directory/$manifestName', jsonEncode(manifest)),
+    );
+  }
+  archive.addFile(
+    ArchiveFile.string('$directory/index.html', '<html>$name</html>'),
+  );
   return Uint8List.fromList(ZipEncoder().encode(archive));
 }
 
@@ -220,6 +229,9 @@ class _Remote {
 
   String configuredTag = 'v1.0.0';
   String? configuredVersion = '1.0.0';
+  String configuredSkinId = 'configured-skin';
+  String? configuredRoot;
+  bool configuredManifest = true;
 
   int requests = 0;
   int branchDownloads = 0;
@@ -278,9 +290,11 @@ class _Remote {
             '$configuredTag/configured-skin.zip') {
       return http.Response.bytes(
         _skinZip(
-          id: 'configured-skin',
+          id: configuredSkinId,
           name: 'Configured Skin',
           version: configuredVersion,
+          root: configuredRoot,
+          includeManifest: configuredManifest,
         ),
         200,
       );
@@ -760,6 +774,16 @@ void main() {
 
     final branchBytes = _snapshot(Directory('${root.path}/branch-skin'));
     final releaseBytes = _snapshot(Directory('${root.path}/release-skin'));
+    final branchMetadata = (await api.installedSkin(
+      'branch-skin',
+    ))['reaMetadata'];
+    final releaseMetadata = (await api.installedSkin(
+      'release-skin',
+    ))['reaMetadata'];
+    final branchVersion = (await api.installedSkin('branch-skin'))['version'];
+    final releaseVersion = (await api.installedSkin('release-skin'))['version'];
+    expect(branchVersion, '1.0.0');
+    expect(releaseVersion, '1.0.0');
 
     remote
       ..branchEtag = 'branch-etag-2'
@@ -809,21 +833,182 @@ void main() {
         idsAfterFailedDownloads,
         reason: 'a rejected archive must not add an installed skin',
       );
+      final idsNow =
+          (await api.listSkins())
+              .map((skin) => (skin as Map<String, dynamic>)['id'])
+              .toList()
+            ..sort();
+      expect(
+        idsNow,
+        [...idsAfterFailedDownloads]..sort(),
+        reason: 'a rejected archive must not add or drop an installed skin',
+      );
       final branch = await api.installedSkin('branch-skin');
-      expect(branch['version'], '1.0.0');
-      final branchMetadata = branch['reaMetadata'] as Map<String, dynamic>;
-      expect(branchMetadata['etag'], 'branch-etag-1');
-      expect(
-        branchMetadata['sourceUrl'],
-        'github_branch:acme/branch-skin@dist',
-      );
-
+      expect(branch['version'], branchVersion);
+      expect(branch['reaMetadata'], branchMetadata);
       final release = await api.installedSkin('release-skin');
-      expect(release['version'], '1.0.0');
+      expect(release['version'], releaseVersion);
+      expect(release['reaMetadata'], releaseMetadata);
+    });
+
+    final reloaded = _SkinApi(await _openStorage(root));
+    await _withoutNetwork(() async {
       expect(
-        (release['reaMetadata'] as Map<String, dynamic>)['sourceUrl'],
-        'github_release:acme/release-skin@v1.0.0',
+        (await reloaded.installedSkin('branch-skin'))['reaMetadata'],
+        branchMetadata,
       );
+      expect(
+        (await reloaded.installedSkin('release-skin'))['reaMetadata'],
+        releaseMetadata,
+      );
+      expect(_snapshot(Directory('${root.path}/branch-skin')), branchBytes);
+      expect(_snapshot(Directory('${root.path}/release-skin')), releaseBytes);
+    });
+  });
+
+  test('a configured release update cannot redirect the replacement to another'
+      ' installed skin', () async {
+    final remote = _Remote();
+    final api = _SkinApi(await _openStorage(root));
+
+    await http.runWithClient(() async {
+      final release = await api.post(
+        '/api/v1/webui/skins/install/github-release',
+        {'repo': _releaseRepository},
+      );
+      expect(release.statusCode, 200, reason: '${release.body}');
+      final first = await api.updateSkins();
+      expect(first.statusCode, 200, reason: '${first.body}');
+      expect(
+        _resultFor(first.body, _configuredRepository)['status'],
+        'updated',
+      );
+    }, () => remote.client);
+
+    final releaseBefore = _snapshot(Directory('${root.path}/release-skin'));
+    final configuredBefore = _snapshot(
+      Directory('${root.path}/configured-skin'),
+    );
+    final releaseMetadata = ({
+      ...((await api.installedSkin('release-skin'))['reaMetadata']
+          as Map<String, dynamic>),
+    })..remove('lastChecked');
+    final configuredMetadata = (await api.installedSkin(
+      'configured-skin',
+    ))['reaMetadata'];
+    final idsBefore =
+        (await api.listSkins())
+            .map((skin) => (skin as Map<String, dynamic>)['id'])
+            .toList()
+          ..sort();
+
+    remote
+      ..configuredTag = 'v1.1.0'
+      ..configuredVersion = '1.1.0'
+      ..configuredRoot = 'configured-dist'
+      ..configuredSkinId = 'release-skin';
+
+    await http.runWithClient(() async {
+      final update = await api.updateSkins();
+      expect(update.statusCode, 200, reason: '${update.body}');
+      final result = _resultFor(update.body, _configuredRepository);
+      expect(result['status'], 'failed', reason: '${update.body}');
+      expect(result['error'], contains('different skin id'));
+
+      await _withoutNetwork(() async {
+        expect(
+          _snapshot(Directory('${root.path}/release-skin')),
+          releaseBefore,
+          reason: 'an unrelated installed skin must not be replaced',
+        );
+        expect(
+          _snapshot(Directory('${root.path}/configured-skin')),
+          configuredBefore,
+        );
+        expect(
+          ({
+            ...((await api.installedSkin('release-skin'))['reaMetadata']
+                as Map<String, dynamic>),
+          })..remove('lastChecked'),
+          releaseMetadata,
+        );
+        expect(
+          (await api.installedSkin('configured-skin'))['reaMetadata'],
+          configuredMetadata,
+        );
+        final idsNow =
+            (await api.listSkins())
+                .map((skin) => (skin as Map<String, dynamic>)['id'])
+                .toList()
+              ..sort();
+        expect(idsNow, idsBefore);
+      });
+    }, () => remote.client);
+
+    final reloaded = _SkinApi(await _openStorage(root));
+    await _withoutNetwork(() async {
+      expect(
+        (await reloaded.installedSkin('configured-skin'))['reaMetadata'],
+        configuredMetadata,
+      );
+      expect(_snapshot(Directory('${root.path}/release-skin')), releaseBefore);
+    });
+  });
+
+  test('a configured release update keeps its installed identity when the tag'
+      ' changes and the archive is manifestless', () async {
+    final remote = _Remote();
+    final api = _SkinApi(await _openStorage(root));
+
+    await http.runWithClient(() async {
+      final first = await api.updateSkins();
+      expect(first.statusCode, 200, reason: '${first.body}');
+      expect(
+        _resultFor(first.body, _configuredRepository)['status'],
+        'updated',
+      );
+    }, () => remote.client);
+    expect((await api.installedSkin('configured-skin'))['version'], '1.0.0');
+
+    remote
+      ..configuredTag = 'v1.1.0'
+      ..configuredVersion = '1.1.0'
+      ..configuredManifest = false
+      ..configuredRoot = 'configured-skin-1.1.0';
+
+    await http.runWithClient(() async {
+      final update = await api.updateSkins();
+      expect(update.statusCode, 200, reason: '${update.body}');
+      expect(
+        _resultFor(update.body, _configuredRepository)['status'],
+        'updated',
+      );
+    }, () => remote.client);
+
+    expect(
+      Directory('${root.path}/configured-skin-1.1.0').existsSync(),
+      isFalse,
+      reason: 'a manifestless update must not install a new skin',
+    );
+    expect(
+      File('${root.path}/configured-skin/index.html').readAsStringSync(),
+      '<html>Configured Skin</html>',
+    );
+
+    final reloaded = _SkinApi(await _openStorage(root));
+    await _withoutNetwork(() async {
+      final ids = (await reloaded.listSkins())
+          .map((skin) => (skin as Map<String, dynamic>)['id'])
+          .toList();
+      expect(ids, ['configured-skin']);
+      final metadata =
+          (await reloaded.installedSkin('configured-skin'))['reaMetadata']
+              as Map<String, dynamic>;
+      expect(
+        metadata['sourceUrl'],
+        'github_release:$_configuredRepository@v1.1.0',
+      );
+      expect(metadata['commitHash'], 'v1.1.0');
     });
   });
 
