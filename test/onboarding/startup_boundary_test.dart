@@ -29,6 +29,7 @@ Widget _startupApp({
   required GlobalKey<NavigatorState> navigatorKey,
   required AppStartupCoordinator coordinator,
   required Widget home,
+  Widget? launcherChild,
 }) => ShadApp(
   navigatorKey: navigatorKey,
   home: home,
@@ -38,7 +39,7 @@ Widget _startupApp({
       settings: settings,
       builder: (_) => StartupDiscoveryRecovery(
         startupCoordinator: coordinator,
-        child: const Scaffold(body: Text('launcher')),
+        child: launcherChild ?? const Scaffold(body: Text('launcher')),
       ),
     );
   },
@@ -638,6 +639,392 @@ void main() {
     await flaky.close();
     await healthy.close();
   });
+
+  for (final foregroundStart in <Future<bool> Function()>[
+    () async => false,
+    () async => throw StateError('foreground service unavailable'),
+  ]) {
+    testWidgets(
+      'foreground startup failure becomes a nonblocking manual recovery notice',
+      (tester) async {
+        var starts = 0;
+        var watches = 0;
+        var devices = 0;
+        var webUI = 0;
+        var launcherMounts = 0;
+        final coordinator = AppStartupCoordinator(
+          initializeDevices: () async {
+            devices++;
+          },
+          initializeWebUI: () async {
+            webUI++;
+          },
+          startForeground: () {
+            starts++;
+            return foregroundStart();
+          },
+          watchForeground: () {
+            watches++;
+            return Object();
+          },
+          isAndroid: true,
+        );
+        await coordinator.ensureInitialized();
+
+        expect(coordinator.status, AppStartupStatus.degraded);
+        expect(coordinator.reasons, contains(contains('Foreground service')));
+        expect(devices, 1);
+        expect(webUI, 1);
+        expect(starts, 1);
+        expect(watches, 0);
+
+        final navigatorKey = GlobalKey<NavigatorState>();
+        await tester.pumpWidget(
+          _startupApp(
+            navigatorKey: navigatorKey,
+            coordinator: coordinator,
+            home: const Scaffold(body: Text('onboarding')),
+            launcherChild: _MountCounter(
+              onMount: () => launcherMounts++,
+              label: 'launcher',
+            ),
+          ),
+        );
+        navigatorKey.currentState!.pushNamedAndRemoveUntil(
+          LauncherView.routeName,
+          (_) => false,
+        );
+        await tester.pumpAndSettle();
+
+        expect(launcherMounts, 1);
+        expect(find.text('launcher'), findsOneWidget);
+        expect(find.text('Some device services did not start.'), findsNothing);
+        expect(
+          find.text('Android foreground service did not start.'),
+          findsOneWidget,
+        );
+        expect(
+          tester
+              .widget<TextButton>(
+                find.widgetWithText(TextButton, 'Retry foreground service'),
+              )
+              .onPressed,
+          isNotNull,
+        );
+        expect(starts, 1);
+        expect(watches, 0);
+        expect(launcherMounts, 1);
+
+        await tester.pumpWidget(const SizedBox());
+        coordinator.dispose();
+      },
+    );
+  }
+
+  testWidgets(
+    'foreground recovery is manual, coalesced and keeps the launcher mounted',
+    (tester) async {
+      var starts = 0;
+      var watches = 0;
+      var devices = 0;
+      var webUI = 0;
+      var launcherMounts = 0;
+      final retryStart = Completer<bool>();
+      final coordinator = AppStartupCoordinator(
+        initializeDevices: () async {
+          devices++;
+        },
+        initializeWebUI: () async {
+          webUI++;
+        },
+        startForeground: () {
+          starts++;
+          return starts == 1 ? Future<bool>.value(false) : retryStart.future;
+        },
+        watchForeground: () => ++watches,
+        unwatchForeground: (_) {},
+        isAndroid: true,
+      );
+      await coordinator.ensureInitialized();
+
+      final navigatorKey = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        _startupApp(
+          navigatorKey: navigatorKey,
+          coordinator: coordinator,
+          home: const Scaffold(body: Text('onboarding')),
+          launcherChild: _MountCounter(
+            onMount: () => launcherMounts++,
+            label: 'launcher',
+          ),
+        ),
+      );
+      navigatorKey.currentState!.pushNamedAndRemoveUntil(
+        LauncherView.routeName,
+        (_) => false,
+      );
+      await tester.pumpAndSettle();
+
+      expect(launcherMounts, 1);
+      expect(starts, 1);
+      expect(find.text('launcher'), findsOneWidget);
+      expect(
+        find.text('Android foreground service did not start.'),
+        findsOneWidget,
+      );
+      expect(find.text('Some device services did not start.'), findsNothing);
+      expect(find.text('Retry'), findsNothing);
+
+      await tester.tap(find.text('Retry foreground service'));
+      await tester.pump();
+
+      expect(starts, 2);
+      expect(watches, 0);
+      expect(launcherMounts, 1);
+      expect(
+        tester
+            .widget<TextButton>(
+              find.widgetWithText(TextButton, 'Retry foreground service'),
+            )
+            .onPressed,
+        isNull,
+      );
+
+      await tester.tap(find.text('Retry foreground service'));
+      await tester.pump();
+      expect(starts, 2);
+      expect(watches, 0);
+
+      retryStart.complete(true);
+      await tester.pumpAndSettle();
+
+      expect(starts, 2);
+      expect(watches, 1);
+      expect(launcherMounts, 1);
+      expect(find.text('launcher'), findsOneWidget);
+      expect(
+        find.text('Android foreground service did not start.'),
+        findsNothing,
+      );
+      expect(find.text('Retry foreground service'), findsNothing);
+      expect(devices, 1);
+      expect(webUI, 1);
+      expect(coordinator.status, AppStartupStatus.ready);
+
+      await tester.pumpWidget(const SizedBox());
+      coordinator.dispose();
+    },
+  );
+
+  testWidgets(
+    'coexisting device and foreground failures keep separate scoped recovery actions',
+    (tester) async {
+      final flaky = _StartupDiscoveryService(
+        'serial',
+        failuresBeforeSuccess: 1,
+      );
+      final healthy = _StartupDiscoveryService('ble');
+      final deviceController = DeviceController([flaky, healthy]);
+      var starts = 0;
+      var watches = 0;
+      var launcherMounts = 0;
+      final coordinator = AppStartupCoordinator(
+        deviceController: deviceController,
+        initializeWebUI: () async =>
+            throw StateError('webui skin storage unavailable'),
+        initializePlugins: () async =>
+            throw StateError('plugin registry offline'),
+        refreshRemoteSkins: () async =>
+            throw StateError('remote skins unreachable'),
+        startForeground: () async => ++starts > 1,
+        watchForeground: () => ++watches,
+        unwatchForeground: (_) {},
+        isAndroid: true,
+      );
+      await coordinator.ensureInitialized();
+
+      final navigatorKey = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        _startupApp(
+          navigatorKey: navigatorKey,
+          coordinator: coordinator,
+          home: const Scaffold(body: Text('onboarding')),
+          launcherChild: _MountCounter(
+            onMount: () => launcherMounts++,
+            label: 'launcher',
+          ),
+        ),
+      );
+      navigatorKey.currentState!.pushNamedAndRemoveUntil(
+        LauncherView.routeName,
+        (_) => false,
+      );
+      await tester.pumpAndSettle();
+
+      expect(coordinator.state.discoveryRecoveryRequired, isTrue);
+      expect(coordinator.state.foregroundRecoveryRequired, isTrue);
+      expect(
+        coordinator.state.optionalTasks['plugins'],
+        AppStartupTaskStatus.failed,
+      );
+      expect(launcherMounts, 1);
+      expect(find.text('Some device services did not start.'), findsOneWidget);
+      expect(
+        find.text('Android foreground service did not start.'),
+        findsOneWidget,
+      );
+      expect(find.text('Retry'), findsOneWidget);
+      expect(find.text('Retry foreground service'), findsOneWidget);
+
+      await tester.tap(find.text('Retry foreground service'));
+      await tester.pumpAndSettle();
+
+      expect(starts, 2);
+      expect(watches, 1);
+      expect(flaky.initializeCalls, 1);
+      expect(healthy.initializeCalls, 1);
+      expect(flaky.scanCalls, 0);
+      expect(healthy.scanCalls, 0);
+      expect(
+        find.text('Android foreground service did not start.'),
+        findsNothing,
+      );
+      expect(find.text('Some device services did not start.'), findsOneWidget);
+      expect(coordinator.state.discoveryRecoveryRequired, isTrue);
+      for (final retained in [
+        'webui skin storage unavailable',
+        'plugin registry offline',
+        'remote skins unreachable',
+      ]) {
+        expect(
+          coordinator.reasons,
+          contains(contains(retained)),
+          reason: '$retained should stay as an unrelated diagnostic',
+        );
+      }
+
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
+
+      expect(flaky.initializeCalls, 2);
+      expect(healthy.initializeCalls, 1);
+      expect(flaky.scanCalls, 0);
+      expect(healthy.scanCalls, 0);
+      expect(starts, 2);
+      expect(watches, 1);
+      expect(launcherMounts, 1);
+      expect(find.text('Some device services did not start.'), findsNothing);
+      expect(find.text('launcher'), findsOneWidget);
+      expect(
+        coordinator.state.optionalTasks['plugins'],
+        AppStartupTaskStatus.failed,
+      );
+
+      await tester.pumpWidget(const SizedBox());
+      coordinator.dispose();
+      deviceController.dispose();
+      await flaky.close();
+      await healthy.close();
+    },
+  );
+
+  testWidgets(
+    'overlapping core recovery keeps the device recovery action disabled until it settles',
+    (tester) async {
+      var deviceCalls = 0;
+      var starts = 0;
+      var launcherMounts = 0;
+      final devices = Completer<void>();
+      final foregroundStart = Completer<bool>();
+      final coordinator = AppStartupCoordinator(
+        initializeDevices: () {
+          deviceCalls++;
+          return deviceCalls == 1 ? Future<void>.value() : devices.future;
+        },
+        deviceStartupOutcome: () => deviceCalls == 1
+            ? DeviceStartupOutcome(failures: [StateError('serial unavailable')])
+            : const DeviceStartupOutcome(),
+        initializeWebUI: () async {},
+        startForeground: () {
+          starts++;
+          return starts == 1
+              ? Future<bool>.value(false)
+              : foregroundStart.future;
+        },
+        watchForeground: () => Object(),
+        unwatchForeground: (_) {},
+        isAndroid: true,
+      );
+      await coordinator.ensureInitialized();
+      expect(coordinator.state.discoveryRecoveryRequired, isTrue);
+      expect(coordinator.state.foregroundRecoveryRequired, isTrue);
+
+      final navigatorKey = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        _startupApp(
+          navigatorKey: navigatorKey,
+          coordinator: coordinator,
+          home: const Scaffold(body: Text('onboarding')),
+          launcherChild: _MountCounter(
+            onMount: () => launcherMounts++,
+            label: 'launcher',
+          ),
+        ),
+      );
+      navigatorKey.currentState!.pushNamedAndRemoveUntil(
+        LauncherView.routeName,
+        (_) => false,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Some device services did not start.'), findsOneWidget);
+      expect(
+        find.text('Android foreground service did not start.'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Retry foreground service'));
+      await tester.pump();
+      expect(starts, 2);
+
+      final core = coordinator.retry();
+      await tester.pump();
+      expect(coordinator.status, AppStartupStatus.initializing);
+
+      foregroundStart.complete(true);
+      await tester.pump();
+      await tester.pump();
+
+      expect(coordinator.status, AppStartupStatus.initializing);
+      expect(
+        find.text('Android foreground service did not start.'),
+        findsNothing,
+      );
+      expect(find.text('Some device services did not start.'), findsOneWidget);
+      expect(
+        tester
+            .widget<TextButton>(find.widgetWithText(TextButton, 'Retry'))
+            .onPressed,
+        isNull,
+      );
+      expect(launcherMounts, 1);
+
+      devices.complete();
+      await core;
+      await tester.pumpAndSettle();
+
+      expect(coordinator.status, AppStartupStatus.ready);
+      expect(find.text('Some device services did not start.'), findsNothing);
+      expect(find.text('Retry'), findsNothing);
+      expect(find.text('launcher'), findsOneWidget);
+      expect(launcherMounts, 1);
+      expect(starts, 2);
+      expect(deviceCalls, 2);
+
+      await tester.pumpWidget(const SizedBox());
+      coordinator.dispose();
+    },
+  );
 
   testWidgets(
     'keyed onboarding relaunch shares owner without repeating core or optional work',

@@ -52,19 +52,46 @@ class _StartupDiscoveryRecoveryState extends State<StartupDiscoveryRecovery> {
     );
   }
 
+  void _retryForeground() {
+    unawaited(
+      widget.startupCoordinator.retryForeground().catchError((
+        Object error,
+        StackTrace stack,
+      ) {
+        _log.warning('Foreground recovery failed', error, stack);
+      }),
+    );
+  }
+
+  bool get _startupPending => _state.status == AppStartupStatus.initializing;
+
   VoidCallback? get _recoveryAction {
     if (!_state.discoveryRecoveryRequired) return null;
-    if (_state.status == AppStartupStatus.initializing) return null;
+    if (_startupPending) return null;
     return _retry;
+  }
+
+  VoidCallback? get _foregroundRecoveryAction {
+    if (!_state.foregroundRecoveryRequired) return null;
+    if (_startupPending || _state.foregroundRetryPending) return null;
+    return _retryForeground;
   }
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        _StartupDiscoveryRecoveryNotice(
+        _StartupRecoveryNotice(
+          title: 'Some device services did not start.',
           message: _state.discoveryRecovery,
+          actionLabel: 'Retry',
           onRetry: _recoveryAction,
+        ),
+        _StartupRecoveryNotice(
+          title: 'Android foreground service did not start.',
+          message: _state.foregroundRecovery,
+          actionLabel: 'Retry foreground service',
+          onRetry: _foregroundRecoveryAction,
         ),
         Expanded(child: widget.child),
       ],
@@ -72,12 +99,16 @@ class _StartupDiscoveryRecoveryState extends State<StartupDiscoveryRecovery> {
   }
 }
 
-class _StartupDiscoveryRecoveryNotice extends StatelessWidget {
+class _StartupRecoveryNotice extends StatelessWidget {
+  final String title;
   final String? message;
+  final String actionLabel;
   final VoidCallback? onRetry;
 
-  const _StartupDiscoveryRecoveryNotice({
+  const _StartupRecoveryNotice({
+    required this.title,
     required this.message,
+    required this.actionLabel,
     required this.onRetry,
   });
 
@@ -107,7 +138,7 @@ class _StartupDiscoveryRecoveryNotice extends StatelessWidget {
                     Semantics(
                       liveRegion: true,
                       child: Text(
-                        'Some device services did not start.',
+                        title,
                         style: theme.textTheme.titleSmall?.copyWith(
                           color: theme.colorScheme.onErrorContainer,
                         ),
@@ -122,7 +153,7 @@ class _StartupDiscoveryRecoveryNotice extends StatelessWidget {
                   ],
                 ),
               ),
-              TextButton(onPressed: onRetry, child: const Text('Retry')),
+              TextButton(onPressed: onRetry, child: Text(actionLabel)),
             ],
           ),
         ),

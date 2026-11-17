@@ -369,6 +369,55 @@ void main() {
   });
 
   test(
+    'foreground recovery keeps real device and webui ownership single',
+    () async {
+      final healthy = _Discovery('ble');
+      final controller = DeviceController([
+        healthy,
+      ], startupRelevance: app.isStartupRelevantDiscoveryService);
+      var starts = 0;
+      var watches = 0;
+      var webUICalls = 0;
+      final coordinator = AppStartupCoordinator(
+        deviceController: controller,
+        initializeWebUI: () async {
+          webUICalls++;
+        },
+        startForeground: () async => ++starts > 1,
+        watchForeground: () => ++watches,
+        unwatchForeground: (_) {},
+        isAndroid: true,
+      );
+      addTearDown(() {
+        coordinator.dispose();
+        controller.dispose();
+      });
+
+      await coordinator.ensureInitialized();
+      expect(coordinator.status, AppStartupStatus.degraded);
+      expect(coordinator.state.foregroundRecoveryRequired, isTrue);
+      expect(healthy.initializeCalls, 1);
+      expect(webUICalls, 1);
+      expect(watches, 0);
+
+      await coordinator.retryForeground();
+
+      expect(coordinator.status, AppStartupStatus.ready);
+      expect(healthy.initializeCalls, 1);
+      expect(webUICalls, 1);
+      expect(starts, 2);
+      expect(watches, 1);
+
+      await coordinator.retryForeground();
+
+      expect(starts, 2);
+      expect(watches, 1);
+      expect(healthy.initializeCalls, 1);
+      expect(webUICalls, 1);
+    },
+  );
+
+  test(
     'real foreground ownership token preserves replacement subscription',
     () async {
       var firstCancelled = 0;

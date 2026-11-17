@@ -22,16 +22,22 @@ class AppStartupState {
   final List<String> reasons;
   final Map<String, AppStartupTaskStatus> optionalTasks;
   final String? discoveryRecovery;
+  final String? foregroundRecovery;
+  final bool foregroundRetryPending;
 
   AppStartupState({
     required this.status,
     List<String> reasons = const [],
     Map<String, AppStartupTaskStatus> optionalTasks = const {},
     this.discoveryRecovery,
+    this.foregroundRecovery,
+    this.foregroundRetryPending = false,
   }) : reasons = List.unmodifiable(reasons),
        optionalTasks = Map.unmodifiable(optionalTasks);
 
   bool get discoveryRecoveryRequired => discoveryRecovery != null;
+
+  bool get foregroundRecoveryRequired => foregroundRecovery != null;
 }
 
 class AppStartupCoordinator {
@@ -51,12 +57,16 @@ class AppStartupCoordinator {
     AppStartupState(status: AppStartupStatus.idle),
   );
   Future<void>? _initializationFuture;
+  Future<void>? _foregroundAttempt;
+  Future<void>? _foregroundRetry;
   AppStartupState _state = AppStartupState(status: AppStartupStatus.idle);
   bool _disposed = false;
   bool _devicesReady = false;
   bool _webUIReady = false;
   bool _foregroundReady = false;
   bool _foregroundWatched = false;
+  bool _foregroundAttempted = false;
+  bool _foregroundRetryPending = false;
   final Map<String, String> _coreReasons = {};
   final List<String> _webUIWarnings = [];
   bool _storageInitialized = false;
@@ -64,6 +74,7 @@ class AppStartupCoordinator {
   bool _optionalWorkStarted = false;
   bool _coreRetryNeeded = false;
   String? _discoveryRecovery;
+  String? _foregroundRecovery;
   Object? _foregroundWatchToken;
 
   AppStartupCoordinator({
@@ -124,6 +135,12 @@ class AppStartupCoordinator {
   Stream<AppStartupState> get stateStream => _stateController.stream;
   Future<void>? get initializationFuture => _initializationFuture;
 
+  bool get _coreAttemptPending =>
+      _state.status == AppStartupStatus.initializing;
+
+  bool get _coreRetryRequired =>
+      _coreReasons.keys.any((key) => key != 'foreground');
+
   Future<void> ensureInitialized() {
     if (_disposed) return Future<void>.value();
     return _initializationFuture ??= _runInitialization();
@@ -138,6 +155,63 @@ class AppStartupCoordinator {
     return ensureInitialized();
   }
 
+  Future<void> retryForeground() {
+    if (_disposed) return Future<void>.value();
+    if (_foregroundRecovery == null) return Future<void>.value();
+    return _foregroundRetry ??= _runForegroundRetry().whenComplete(() {
+      _foregroundRetry = null;
+    });
+  }
+
+  Future<void> _runForegroundRetry() async {
+    _foregroundRetryPending = true;
+    _publishForegroundState();
+    await _ensureForeground(retry: true);
+    if (_disposed) return;
+    _foregroundRetryPending = false;
+    if (!_coreAttemptPending) _coreRetryNeeded = _coreRetryRequired;
+    _publishForegroundResult();
+  }
+
+  Future<void> _ensureForeground({bool retry = false}) {
+    if (!_isAndroid || _startForeground == null) return Future<void>.value();
+    if (_foregroundReady && (_foregroundWatched || _watchForeground == null)) {
+      return Future<void>.value();
+    }
+    final attempt = _foregroundAttempt;
+    if (attempt != null) return attempt;
+    if (!retry && _foregroundAttempted) return Future<void>.value();
+    return _foregroundAttempt = _attemptForegroundSetup().whenComplete(() {
+      _foregroundAttempt = null;
+    });
+  }
+
+  Future<void> _attemptForegroundSetup() async {
+    _foregroundAttempted = true;
+    try {
+      if (!_foregroundReady) _foregroundReady = await _startForeground!();
+      if (_disposed) return;
+      if (!_foregroundReady) {
+        _coreReasons['foreground'] = 'Foreground service failed to start';
+      } else {
+        if (!_foregroundWatched && _watchForeground != null) {
+          final token = await _watchForeground();
+          if (_disposed) {
+            if (token != null) await _unwatchForeground?.call(token);
+            return;
+          }
+          _foregroundWatchToken = token;
+          _foregroundWatched = true;
+        }
+        _coreReasons.remove('foreground');
+      }
+    } catch (error, st) {
+      _log.warning('Foreground service startup degraded: $error', error, st);
+      _coreReasons['foreground'] = 'Foreground service startup failed: $error';
+    }
+    _foregroundRecovery = _coreReasons['foreground'];
+  }
+
   Future<void> _runInitialization() async {
     _setState(
       AppStartupState(
@@ -147,6 +221,8 @@ class AppStartupCoordinator {
             ? _optionalTaskStates(AppStartupTaskStatus.idle)
             : _state.optionalTasks,
         discoveryRecovery: _discoveryRecovery,
+        foregroundRecovery: _foregroundRecovery,
+        foregroundRetryPending: _foregroundRetryPending,
       ),
     );
     BootTiming.mark('init_start');
@@ -203,31 +279,10 @@ class AppStartupCoordinator {
     }
 
     if (_isAndroid && _startForeground != null) {
-      try {
-        if (!_foregroundReady) _foregroundReady = await _startForeground();
-        if (_disposed) return;
-        if (!_foregroundReady) {
-          _coreReasons['foreground'] = 'Foreground service failed to start';
-        } else {
-          if (!_foregroundWatched && _watchForeground != null) {
-            final token = await _watchForeground();
-            if (_disposed) {
-              if (token != null) await _unwatchForeground?.call(token);
-              return;
-            }
-            _foregroundWatchToken = token;
-            _foregroundWatched = true;
-          }
-          _coreReasons.remove('foreground');
-        }
-      } catch (error, st) {
-        _log.warning('Foreground service startup degraded: $error', error, st);
-        _coreReasons['foreground'] =
-            'Foreground service startup failed: $error';
-      }
+      await _ensureForeground();
     }
     if (_disposed) return;
-    _coreRetryNeeded = _coreReasons.isNotEmpty;
+    _coreRetryNeeded = _coreRetryRequired;
     BootTiming.mark('init_ready');
     BootTiming.mark('scan_start');
     _publishCoreResult(
@@ -259,7 +314,36 @@ class AppStartupCoordinator {
         ]),
         optionalTasks: _state.optionalTasks,
         discoveryRecovery: _discoveryRecovery,
+        foregroundRecovery: _foregroundRecovery,
+        foregroundRetryPending: _foregroundRetryPending,
       ),
+    );
+  }
+
+  void _publishForegroundState() {
+    _setState(
+      AppStartupState(
+        status: _state.status,
+        reasons: _state.reasons,
+        optionalTasks: _state.optionalTasks,
+        discoveryRecovery: _discoveryRecovery,
+        foregroundRecovery: _foregroundRecovery,
+        foregroundRetryPending: _foregroundRetryPending,
+      ),
+    );
+  }
+
+  void _publishForegroundResult() {
+    if (_coreAttemptPending || _state.status == AppStartupStatus.failed) {
+      _publishCoreResult(_state.status);
+      return;
+    }
+    _publishCoreResult(
+      _coreReasons.isEmpty &&
+              _webUIWarnings.isEmpty &&
+              !_state.optionalTasks.values.contains(AppStartupTaskStatus.failed)
+          ? AppStartupStatus.ready
+          : AppStartupStatus.degraded,
     );
   }
 
@@ -294,6 +378,8 @@ class AppStartupCoordinator {
           reasons: [..._state.reasons, '$name startup failed: $error'],
           optionalTasks: _state.optionalTasks,
           discoveryRecovery: _discoveryRecovery,
+          foregroundRecovery: _foregroundRecovery,
+          foregroundRetryPending: _foregroundRetryPending,
         ),
       );
     }
@@ -309,6 +395,8 @@ class AppStartupCoordinator {
         reasons: _state.reasons,
         optionalTasks: tasks,
         discoveryRecovery: _discoveryRecovery,
+        foregroundRecovery: _foregroundRecovery,
+        foregroundRetryPending: _foregroundRetryPending,
       ),
     );
   }
