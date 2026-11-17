@@ -717,6 +717,13 @@ GATT error 133 (`gattError`) is treated as transient — the queue is cleared
 and a `BleTimeoutException` is thrown so `UnifiedDe1Transport` can retry via
 `_handleBleTimeout`. The link is NOT declared dead for GATT-133.
 
+Successful machine timeout recovery keeps the logical connection and existing
+typed subscriptions alive. It retires callbacks and clears cached replay from
+the old physical link before reconnecting, then restores notification
+subscriptions, including Bengle samples when enabled. New snapshot subscribers
+wait for fresh samples instead of receiving the previous link's cached snapshot.
+If recovery fails, normal disconnection handling resumes.
+
 ### Crashlytics Error Filtering (telemetry)
 
 The `DeviceNotConnectedException` thrown from `_handleGattError` and the raw

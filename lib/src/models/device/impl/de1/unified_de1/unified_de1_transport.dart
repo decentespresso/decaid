@@ -52,21 +52,24 @@ class UnifiedDe1Transport {
   String get id => _transport.id;
   int get connectionGeneration => _notificationGeneration;
 
-  BehaviorSubject<ByteData> _stateSubject = BehaviorSubject();
-  BehaviorSubject<ByteData> _shotSampleSubject = BehaviorSubject();
-  BehaviorSubject<ByteData> _shotSettingsSubject = BehaviorSubject();
-  BehaviorSubject<ByteData> _waterLevelsSubject = BehaviorSubject();
+  BehaviorSubject<ByteData?> _stateSubject = BehaviorSubject();
+  BehaviorSubject<ByteData?> _shotSampleSubject = BehaviorSubject();
+  BehaviorSubject<ByteData?> _shotSettingsSubject = BehaviorSubject();
+  BehaviorSubject<ByteData?> _waterLevelsSubject = BehaviorSubject();
   final PublishSubject<ByteData> _mmrSubject = PublishSubject();
-  BehaviorSubject<ByteData> _fwMapRequestSubject = BehaviorSubject();
-  ReplaySubject<ByteData> _bengleShotSampleSubject = ReplaySubject(maxSize: 1);
+  BehaviorSubject<ByteData?> _fwMapRequestSubject = BehaviorSubject();
+  ReplaySubject<ByteData?> _bengleShotSampleSubject = ReplaySubject(maxSize: 1);
   PublishSubject<ByteData> _calibrationSubject = PublishSubject();
   bool _bengleShotSampleEnabled = false;
 
-  Stream<ByteData> get state => _stateSubject.stream;
+  Stream<ByteData> get state => _stateSubject.stream.whereType<ByteData>();
   ByteData? get latestStateInfo => _stateSubject.valueOrNull;
-  Stream<ByteData> get shotSample => _shotSampleSubject.stream;
-  Stream<ByteData> get shotSettings => _shotSettingsSubject.stream;
-  Stream<ByteData> get waterLevels => _waterLevelsSubject.stream;
+  Stream<ByteData> get shotSample =>
+      _shotSampleSubject.stream.whereType<ByteData>();
+  Stream<ByteData> get shotSettings =>
+      _shotSettingsSubject.stream.whereType<ByteData>();
+  Stream<ByteData> get waterLevels =>
+      _waterLevelsSubject.stream.whereType<ByteData>();
 
   @visibleForTesting
   bool get debugHasWaterLevelsListener => _waterLevelsSubject.hasListener;
@@ -74,8 +77,10 @@ class UnifiedDe1Transport {
   bool get debugHasShotSettingsListener => _shotSettingsSubject.hasListener;
   bool get debugHasCalibrationListener => _calibrationSubject.hasListener;
   Stream<ByteData> get mmr => _mmrSubject.stream;
-  Stream<ByteData> get fwMapRequest => _fwMapRequestSubject.asBroadcastStream();
-  Stream<ByteData> get bengleShotSample => _bengleShotSampleSubject.stream;
+  Stream<ByteData> get fwMapRequest =>
+      _fwMapRequestSubject.stream.whereType<ByteData>();
+  Stream<ByteData> get bengleShotSample =>
+      _bengleShotSampleSubject.stream.whereType<ByteData>();
   Stream<ByteData> get calibration => _calibrationSubject.stream;
 
   String _currentBuffer = "";
@@ -189,7 +194,9 @@ class UnifiedDe1Transport {
       _shotSettingsNotification,
     );
     await _subscribeNotification(Endpoint.readFromMMR, _mmrNotification);
+    final firmwareMapGeneration = _notificationGeneration;
     await _transport.subscribe(de1ServiceUUID, Endpoint.fwMapRequest.uuid, (d) {
+      if (firmwareMapGeneration != _notificationGeneration) return;
       _fwMapNotification(ByteData.sublistView(Uint8List.fromList(d)));
     });
     final calibrationGeneration = _notificationGeneration;
@@ -635,24 +642,24 @@ class UnifiedDe1Transport {
       case Endpoint.deleteShotRange:
         throw UnsupportedError('Endpoint ${e.name} has no serial read path');
       case Endpoint.fwMapRequest:
-        return _latestSerialFrame(e, _fwMapRequestSubject, timeout);
+        return _latestSerialFrame(e, fwMapRequest, timeout);
       case Endpoint.shotSettings:
-        return _latestSerialFrame(e, _shotSettingsSubject, timeout);
+        return _latestSerialFrame(e, shotSettings, timeout);
       case Endpoint.deprecatedShotDesc:
         throw UnsupportedError('Endpoint ${e.name} has no serial read path');
       case Endpoint.shotSample:
-        return _latestSerialFrame(e, _shotSampleSubject, timeout);
+        return _latestSerialFrame(e, shotSample, timeout);
       case Endpoint.bengleShotSample:
-        return _latestSerialFrame(e, _bengleShotSampleSubject, timeout);
+        return _latestSerialFrame(e, bengleShotSample, timeout);
       case Endpoint.stateInfo:
-        return _latestSerialFrame(e, _stateSubject, timeout);
+        return _latestSerialFrame(e, state, timeout);
       case Endpoint.calibration:
         return _latestSerialFrame(e, _calibrationSubject, timeout);
       case Endpoint.headerWrite:
       case Endpoint.frameWrite:
         throw UnsupportedError('Endpoint ${e.name} is write-only');
       case Endpoint.waterLevels:
-        return _latestSerialFrame(e, _waterLevelsSubject, timeout);
+        return _latestSerialFrame(e, waterLevels, timeout);
     }
   }
 
@@ -750,9 +757,9 @@ class UnifiedDe1Transport {
       // The subject replays its current value, so skip one - but only when it
       // holds one, or the first poll of a connection swallows the frame it
       // provoked.
-      final source = _fwMapRequestSubject.hasValue
-          ? _fwMapRequestSubject.stream.skip(1)
-          : _fwMapRequestSubject.stream;
+      final source = _fwMapRequestSubject.valueOrNull != null
+          ? fwMapRequest.skip(1)
+          : fwMapRequest;
       final next = source.first.timeout(_firmwareMapPollReadTimeout);
       next.ignore();
       await t.writeCommand('<+${Endpoint.fwMapRequest.representation}>');
@@ -896,6 +903,17 @@ class UnifiedDe1Transport {
     _recovering = true;
     final restoreBengleShotSample = _bengleShotSampleEnabled;
     try {
+      _notificationGeneration++;
+      for (final subject in [
+        _stateSubject,
+        _shotSampleSubject,
+        _shotSettingsSubject,
+        _waterLevelsSubject,
+        _fwMapRequestSubject,
+        _bengleShotSampleSubject,
+      ]) {
+        if (!subject.isClosed) subject.add(null);
+      }
       await _transport.disconnect();
       await _transport.connect();
       await _bleConnect();

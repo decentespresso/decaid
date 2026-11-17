@@ -37,6 +37,13 @@ The single BLE transport is `UniversalBleTransport` in `lib/src/services/ble/uni
 
 `UnifiedDe1Transport` wraps `UniversalBleTransport` and adds MMR read/write on top of raw characteristic I/O. It provides `rawData` stream, `readMmr()`, `writeMmr()`, and typed connection guards (`DeviceNotConnectedException.machine()` on read/write when disconnected).
 
+Automatic BLE timeout recovery retires notification callbacks before awaiting
+link teardown. It clears replay caches with internal null values, filtered from
+the public streams, without closing active typed subscriptions. New snapshot
+getters therefore wait for current-session samples while existing subscribers
+resume after recovery. Firmware-map callbacks use the same generation fence but
+remain typed-only; they never enter the raw notification mirror.
+
 ## MMR read architecture
 
 Consecutive MMR settings words can share one request, reducing transport round

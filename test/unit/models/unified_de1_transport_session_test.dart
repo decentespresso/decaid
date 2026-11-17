@@ -79,4 +79,45 @@ void main() {
       returnsNormally,
     );
   });
+
+  test('retired firmware-map callbacks cannot enter a new session', () async {
+    final ble = FakeBleTransport();
+    final rawNotifications = <Endpoint>[];
+    final transport = UnifiedDe1Transport(
+      transport: ble,
+      onNotification: (endpoint, _) => rawNotifications.add(endpoint),
+    );
+    addTearDown(transport.dispose);
+    await transport.connect();
+    final retired = ble.subscribers[Endpoint.fwMapRequest.uuid]!;
+    await transport.disconnect();
+    await transport.connect();
+    final values = <ByteData>[];
+    final subscription = transport.fwMapRequest.listen(values.add);
+    addTearDown(subscription.cancel);
+
+    retired(Uint8List.fromList([1, 2, 3]));
+    await pumpEventQueue();
+    expect(values, isEmpty);
+
+    ble.emitNotification(Endpoint.fwMapRequest, [4, 5, 6]);
+    await pumpEventQueue();
+    expect(values, hasLength(1));
+    expect(values.single.getUint8(0), 4);
+    expect(rawNotifications, isEmpty);
+  });
+
+  test('firmware-map callbacks cannot write to disposed subjects', () async {
+    final ble = FakeBleTransport();
+    final transport = UnifiedDe1Transport(transport: ble);
+    await transport.connect();
+    final retired = ble.subscribers[Endpoint.fwMapRequest.uuid]!;
+    await transport.disconnect();
+    await transport.connect();
+    final active = ble.subscribers[Endpoint.fwMapRequest.uuid]!;
+    await transport.dispose();
+
+    expect(() => retired(Uint8List(3)), returnsNormally);
+    expect(() => active(Uint8List(3)), returnsNormally);
+  });
 }
