@@ -68,7 +68,7 @@ void main() {
       expect(limiter.toJson(), {'value': 6.0, 'range': 0.0});
     });
 
-    test('an explicit range 0 with value 0 parses as an OFF limiter', () {
+    test('an explicit range 0 with value 0 parses as sent', () {
       final limiter = StepLimiter.fromJson({'value': 0, 'range': 0});
 
       expect(limiter, equals(const StepLimiter(value: 0, range: 0)));

@@ -4177,8 +4177,8 @@ paths:
           description: >-
             Bad Request (profile not found, target ID already exists, cannot
             modify default profile, or an invalid step limiter). A step limiter
-            without a numeric `value` or `range` is refused with the same
-            message that POST /api/v1/profiles returns.
+            without a numeric `value` or `range`, or with a non-finite one, is
+            refused with the same message that POST /api/v1/profiles returns.
         "500":
           description: Internal Server Error
     

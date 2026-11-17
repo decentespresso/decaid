@@ -234,7 +234,7 @@ void main() {
     };
 
     String fixture(String name) =>
-        File('test/fixtures/f048/$name').readAsStringSync();
+        File('test/fixtures/profile_limiter/$name').readAsStringSync();
 
     Map<String, dynamic> stepWithLimiter(dynamic limiter) => {
       'name': 'pour',
@@ -263,7 +263,9 @@ void main() {
         jsonDecode(await response.readAsString()) as Map<String, dynamic>;
 
     test('POST refuses the device-verbatim body that returned 500', () async {
-      final response = await postRawProfile(fixture('e01_post_body.json'));
+      final response = await postRawProfile(
+        fixture('post_body_without_range.json'),
+      );
 
       expect(response.statusCode, 400);
       expect(await decode(response), rangeRefusal);
@@ -272,7 +274,10 @@ void main() {
     test('PUT refuses the device-verbatim body with the POST text', () async {
       final id = await seedRecord();
 
-      final response = await putRawProfile(id, fixture('e01_put_body.json'));
+      final response = await putRawProfile(
+        id,
+        fixture('put_body_without_range.json'),
+      );
 
       expect(response.statusCode, 400);
       expect(await decode(response), rangeRefusal);
