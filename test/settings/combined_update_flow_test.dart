@@ -78,6 +78,8 @@ class _Updater extends AndroidUpdater {
   int checks = 0;
   int downloads = 0;
   Completer<void> download = Completer<void>();
+  Completer<void> downloadCacheWritten = Completer<void>();
+  Duration completionDelay = Duration.zero;
   void Function(double)? progress;
 
   @override
@@ -98,7 +100,11 @@ class _Updater extends AndroidUpdater {
     downloads++;
     progress = onProgress;
     await download.future;
+    if (completionDelay > Duration.zero) {
+      await Future<void>.delayed(completionDelay);
+    }
     await File(apkPath).writeAsBytes([1, 2, 3]);
+    if (!downloadCacheWritten.isCompleted) downloadCacheWritten.complete();
     return apkPath;
   }
 }
@@ -168,8 +174,16 @@ void main() {
     }
   }
 
-  Future<void> waitFor(WidgetTester tester, bool Function() done) async {
-    for (var attempt = 0; attempt < 100 && !done(); attempt++) {
+  Future<void> waitFor(
+    WidgetTester tester,
+    bool Function() done, {
+    String reason = 'the expected state',
+  }) async {
+    final watchdog = Stopwatch()..start();
+    while (!done()) {
+      if (watchdog.elapsed > const Duration(seconds: 30)) {
+        fail('Timed out after ${watchdog.elapsed} waiting for $reason');
+      }
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
       await tester.runAsync(
@@ -214,6 +228,7 @@ void main() {
     await waitFor(
       tester,
       () => find.byType(UpdateDialog).evaluate().isNotEmpty,
+      reason: 'the updater dialog',
     );
   }
 
@@ -222,6 +237,7 @@ void main() {
     await waitFor(
       tester,
       () => updater.downloads == 1 && updater.progress != null,
+      reason: 'the single download to start with progress',
     );
     updater.progress!(0.42);
     await settle(tester);
@@ -229,7 +245,16 @@ void main() {
 
   Future<void> finishDownload(WidgetTester tester) async {
     updater.download.complete();
-    await waitFor(tester, () => find.text('Install').evaluate().isNotEmpty);
+    await waitFor(
+      tester,
+      () => updater.downloadCacheWritten.isCompleted,
+      reason: 'the transfer to write its cache file',
+    );
+    await waitFor(
+      tester,
+      () => find.text('Install').evaluate().isNotEmpty,
+      reason: 'the Install action once the transfer completes',
+    );
   }
 
   Future<void> tapInstall(WidgetTester tester, {bool Function()? done}) async {
@@ -240,6 +265,7 @@ void main() {
           () =>
               installer.installations > 0 ||
               service.currentState.phase != AppUpdatePhase.installing,
+      reason: 'the installation attempt to start',
     );
   }
 
@@ -312,6 +338,30 @@ void main() {
     expect(find.text('Install'), findsOneWidget);
     expect(installer.installations, 0);
   });
+
+  testWidgets(
+    'a delayed transfer completion is awaited before Install is asserted',
+    (tester) async {
+      await pumpApp(tester);
+      await openUpdater(tester);
+      await downloadApk(tester);
+
+      await tester.binding.handlePopRoute();
+      await settle(tester);
+      expect(find.byType(UpdateDialog), findsNothing);
+      expect(service.currentState.phase, AppUpdatePhase.downloading);
+
+      await openUpdater(tester);
+      expect(find.textContaining('42%'), findsOneWidget);
+      expect(updater.downloads, 1);
+
+      updater.completionDelay = const Duration(seconds: 10);
+      await finishDownload(tester);
+      expect(find.text('Install'), findsOneWidget);
+      expect(service.currentState.phase, AppUpdatePhase.available);
+      expect(installer.installations, 0);
+    },
+  );
 
   testWidgets('a granted permission launches the cached installer once', (
     tester,
