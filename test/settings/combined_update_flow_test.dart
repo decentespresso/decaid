@@ -20,6 +20,14 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 import '../helpers/mock_de1_controller.dart';
 import '../helpers/mock_settings_service.dart';
 
+const _apkBytes = [7, 7, 7, 7];
+const _frameStep = Duration(milliseconds: 50);
+const _framesPerSettle = 6;
+const _syntheticWaitLimit = Duration(seconds: 60);
+
+Future<FileStat> _preparedFixtureStat(String path) =>
+    Future<FileStat>.value(File(path).statSync());
+
 final _release = UpdateInfo(
   version: '99.0.0',
   downloadUrl: 'https://example.test/update.apk',
@@ -37,7 +45,11 @@ class _Installer extends ApkInstaller {
   int installations = 0;
   int validations = 0;
   Completer<bool>? validation;
-  Completer<void> permission = Completer<void>();
+  Completer<void>? _permission;
+
+  Completer<void> get permission => _permission ??= Completer<void>();
+
+  set permission(Completer<void> pending) => _permission = pending;
 
   @override
   Future<bool> isValidApk(String path) async {
@@ -77,10 +89,12 @@ class _Updater extends AndroidUpdater {
   final String apkPath;
   int checks = 0;
   int downloads = 0;
-  Completer<void> download = Completer<void>();
-  Completer<void> downloadCacheWritten = Completer<void>();
+  bool cacheWritten = false;
+  Completer<void>? _download;
   Duration completionDelay = Duration.zero;
   void Function(double)? progress;
+
+  Completer<void> get download => _download ??= Completer<void>();
 
   @override
   Future<UpdateInfo?> checkForUpdate(
@@ -103,8 +117,8 @@ class _Updater extends AndroidUpdater {
     if (completionDelay > Duration.zero) {
       await Future<void>.delayed(completionDelay);
     }
-    await File(apkPath).writeAsBytes([1, 2, 3]);
-    if (!downloadCacheWritten.isCompleted) downloadCacheWritten.complete();
+    File(apkPath).writeAsBytesSync(_apkBytes);
+    cacheWritten = true;
     return apkPath;
   }
 }
@@ -130,9 +144,9 @@ void main() {
   Route<void>? settingsRoute;
 
   setUp(() async {
-    directory = await Directory.systemTemp.createTemp('combined-update-');
+    directory = Directory.systemTemp.createTempSync('combined-update-');
     apkPath = '${directory.path}/update.apk';
-    await File(apkPath).writeAsBytes([1, 2, 3]);
+    File(apkPath).writeAsBytesSync(const [1, 2, 3]);
     preferences = MockSettingsService();
     settings = SettingsController(preferences);
     await settings.loadSettings();
@@ -156,21 +170,30 @@ void main() {
     await service.checkForUpdate();
   });
 
-  tearDown(() async {
+  tearDown(() {
     service.dispose();
     presence.dispose();
     settings.dispose();
     if (!updater.download.isCompleted) updater.download.complete();
-    await directory.delete(recursive: true);
+    directory.deleteSync(recursive: true);
   });
 
-  Future<void> settle(WidgetTester tester) async {
-    for (var frame = 0; frame < 6; frame++) {
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 50));
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 2)),
+  void scenario(
+    String description,
+    Future<void> Function(WidgetTester tester) body,
+  ) {
+    testWidgets(description, (tester) async {
+      await IOOverrides.runZoned(
+        () => body(tester),
+        stat: _preparedFixtureStat,
       );
+    });
+  }
+
+  Future<void> settle(WidgetTester tester) async {
+    for (var frame = 0; frame < _framesPerSettle; frame++) {
+      await tester.pump();
+      await tester.pump(_frameStep);
     }
   }
 
@@ -179,16 +202,16 @@ void main() {
     bool Function() done, {
     String reason = 'the expected state',
   }) async {
-    final watchdog = Stopwatch()..start();
+    final startedAt = tester.binding.clock.now();
     while (!done()) {
-      if (watchdog.elapsed > const Duration(seconds: 30)) {
-        fail('Timed out after ${watchdog.elapsed} waiting for $reason');
+      final waited = tester.binding.clock.now().difference(startedAt);
+      if (waited > _syntheticWaitLimit) {
+        fail(
+          'Timed out after $waited of synthetic fake time waiting for $reason',
+        );
       }
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 50));
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 2)),
-      );
+      await tester.pump(_frameStep);
     }
     await settle(tester);
   }
@@ -244,10 +267,10 @@ void main() {
   }
 
   Future<void> finishDownload(WidgetTester tester) async {
-    updater.download.complete();
+    if (!updater.download.isCompleted) updater.download.complete();
     await waitFor(
       tester,
-      () => updater.downloadCacheWritten.isCompleted,
+      () => updater.cacheWritten,
       reason: 'the transfer to write its cache file',
     );
     await waitFor(
@@ -269,24 +292,23 @@ void main() {
     );
   }
 
-  testWidgets(
-    'View into Settings opens the shared updater without a download',
-    (tester) async {
-      await pumpApp(tester);
-      expect(find.byType(UpdateDialog), findsNothing);
+  scenario('View into Settings opens the shared updater without a download', (
+    tester,
+  ) async {
+    await pumpApp(tester);
+    expect(find.byType(UpdateDialog), findsNothing);
 
-      await openUpdater(tester);
+    await openUpdater(tester);
 
-      expect(find.byType(SettingsView), findsOneWidget);
-      expect(find.byType(UpdateDialog), findsOneWidget);
-      expect(find.text('Version 99.0.0'), findsOneWidget);
-      expect(updater.downloads, 0);
-      expect(installer.installations, 0);
-      expect(installer.requests, 0);
-    },
-  );
+    expect(find.byType(SettingsView), findsOneWidget);
+    expect(find.byType(UpdateDialog), findsOneWidget);
+    expect(find.text('Version 99.0.0'), findsOneWidget);
+    expect(updater.downloads, 0);
+    expect(installer.installations, 0);
+    expect(installer.requests, 0);
+  });
 
-  testWidgets('explicit Download transfers once and Install launches once', (
+  scenario('explicit Download transfers once and Install launches once', (
     tester,
   ) async {
     await pumpApp(tester);
@@ -317,7 +339,7 @@ void main() {
     expect(find.textContaining('Update installation started'), findsOneWidget);
   });
 
-  testWidgets('a dismissed download outlives Settings and rejoins as one', (
+  scenario('a dismissed download outlives Settings and rejoins as one', (
     tester,
   ) async {
     await pumpApp(tester);
@@ -339,7 +361,7 @@ void main() {
     expect(installer.installations, 0);
   });
 
-  testWidgets(
+  scenario(
     'a delayed transfer completion is awaited before Install is asserted',
     (tester) async {
       await pumpApp(tester);
@@ -355,15 +377,22 @@ void main() {
       expect(find.textContaining('42%'), findsOneWidget);
       expect(updater.downloads, 1);
 
-      updater.completionDelay = const Duration(seconds: 10);
+      updater.completionDelay = const Duration(seconds: 25);
+      updater.download.complete();
+      await tester.pump(const Duration(seconds: 3));
+      expect(updater.cacheWritten, isFalse);
+      expect(find.text('Install'), findsNothing);
+
       await finishDownload(tester);
+      expect(updater.cacheWritten, isTrue);
+      expect(File(apkPath).statSync().size, _apkBytes.length);
       expect(find.text('Install'), findsOneWidget);
       expect(service.currentState.phase, AppUpdatePhase.available);
       expect(installer.installations, 0);
     },
   );
 
-  testWidgets('a granted permission launches the cached installer once', (
+  scenario('a granted permission launches the cached installer once', (
     tester,
   ) async {
     await pumpApp(tester);
@@ -406,7 +435,7 @@ void main() {
     expect(updater.downloads, 1);
   });
 
-  testWidgets('rapid Install taps during a pending permission launch once', (
+  scenario('rapid Install taps during a pending permission launch once', (
     tester,
   ) async {
     await pumpApp(tester);
@@ -430,7 +459,7 @@ void main() {
     expect(updater.downloads, 1);
   });
 
-  testWidgets('denied permission is neutral and Retry never downloads again', (
+  scenario('denied permission is neutral and Retry never downloads again', (
     tester,
   ) async {
     await pumpApp(tester);
@@ -470,7 +499,7 @@ void main() {
     );
   });
 
-  testWidgets(
+  scenario(
     'dismissing the updater dialog during a pending permission prevents a launch',
     (tester) async {
       await pumpApp(tester);
@@ -506,7 +535,7 @@ void main() {
     },
   );
 
-  testWidgets(
+  scenario(
     'dismissing the updater dialog during validation prevents a launch',
     (tester) async {
       await pumpApp(tester);
@@ -543,7 +572,7 @@ void main() {
     },
   );
 
-  testWidgets(
+  scenario(
     'removing the Settings route during a pending permission prevents a launch',
     (tester) async {
       await pumpApp(tester);
@@ -578,7 +607,7 @@ void main() {
     },
   );
 
-  testWidgets('removing the updater routes keeps the shared service alive', (
+  scenario('removing the updater routes keeps the shared service alive', (
     tester,
   ) async {
     await pumpApp(tester);
@@ -601,7 +630,7 @@ void main() {
     expect(service.currentState.phase, AppUpdatePhase.available);
   });
 
-  testWidgets(
+  scenario(
     'terminal cleanup cancels a pending native validation and its service',
     (tester) async {
       await pumpApp(tester);
@@ -628,7 +657,7 @@ void main() {
     },
   );
 
-  testWidgets(
+  scenario(
     'terminal cleanup cancels a pending permission launch and its service',
     (tester) async {
       await pumpApp(tester);
@@ -656,42 +685,41 @@ void main() {
     },
   );
 
-  testWidgets(
-    'a native permission cancellation keeps an explicit cached retry',
-    (tester) async {
-      await pumpApp(tester);
-      await openUpdater(tester);
-      await downloadApk(tester);
-      await finishDownload(tester);
+  scenario('a native permission cancellation keeps an explicit cached retry', (
+    tester,
+  ) async {
+    await pumpApp(tester);
+    await openUpdater(tester);
+    await downloadApk(tester);
+    await finishDownload(tester);
 
-      installer.cancelPermission = true;
-      await tester.tap(find.text('Install'));
-      await waitFor(tester, () => installer.requests == 1);
-      installer.permission.complete();
-      await waitFor(tester, () => find.text('Install').evaluate().isNotEmpty);
+    installer.cancelPermission = true;
+    await tester.tap(find.text('Install'));
+    await waitFor(tester, () => installer.requests == 1);
+    installer.permission.complete();
+    await waitFor(tester, () => find.text('Install').evaluate().isNotEmpty);
 
-      expect(find.byType(UpdateDialog), findsOneWidget);
-      expect(find.text('Install'), findsOneWidget);
-      expect(find.textContaining("Couldn't"), findsNothing);
-      expect(service.currentState.error, isNull);
-      expect(installer.installations, 0);
+    expect(find.byType(UpdateDialog), findsOneWidget);
+    expect(find.text('Install'), findsOneWidget);
+    expect(find.textContaining("Couldn't"), findsNothing);
+    expect(service.currentState.error, isNull);
+    expect(installer.installations, 0);
 
-      service.onAppResumed();
-      service.onAppResumed();
-      await settle(tester);
+    service.onAppResumed();
+    service.onAppResumed();
+    await settle(tester);
 
-      expect(installer.installations, 0);
-      expect(find.text('Install'), findsOneWidget);
+    expect(installer.installations, 0);
+    expect(find.text('Install'), findsOneWidget);
 
-      installer.allowed = true;
-      installer.cancelPermission = false;
-      await tapInstall(tester);
-      expect(installer.installations, 1);
-      expect(updater.downloads, 1);
-    },
-  );
+    installer.allowed = true;
+    installer.cancelPermission = false;
+    await tapInstall(tester);
+    expect(installer.installations, 1);
+    expect(updater.downloads, 1);
+  });
 
-  testWidgets('repeated resume after a launch never relaunches the installer', (
+  scenario('repeated resume after a launch never relaunches the installer', (
     tester,
   ) async {
     await pumpApp(tester);
@@ -719,12 +747,18 @@ void main() {
     expect(updater.downloads, 1);
   });
 
-  testWidgets('an unauthorized remote install performs no local work', (
+  scenario('an unauthorized remote install performs no local work', (
     tester,
   ) async {
     await pumpApp(tester);
 
-    final approved = await tester.runAsync(service.requestRemoteInstall);
+    bool? approved;
+    unawaited(service.requestRemoteInstall().then((value) => approved = value));
+    await waitFor(
+      tester,
+      () => approved != null,
+      reason: 'the unauthorized remote request to be refused',
+    );
 
     expect(approved, isFalse);
     expect(updater.downloads, 0);
@@ -735,14 +769,20 @@ void main() {
     expect(find.byType(UpdateDialog), findsNothing);
   });
 
-  testWidgets('an authorized remote install keeps the automatic flow', (
+  scenario('an authorized remote install keeps the automatic flow', (
     tester,
   ) async {
     installer.allowed = true;
     updater.download.complete();
     await pumpApp(tester);
 
-    final approved = await tester.runAsync(service.requestRemoteInstall);
+    bool? approved;
+    unawaited(service.requestRemoteInstall().then((value) => approved = value));
+    await waitFor(
+      tester,
+      () => approved != null && installer.installations == 1,
+      reason: 'the authorized remote request to launch the installer',
+    );
 
     expect(approved, isTrue);
     expect(updater.downloads, 1);
