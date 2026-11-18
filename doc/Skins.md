@@ -3787,23 +3787,30 @@ rows and are limited to 85% of available height. Opening or closing the compact
 list does not resize, remount or navigate the WebView. Back, Escape, outside
 taps and X close only the notification view.
 There are no generic trash, dismissal or Dismiss all controls.
+Confirmed Decaid app updates offer one View action. It closes the center and
+opens Settings' existing update dialog on the launcher, outside the skin.
+Viewing does not start a download. Android downloads show shared updater
+progress and require the dialog's Download and Install confirmations. Back or
+Cancel closes the dialog without cancelling a download; reopening reveals the
+existing operation rather than starting another. An open dialog follows the
+latest confirmed release and reports when the update is no longer available.
+Other platforms retain their supported release-viewing behavior. Restored
+notices require an update check before their actions become available.
 The heading's close tooltip uses Flutter's localized label; the native app
 currently enables English only, independently of each skin's language support.
 The originating service or plugin withdraws resolved conditions; no history is
 retained. Reading never resolves a condition or resumes uploads. Skins gain
 no notification API, and existing navigation-guide SnackBars keep their actions.
 Opening the list marks only its initial snapshot read; closing it does not mark
-later arrivals or changes read. An explicit Skip this version action skips only
-the displayed, confirmed update. A restored, unconfirmed app update
-replaces View/Download with one "Check for updates" button using the same manual
+later arrivals or changes read. A restored, unconfirmed app update
+replaces View with one "Check for updates" button using the same manual
 app-update service as Settings. Checking disables that button; failure keeps the
-notice and allows retry. Confirmation restores View/Download/Skip, a newer update
+notice and allows retry. Confirmation restores View, a newer update
 replaces the entry, and a successful obsolete/no-update result removes it.
 Opening the list does not trigger a check or change the background schedule.
 Plugin notices cannot acquire this trusted host control.
-Android's Download action closes the
-list before opening download confirmation. Cancelling that confirmation retains
-the update notice, and installation still requires a separate action.
+Android's Download and Install actions remain in the shared updater dialog,
+not in the notification list. Closing that dialog retains the update notice.
 
 **Server control endpoints:**
 

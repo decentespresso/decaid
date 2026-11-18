@@ -67,6 +67,16 @@ void main() {
     tagName: 'v1.2.3',
   );
 
+  Future<void> settle(WidgetTester tester) async {
+    for (var frame = 0; frame < 6; frame++) {
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 2)),
+      );
+    }
+  }
+
   Future<void> openDialog(
     WidgetTester tester,
     GlobalKey<NavigatorState> navigator,
@@ -82,7 +92,6 @@ void main() {
                 context,
                 updateInfo: update,
                 updater: updater,
-                onViewReleaseNotes: () {},
               ),
               child: const Text('Open update'),
             ),
@@ -91,24 +100,21 @@ void main() {
       ),
     );
     await tester.tap(find.text('Open update'));
-    await tester.pumpAndSettle();
+    await settle(tester);
   }
 
-  testWidgets('closing the Settings update dialog disposes its updater', (
+  testWidgets('a launched install closes the quick dialog and disposes', (
     tester,
   ) async {
-    final installer = _PendingInstaller();
+    final installer = _PendingInstaller()..allowed = true;
     final updater = _Updater(installer);
     addTearDown(updater.dispose);
     await openDialog(tester, GlobalKey<NavigatorState>(), updater);
 
-    await tester.tap(find.text('Cancel'));
-    await tester.pumpAndSettle();
-
-    expect(find.byType(UpdateDialog), findsNothing);
+    expect(find.byType(AndroidQuickUpdateDialog), findsNothing);
     expect(updater.disposals, 1);
     expect(installer.requests, 0);
-    expect(installer.installations, 0);
+    expect(installer.installations, 1);
   });
 
   testWidgets(
@@ -119,26 +125,29 @@ void main() {
       final navigator = GlobalKey<NavigatorState>();
       addTearDown(updater.dispose);
       await openDialog(tester, navigator, updater);
-      await tester.tap(find.text('Download'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Install'));
-      await tester.pump();
+      expect(find.byType(AndroidQuickUpdateDialog), findsOneWidget);
       expect(installer.requests, 1);
+      expect(
+        tester
+            .widget<TextButton>(find.widgetWithText(TextButton, 'Close'))
+            .onPressed,
+        isNull,
+      );
 
       await tester.tapAt(const Offset(10, 10));
-      await tester.pump();
+      await settle(tester);
       await navigator.currentState!.maybePop();
-      await tester.pump();
-      expect(find.byType(UpdateDialog), findsOneWidget);
+      await settle(tester);
+      expect(find.byType(AndroidQuickUpdateDialog), findsOneWidget);
       expect(updater.disposals, 0);
 
       navigator.currentState!.pop();
-      await tester.pumpAndSettle();
-      expect(find.byType(UpdateDialog), findsNothing);
+      await settle(tester);
+      expect(find.byType(AndroidQuickUpdateDialog), findsNothing);
       expect(updater.disposals, 1);
       installer.allowed = true;
       installer.permissionReturn.complete();
-      await tester.pumpAndSettle();
+      await settle(tester);
 
       expect(installer.installations, 0);
       expect(tester.takeException(), isNull);

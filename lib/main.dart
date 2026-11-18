@@ -910,9 +910,7 @@ void main(List<String> args) async {
       ) ??
       Level.FINE;
 
-  Future.delayed(Duration(minutes: 10), () async {
-    await updateCheckService.initialize();
-  });
+  updateCheckService.scheduleInitialize();
 
   WidgetsBinding.instance.addObserver(
     AppLifecycleObserver(
@@ -920,6 +918,7 @@ void main(List<String> args) async {
       pluginLoaderService: pluginService,
       connectionManager: connectionManager,
       appLogUploadService: appLogUploadService,
+      updateCheckService: updateCheckService,
       settingsController: settingsController,
     ),
   );
@@ -970,6 +969,7 @@ class AppLifecycleObserver with WidgetsBindingObserver {
   final PluginLoaderService? pluginLoaderService;
   final ConnectionManager? connectionManager;
   final AppLogUploadService? appLogUploadService;
+  final UpdateCheckService? updateCheckService;
   final SettingsController? settingsController;
 
   late Timer _memTimer;
@@ -980,6 +980,7 @@ class AppLifecycleObserver with WidgetsBindingObserver {
     this.pluginLoaderService,
     this.connectionManager,
     this.appLogUploadService,
+    this.updateCheckService,
     this.settingsController,
   }) {
     _memTimer = Timer.periodic(Duration(minutes: 5), (t) {
@@ -1000,6 +1001,7 @@ class AppLifecycleObserver with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       _log.info("state: resumed");
 
+      updateCheckService?.onAppResumed();
       unawaited(displayController?.onAppResumed() ?? Future<void>.value());
       final settings = settingsController;
       if (settings != null) {
@@ -1025,6 +1027,11 @@ class AppLifecycleObserver with WidgetsBindingObserver {
   }
 
   Future<void> _handleDetached() async {
+    try {
+      updateCheckService?.dispose();
+    } catch (error, stackTrace) {
+      _log.warning('Update service disposal failed', error, stackTrace);
+    }
     try {
       await connectionManager?.shutdown();
     } catch (error, stackTrace) {

@@ -72,6 +72,7 @@ class AndroidUpdater {
   final ApkInstaller _apkInstaller;
   final bool _isAndroid;
   ApkInstallCoordinator? _installCoordinator;
+  int _installGeneration = 0;
   bool _disposed = false;
   final GithubRateLimit _rateLimit;
   final GithubCredentialProvider? credentials;
@@ -225,13 +226,23 @@ class AndroidUpdater {
       throw UnsupportedError('APK installation is only supported on Android');
     }
     if (_disposed) return ApkInstallOutcome.cancelled;
+    final generation = _installGeneration;
     final valid = await isDownloadedApkValid(apkPath);
-    if (_disposed) return ApkInstallOutcome.cancelled;
+    if (_disposed || generation != _installGeneration) {
+      return ApkInstallOutcome.cancelled;
+    }
     if (!valid) throw const InvalidApkException();
     final coordinator = _installCoordinator ??= ApkInstallCoordinator(
       _apkInstaller,
     );
     return coordinator.install(apkPath, requestPermission: requestPermission);
+  }
+
+  void cancelInstall() {
+    _installGeneration++;
+    final coordinator = _installCoordinator;
+    _installCoordinator = null;
+    coordinator?.dispose();
   }
 
   UpdateInfo? _parseRelease(Object? release, UpdateChannel channel) {
@@ -261,7 +272,7 @@ class AndroidUpdater {
 
   void dispose() {
     _disposed = true;
-    _installCoordinator?.dispose();
+    cancelInstall();
     _httpClient.close();
   }
 }

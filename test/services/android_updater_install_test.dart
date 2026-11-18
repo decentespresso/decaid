@@ -36,11 +36,37 @@ class _Installer extends ApkInstaller {
   }
 }
 
+class _PendingInstaller extends ApkInstaller {
+  _PendingInstaller() : super(platformIsAndroid: true);
+
+  bool allowed = false;
+  int requests = 0;
+  int installs = 0;
+  final returned = Completer<void>();
+
+  @override
+  Future<bool> isValidApk(String path) async => true;
+
+  @override
+  Future<bool> canInstallPackages() async => allowed;
+
+  @override
+  Future<void> requestInstallPermission() async {
+    requests++;
+    await returned.future;
+  }
+
+  @override
+  Future<bool> installApk(String apkPath) async {
+    installs++;
+    return true;
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late _Installer installer;
   late AndroidUpdater updater;
-
   setUp(() {
     installer = _Installer();
     updater = AndroidUpdater(
@@ -96,6 +122,32 @@ void main() {
     },
   );
 
+  test('cancelling during native validation prevents a late launch', () async {
+    installer.valid = true;
+    installer.validation = Completer<bool>();
+    final pending = updater.installUpdate('/update.apk');
+    await Future<void>.delayed(Duration.zero);
+    expect(installer.calls, ['validate:/update.apk']);
+
+    updater.cancelInstall();
+    installer.validation!.complete(true);
+
+    expect(await pending, ApkInstallOutcome.cancelled);
+    expect(installer.calls, ['validate:/update.apk']);
+
+    installer.validation = null;
+    expect(
+      await updater.installUpdate('/update.apk'),
+      ApkInstallOutcome.installerLaunched,
+    );
+    expect(installer.calls, [
+      'validate:/update.apk',
+      'validate:/update.apk',
+      'permission',
+      'install:/update.apk',
+    ]);
+  });
+
   for (final invalidation in ['removed', 'empty']) {
     test('APK $invalidation during permission settings is discarded', () async {
       const channel = MethodChannel('com.reaprime.updater/apk_installer');
@@ -149,4 +201,35 @@ void main() {
       expect(installs, 0);
     });
   }
+
+  test(
+    'cancelling a pending permission attempt prevents a late launch',
+    () async {
+      final installer = _PendingInstaller();
+      final candidate = AndroidUpdater(
+        owner: 'tadelv',
+        repo: 'reaprime',
+        apkInstaller: installer,
+        platformIsAndroid: true,
+      );
+      addTearDown(candidate.dispose);
+
+      final pending = candidate.installUpdate('/update.apk');
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect(installer.requests, 1);
+
+      candidate.cancelInstall();
+      installer.allowed = true;
+      installer.returned.complete();
+
+      expect(await pending, ApkInstallOutcome.cancelled);
+      expect(installer.installs, 0);
+      expect(
+        await candidate.installUpdate('/update.apk'),
+        ApkInstallOutcome.installerLaunched,
+      );
+      expect(installer.installs, 1);
+    },
+  );
 }

@@ -60,7 +60,7 @@ class NotificationActions extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> activate(
     NativeNotification notice,
     NotificationAction action, {
-    Future<void> Function()? beforeDownload,
+    Future<void> Function()? beforeOpenUpdate,
   }) async {
     final activation = center.activation(notice);
     if (_disposed ||
@@ -76,10 +76,12 @@ class NotificationActions extends ChangeNotifier with WidgetsBindingObserver {
       if (action.type == NotificationActionType.openDecentAccount) {
         onOpenAccount();
         center.reportAction(activation, action, 'activated');
-      } else if (action.type == NotificationActionType.downloadUpdate ||
+      } else if (action.type == NotificationActionType.viewUpdate ||
+          action.type == NotificationActionType.downloadUpdate ||
           action.type == NotificationActionType.skipUpdate) {
-        if (action.type == NotificationActionType.downloadUpdate) {
-          await beforeDownload?.call();
+        if (action.type == NotificationActionType.viewUpdate ||
+            action.type == NotificationActionType.downloadUpdate) {
+          await beforeOpenUpdate?.call();
         }
         if (_disposed || !center.isCurrent(activation)) return;
         await activation.binding?.onActivate?.call(action);

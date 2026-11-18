@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -12,11 +13,14 @@ import 'package:shelf_plus/shelf_plus.dart';
 import 'helpers/mock_settings_service.dart';
 
 class _NoopUpdater extends AndroidUpdater {
-  _NoopUpdater() : super(owner: 'tadelv', repo: 'reaprime');
+  _NoopUpdater({this.downloadPath = '/update.apk'})
+    : super(owner: 'tadelv', repo: 'reaprime');
+  final String downloadPath;
   bool allowed = false;
   int downloads = 0;
   int installs = 0;
   final permissionRequests = <bool>[];
+  final installRequested = Completer<void>();
 
   @override
   Future<bool> canInstallPackages() async => allowed;
@@ -28,7 +32,7 @@ class _NoopUpdater extends AndroidUpdater {
     Directory? cacheDir,
   }) async {
     downloads++;
-    return '/update.apk';
+    return downloadPath;
   }
 
   @override
@@ -38,6 +42,7 @@ class _NoopUpdater extends AndroidUpdater {
   }) async {
     installs++;
     permissionRequests.add(requestPermission);
+    if (!installRequested.isCompleted) installRequested.complete();
     return ApkInstallOutcome.installerLaunched;
   }
 
@@ -147,7 +152,13 @@ void main() {
     test(
       'approved remote installation uses the noninteractive install path',
       () async {
-        final updater = _NoopUpdater()..allowed = true;
+        final directory = await Directory.systemTemp.createTemp(
+          'update-handler-',
+        );
+        addTearDown(() => directory.delete(recursive: true));
+        final apk = File('${directory.path}/update.apk');
+        await apk.writeAsBytes([1, 2, 3]);
+        final updater = _NoopUpdater(downloadPath: apk.path)..allowed = true;
         final settings = MockSettingsService();
         final local = UpdateCheckService(
           settingsService: settings,
@@ -162,7 +173,9 @@ void main() {
 
         UpdateHandler(service: local)
             .handleCommand({'command': 'install'}, replies.add);
-        await Future<void>.delayed(Duration.zero);
+        await updater.installRequested.future.timeout(
+          const Duration(seconds: 10),
+        );
 
         expect(replies, isEmpty);
         expect(updater.downloads, 1);

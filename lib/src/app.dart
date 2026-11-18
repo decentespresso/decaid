@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
-import 'package:reaprime/build_info.dart';
 import 'package:reaprime/main.dart';
 import 'package:reaprime/src/controllers/account_tokens_controller.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
@@ -42,7 +41,6 @@ import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:reaprime/src/services/installed_components.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
 import 'package:shadcn_ui/shadcn_ui.dart' hide Scale;
-import 'package:url_launcher/url_launcher.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
@@ -57,7 +55,6 @@ import 'package:reaprime/src/notifications/notification_actions.dart';
 import 'package:reaprime/src/notifications/update_notifications.dart';
 import 'package:reaprime/src/services/android_updater.dart';
 import 'package:reaprime/src/services/github_credentials.dart';
-import 'package:reaprime/src/settings/update_dialog.dart';
 import 'package:reaprime/src/debug_feature/scale_debug_view.dart';
 import 'package:reaprime/src/services/storage/bean_storage_service.dart';
 import 'package:reaprime/src/services/storage/grinder_storage_service.dart';
@@ -222,7 +219,7 @@ class _MyAppState extends State<MyApp> {
       _updateNotifications = UpdateNotifications(
         center: widget.pluginLoaderService.pluginManager.notifications,
         service: service,
-        onDownload: _confirmUpdateDownload,
+        onView: _openAppUpdate,
       );
     }
     _initializeDe1StateManager();
@@ -294,33 +291,10 @@ class _MyAppState extends State<MyApp> {
     }
   }
 
-  Future<void> _confirmUpdateDownload(UpdateInfo update) async {
-    final context = NavigationService.context;
-    if (context == null || !context.mounted) return;
-    final updater = AndroidUpdater(
-      owner: 'tadelv',
-      repo: 'reaprime',
-      credentials: widget.credentials,
-    );
-    try {
-      await showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => UpdateDialog(
-          updateInfo: update,
-          currentVersion: BuildInfo.version,
-          onViewReleaseNotes: () {
-            final url = widget.updateCheckService?.getReleaseUrl(update);
-            if (url != null) launchUrl(Uri.parse(url));
-          },
-          onDownload: (info, onProgress) =>
-              updater.downloadUpdate(info, onProgress: onProgress),
-          onInstall: updater.installUpdate,
-        ),
-      );
-    } finally {
-      updater.dispose();
-    }
+  Future<void> _openAppUpdate(UpdateInfo update) async {
+    final navigator = NavigationService.navigatorKey.currentState;
+    if (navigator == null) return;
+    await SettingsView.openUpdate(navigator, update.version);
   }
 
   @override
@@ -448,6 +422,7 @@ class _MyAppState extends State<MyApp> {
                         presenceController: widget.presenceController,
                         webUIStorage: widget.webUIStorage,
                         githubCredentials: widget.credentials,
+                        updateVersion: routeSettings.arguments as String?,
                       );
                     case De1DebugView.routeName:
                       final args = routeSettings.arguments;

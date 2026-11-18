@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/controllers/presence_controller.dart';
+import 'package:reaprime/src/launcher/launcher_view.dart';
 import 'package:reaprime/src/services/android_updater.dart';
 import 'package:reaprime/src/services/github_credentials.dart';
 import 'package:reaprime/src/services/macos_updater.dart';
@@ -14,6 +16,7 @@ import 'package:reaprime/src/settings/device_management_page.dart';
 import 'package:reaprime/src/settings/presence_settings_page.dart';
 import 'package:reaprime/src/settings/security_page.dart';
 import 'package:reaprime/src/settings/charging_mode.dart';
+import 'package:reaprime/src/settings/app_update_dialog.dart';
 import 'package:reaprime/src/settings/update_dialog.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
 import 'package:reaprime/src/widgets/remote_error_snack_bar.dart';
@@ -31,6 +34,7 @@ class SettingsView extends StatelessWidget {
     required this.presenceController,
     this.webUIStorage,
     this.githubCredentials,
+    this.updateVersion,
   });
 
   static const routeName = '/settings';
@@ -41,10 +45,28 @@ class SettingsView extends StatelessWidget {
   final MacOSUpdater? macosUpdater;
   final WebUIStorage? webUIStorage;
   final GithubCredentialProvider? githubCredentials;
+  final String? updateVersion;
+
+  static Future<void> openUpdate(
+    NavigatorState navigator,
+    String version,
+  ) async {
+    List<Future<dynamic>> removed = const [];
+    navigator.popUntil((route) {
+      if (route.settings.name == LauncherView.routeName || route.isFirst) {
+        return true;
+      }
+      if (route is TransitionRoute) removed = [...removed, route.completed];
+      return false;
+    });
+    await Future.wait(removed);
+    if (!navigator.mounted) return;
+    unawaited(navigator.pushNamed(routeName, arguments: version));
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    final view = Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: ListenableBuilder(
         listenable: controller,
@@ -232,6 +254,11 @@ class SettingsView extends StatelessWidget {
         },
       ),
     );
+    final service = updateCheckService;
+    final version = updateVersion;
+    return service != null && version != null
+        ? AppUpdatePrompt(service: service, version: version, child: view)
+        : view;
   }
 
   static String _themeModeLabel(ThemeMode mode) {
@@ -493,59 +520,13 @@ class SettingsView extends StatelessWidget {
         context,
       ).showSnackBar(const SnackBar(content: Text('Checking for updates...')));
 
-      final updateInfo = await updateCheckService?.checkForUpdate();
+      final service = updateCheckService;
+      await service?.checkForUpdate();
 
       if (!context.mounted) return;
 
-      if (updateInfo != null) {
-        if (Platform.isAndroid) {
-          final updater = AndroidUpdater(
-            owner: 'tadelv',
-            repo: 'reaprime',
-            credentials: githubCredentials,
-          );
-          final releaseUrl = updateCheckService?.getReleaseUrl(updateInfo);
-          await showAndroidUpdateDialog(
-            context,
-            updateInfo: updateInfo,
-            updater: updater,
-            onViewReleaseNotes: () {
-              if (releaseUrl != null) launchUrl(Uri.parse(releaseUrl));
-            },
-          );
-        } else {
-          final releaseUrl = updateCheckService?.getReleaseUrl(updateInfo);
-          await showDialog(
-            context: context,
-            builder: (context) => AlertDialog(
-              title: const Text('Update Available'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Version ${updateInfo.version} is available'),
-                  const SizedBox(height: 8),
-                  Text('Current version: ${BuildInfo.version}'),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Later'),
-                ),
-                ElevatedButton(
-                  onPressed: () async {
-                    Navigator.of(context).pop();
-                    if (releaseUrl != null) {
-                      await launchUrl(Uri.parse(releaseUrl));
-                    }
-                  },
-                  child: const Text("What's new"),
-                ),
-              ],
-            ),
-          );
-        }
+      if (service != null && service.availableUpdate != null) {
+        await showAppUpdateDialog(context, service);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('You are on the latest version')),
@@ -609,16 +590,13 @@ Future<void> showAndroidUpdateDialog(
   BuildContext context, {
   required UpdateInfo updateInfo,
   required AndroidUpdater updater,
-  required VoidCallback onViewReleaseNotes,
 }) async {
   try {
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => UpdateDialog(
+      builder: (_) => AndroidQuickUpdateDialog(
         updateInfo: updateInfo,
-        currentVersion: BuildInfo.version,
-        onViewReleaseNotes: onViewReleaseNotes,
         onDownload: (info, onProgress) =>
             updater.downloadUpdate(info, onProgress: onProgress),
         onInstall: updater.installUpdate,

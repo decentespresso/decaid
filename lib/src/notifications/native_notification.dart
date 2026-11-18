@@ -3,6 +3,7 @@ enum NotificationNamespace { plugin, host }
 enum NotificationActionType {
   openDecentAccount,
   openExternalUrl,
+  viewUpdate,
   downloadUpdate,
   skipUpdate,
 }
@@ -121,6 +122,7 @@ class NativeNotification {
         (actions.length > 1 ||
             actions.any(
               (action) =>
+                  action.type == NotificationActionType.viewUpdate ||
                   action.type == NotificationActionType.downloadUpdate ||
                   action.type == NotificationActionType.skipUpdate,
             ))) {
