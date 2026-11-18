@@ -317,8 +317,10 @@ section, or for development and automation from `--extensions-token` or the
   means scheme `http`, a literal local host (`localhost`, `127.0.0.1`, `::1` or
   a numeric local-interface address) and a port that is either the live skin
   page port (`WebUIService.browserOriginPorts`, which follows the active
-  server, restart and dynamic allocation) or the actual API listener port; every
-  other value is untrusted. A literal loopback host additionally needs socket
+  server, restart and dynamic allocation), the actual API listener port, or the
+  built-in API docs viewer port while `startApiDocsServer`'s bind succeeded
+  (`docsListenerPort` callback, null after `WebServerPortInUse`); every other
+  value is untrusted. A literal loopback host additionally needs socket
   peer provenance: `classify` takes the `shelf.io.connection_info` context
   value, and a loopback origin is trusted only when `remoteAddress` is loopback
   or equals an address from the fresh interface listing. A missing, wrong-typed
@@ -350,6 +352,80 @@ section, or for development and automation from `--extensions-token` or the
   originless or forged-origin LAN client is unaffected, which is why
   originless LAN compatibility and the protected-mode recommendation for shared
   deployments both stay explicit in `doc/Api.md`.
+- A name is still never authority, but a browser that reached a built-in page
+  through one would load a page whose every management request is then refused.
+  `builtinBrowserCanonicalRedirect` therefore canonicalises the *page entry*
+  only: `GET /` and `GET /index.html` on the docs listener
+  (`createApiDocsHandler` + `builtinApiDocsViewerPaths`) and
+  `GET /api/v1/plugins/settings.reaplugin/ui` on the API pipeline
+  (`builtinSettingsPagePath`), which is where `buildWebServerHandler` adds the
+  middleware - ahead of the origin middleware, authentication, body reading and
+  the plugin dispatch that would generate the page. The incoming `Host` decides
+  only whether a redirect is needed (`_requiresCanonicalPageHost` is false for a
+  numeric host or `localhost`, so a working numeric or localhost entry is never
+  redirected); an absent or unclassifiable `Host` on a page path answers `403`
+  from `_pageHostName` instead of serving the alias page, and `_pageHostName`
+  validates the whole value rather than accepting anything colon-free: a
+  bracketed host has to parse as an IPv6 literal with no zone id, a plain host
+  has to be dot-separated DNS labels of `A-Z`, `a-z`, `0-9`, `_` and `-` with an
+  optional trailing dot, and the optional port has to be `1`-`65535`. `/`, `?`,
+  `#`, `,`, `;`, `@`, internal whitespace or control characters, `[localhost]`,
+  a bracketed IPv4 address, port `0`, a port above `65535` and two ports are
+  refused, not treated as names. Nothing is built from the value either way.
+  The destination is
+  `canonicalPageHost`: a loopback peer keeps `127.0.0.1`/`::1`; otherwise the
+  listener's concrete bound address wins when it has one, and the fallback is
+  the peer's address family (IPv4-mapped peers are unmapped first) filtered to
+  usable addresses and deduplicated by raw address, with `null` unless exactly
+  one candidate remains. Unspecified, multicast and broadcast addresses, plus
+  link-local or scoped IPv6 addresses, are never destinations; no subnet, `/24` or `/64`
+  match is used to break a tie; `builtinPageLocation` brackets IPv6. This is an
+  interface-derived destination, not the accepted socket's own local address,
+  so a device with two current addresses of one family fails closed on a
+  hostname entry (open the numeric address instead) even though one of them
+  would have worked; `BuiltinPageListener.listenerAddress` only supplies the
+  bound address, and both `startWebServer` and `startApiDocsServer` bind
+  `0.0.0.0`, so in production that callback resolves to the wildcard and the
+  interface fallback is what runs. The
+  listener port comes from the same closures the origin policy uses, so an
+  unbound listener trusts nothing. Anything unreliable - no
+  `shelf.io.connection_info`, an unreadable peer, an unusable or ambiguous local
+  address, a throwing enumeration - answers `403`
+  `{"error":"This page is only served from the device address"}` rather than
+  guessing. The redirect carries only `http`, the numeric host, the bound port
+  and the requested page path: the incoming query string and credentials are
+  never copied, and the `Location` ends in an explicitly empty fragment, so the
+  answer reads `http://127.0.0.1:8080/api/v1/plugins/settings.reaplugin/ui#`
+  rather than the same URL without a fragment component. Omitting the fragment
+  is not enough: a browser reattaches the fragment of the page it entered
+  through whenever the redirect target has none, and that fragment never
+  appears in the HTTP request, so the redirect is the only place it can be
+  cleared. Both page surfaces (`createApiDocsHandler` and
+  `buildWebServerHandler`) go through `builtinPageLocation`, which supplies the
+  empty fragment. The answer carries `Cache-Control: no-store` plus
+  `Referrer-Policy: no-referrer`. It adds no trusted origin, so a direct
+  name-origin `POST`/`OPTIONS` stays `403` in both modes even with a valid
+  `extensions:manage` bearer; the browser simply ends up on the numeric origin
+  the existing policy already trusts. Nothing else is redirected: spec files,
+  `/api/v1/manifest`, third-party plugin pages and every mutation keep their
+  behaviour.
+- `assets/api/index.html` never trusts the shipped spec's `localhost` default
+  either: its inline script fetches `rest_v1.yml`/`websocket_v1.yml`, rewrites
+  only each server's `tablet-ip` `default` to `window.location.hostname` (the
+  numeric host after the redirect; no other variable or default is touched) and
+  hands the parsed spec to
+  `SwaggerUIBundle` as `spec`, falling back to `url: 'rest_v1.yml'` only when
+  the fetch or parse fails. The page fetches nothing but its own relative
+  specs, so it is not an open proxy. Keep the full spec compatible with the
+  shipped browser YAML parser: a parse failure takes the fallback and restores
+  Swagger's shipped `localhost` target. The multiline capability and calibration
+  lists use block style because js-yaml 5 rejects their former closing-bracket
+  indentation. `test/api/browser_spec_yaml_test.dart` guards that indentation
+  pitfall in both shipped specs.
+  `test/plugins/builtin_browser_requests.cjs` executes the inline script in a
+  Node VM but parses only the `servers:` blocks, not the whole YAML document.
+  Use a real browser to verify complete spec parsing and the resulting Execute
+  request destination.
 
 When adding a plugin or skin mutation route, add it to
 `extensionManagementRoutes` and declare `security: [{}, extensionsManage]` with
@@ -364,7 +440,8 @@ list, whether or not the spec mentions it.
 ### Focused Tests
 
 ```sh
-flutter test test/webserver/extension_management_auth_test.dart test/webserver/extension_management_route_coverage_test.dart test/api/extension_management_spec_test.dart
+flutter test test/webserver/extension_management_auth_test.dart test/webserver/extension_management_route_coverage_test.dart test/api/extension_management_spec_test.dart test/api/browser_spec_yaml_test.dart test/webserver/builtin_browser_compatibility_test.dart
+node --test test/plugins/builtin_browser_requests.cjs
 ```
 
 ## Decent Binary Protocol

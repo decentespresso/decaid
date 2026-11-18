@@ -13,7 +13,7 @@ Decaid exposes REST and WebSocket APIs on port 8080. Full OpenAPI specs are in [
 {"api":"v1","docs":{"port":4001,"viewer":"/","openapi":"/rest_v1.yml","asyncapi":"/websocket_v1.yml"}}
 ```
 
-The `viewer`, `openapi`, and `asyncapi` paths use the same host as the API request with the manifest's `docs.port` (4001), not port 8080; the manifest does not guarantee that the separate docs listener is available. For example, reconstruct `http://decaid.local:4001/rest_v1.yml` or `http://decaid.local:4001/websocket_v1.yml` from the manifest. An unmatched API route returns JSON with `error: "Route not found"` and a `hint` naming the same-host docs port and the viewer/OpenAPI/AsyncAPI paths.
+The `viewer`, `openapi`, and `asyncapi` paths use the same host as the API request with the manifest's `docs.port` (4001), not port 8080; the manifest does not guarantee that the separate docs listener is available. For example, reconstruct `http://decaid.local:4001/rest_v1.yml` or `http://decaid.local:4001/websocket_v1.yml` from the manifest. The viewer then sends its own API calls to the host it was served from rather than to the `localhost` default the shipped spec carries, so a browser on another machine addresses the device. An unmatched API route returns JSON with `error: "Route not found"` and a `hint` naming the same-host docs port and the viewer/OpenAPI/AsyncAPI paths.
 
 For skin development, see [`doc/Skins.md`](Skins.md). For plugin development, see [`doc/Plugins.md`](Plugins.md).
 
@@ -186,7 +186,7 @@ What counts as the device's own origin:
 
 | Trusted | Rejected |
 |---|---|
-| Scheme `http`, host `localhost`, `127.0.0.1`, `::1`, or a numeric address currently assigned to a local network interface, and a port equal to the live skin page port or the actual API listener port | `Origin: null`, an empty value, `https` or any other scheme, a hostname such as `decaid.local`, another device's address, `user@host`, a path, query or fragment, a comma or a space in the value |
+| Scheme `http`, host `localhost`, `127.0.0.1`, `::1`, or a numeric address currently assigned to a local network interface, and a port equal to the live skin page port, the actual API listener port or the built-in API docs viewer port while its listener is bound | `Origin: null`, an empty value, `https` or any other scheme, a hostname such as `decaid.local`, another device's address, `user@host`, a path, query or fragment, a comma or a space in the value |
 
 A loopback origin is trusted only while the request's TCP socket peer is
 loopback or is exactly one of the addresses this device currently holds. A
@@ -199,15 +199,63 @@ elsewhere from borrowing the name.
 
 The ports and the addresses come from the running services and never from the
 request itself: the skin port follows a skin switch, a restart and a dynamically
-allocated port, the API port is the one the listener actually bound, and the
-address set is enumerated when a comparison needs it, so a moved or retired
-address is picked up without a restart or a skin serve. A port that is not live
-is not trusted, so `http://localhost:3000` is refused while the skin server is
-on another port. The port 3000 entry point only redirects to the active origin
-and an inactive skin's alias port only serves a redirect, so a skin page always
-runs, and posts, from its live origin. `Host`, `Referer`, `X-Forwarded-For`,
-`X-Forwarded-Host`, `X-Real-IP`, `Forwarded` and DNS resolution are never
-consulted, so a name that resolves to the device (DNS rebinding) is not enough.
+allocated port, the API port is the one the listener actually bound, the docs
+viewer port is the one the docs listener actually bound (and is trusted only
+while that bind succeeded), and the address set is enumerated when a comparison
+needs it, so a moved or retired address is picked up without a restart or a skin
+serve. A port that is not live is not trusted, so `http://localhost:3000` is
+refused while the skin server is on another port. The port 3000 entry point only
+redirects to the active origin and an inactive skin's alias port only serves a
+redirect, so a skin page always runs, and posts, from its live origin. `Host`,
+`Referer`, `X-Forwarded-For`, `X-Forwarded-Host`, `X-Real-IP`, `Forwarded` and
+DNS resolution are never consulted, so a name that resolves to the device (DNS
+rebinding) is not enough.
+
+#### Opening a built-in page through a name
+
+A name is still not authority, but a browser that reached a built-in page through
+one would otherwise keep a page it may not use: the page loads, and every
+management request it makes is then refused. So the two first-party pages Decaid
+serves are canonicalised once, at the page entry, before any handler, plugin or
+body work:
+
+| Request | Answer |
+|---|---|
+| `GET /` or `GET /index.html` on the API docs viewer port | `302` to the same path on the numeric local endpoint |
+| `GET /api/v1/plugins/settings.reaplugin/ui` on the API port | `302` to the same path on the numeric local endpoint |
+
+The destination carries only `http`, a numeric local address and the port the
+listener bound; a loopback client keeps `127.0.0.1` or `::1`, and a remote client
+gets the address the listener bound when that is concrete, otherwise the single
+usable current numeric address of the client's own address family. Addresses are
+compared as parsed values, so the IPv4, IPv4-mapped and compressed spellings of
+one interface count once. Wildcard, multicast and broadcast addresses, plus
+link-local or scoped IPv6 addresses, are never a destination. The name decides only whether a
+redirect is needed and never where it points. The redirect keeps neither the
+incoming query string nor any credentials, and the `Location` ends in an
+explicitly empty fragment: a browser inherits the fragment of the address it
+entered through whenever the redirect target has no fragment component, and that
+fragment is never sent to the server, so the redirect is the only place it can be
+cleared. The answer carries `Cache-Control: no-store` and
+`Referrer-Policy: no-referrer`. A device address
+that is not unique is not resolved by preference: when the device holds more
+than one current address of the client's address family, the page entry is
+refused with `403` and
+`{"error":"This page is only served from the device address"}`, so on a
+multi-interface device open the numeric address directly. The same refusal
+covers a listener that is not bound, a request without socket provenance and an
+absent or malformed `Host` header. A `Host` is malformed unless it is a numeric
+address, `localhost`, a bracketed IPv6 literal or dot-separated DNS labels, with
+an optional port in `1`-`65535`: `/`, `?`, `#`, `,`, `;`, `@`, whitespace inside
+the value, a control character, `[localhost]`, a bracketed IPv4 address, port `0`
+or a port above `65535` in the value is refused rather than treated as a name.
+
+Nothing else moves: every other route, the spec files, third-party plugin pages
+and every mutation keep their existing behaviour, an `Origin` that is a name stays
+refused in both modes even with a valid `extensions:manage` bearer, and a numeric
+or `localhost` entry is not redirected at all. The browser finishes on the
+numeric origin, which the rules above already trust, so the mutation is admitted
+by the existing policy rather than by the redirect.
 
 Requests without an `Origin` header are not affected at all: `curl`, Home
 Assistant, MCP clients, native app code, `host.localApi` (in process) and every
