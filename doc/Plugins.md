@@ -629,19 +629,27 @@ is not under-reported. On the recorded DE1 cold start that moved the mid-ramp
 error from -47 s to +5 s. If machine info is unavailable the plugin stays on the
 conservative ceiling with no allowance.
 
-Stall detection keeps its own 60 second history, separate from the 18 second rate
-window, so it judges a real minute of observations; the history retains the sample
-just before the cutoff, so ordinary sampling jitter cannot make the window look
-incomplete and suppress a stall indefinitely. The continued-heating threshold is
-derived from the same numbers - a rise of `0.5 K * 18 / 60` over the rate window -
-so there is no band of slow-but-real heating that neither publishes nor stalls. An established session whose
-temperature stops climbing reports `status: "not_heating"` - not
-`insufficient_data` - once that minute gained less than 0.5 K, and the display cap
-is released so a later resume starts clean. Short pauses stay in the countdown.
+Stall detection keeps its own 30 second history, separate from the 18 second rate
+window, and answers one question: did the group climb at least 0.25 K above its
+coldest reading in the past 30 seconds? Measuring from the coldest reading keeps a
+machine recovering from a temperature dip in the countdown. The history retains the sample just before the cutoff, so ordinary
+sampling jitter cannot make the window look incomplete and suppress a stall
+indefinitely. The continued-heating threshold is derived from the same numbers - a
+rise of `0.25 K * 18 / 30` over the rate window - so there is no band of
+slow-but-real heating that neither publishes nor stalls. A machine that is not
+heating, such as one whose standby switch is on, reports `status: "not_heating"`
+as soon as a full window gained less than 0.25 K. That check runs before the rate
+is measured, so it also ends a countdown already in progress, and the display cap
+is released so a later resume starts clean. Continued cooling past the 2 K session
+reset keeps the history and stays `not_heating`. Short pauses stay in the countdown.
+
+The 30 second rise is deliberately not used as the ETA rate. Heaters ramp slowly at
+first, so a 30 second average lags the current rate: on the recorded Bengle cold
+start it put the first estimate 98 s off, against 9 s for the recent rate.
 
 Once a session has published, the five-kelvin start gate is no longer required:
 a slow positive ramp keeps its countdown as long as the window gained more than
-0.2 K, which is what a decelerating DE1 approaches near target. Below that, the
+0.15 K, which is what a decelerating DE1 approaches near target. Below that, the
 stall detector decides between `not_heating` and continued measurement.
 
 That ceiling is stricter than de1app, whose own monotonic guard is unreachable: its
@@ -649,8 +657,8 @@ That ceiling is stricter than de1app, whose own monotonic guard is unreachable: 
 never runs.
 
 `status: "insufficient_data"` with `remainingTimeMs: null` is published until the
-recent rate is established, or while the machine is not heating. The heating skin
-renders that state as "Heating" without a countdown.
+recent rate is established. The heating skin renders that state and `not_heating`
+as "Heating" without a countdown.
 
 Example:
 
