@@ -20,7 +20,7 @@ class _Updater extends AndroidUpdater {
   bool fail = false;
   UpdateInfo? next;
   final download = Completer<String>();
-  final installation = Completer<bool>();
+  final installation = Completer<ApkInstallOutcome>();
   void Function(double)? progress;
 
   @override
@@ -43,7 +43,10 @@ class _Updater extends AndroidUpdater {
   }
 
   @override
-  Future<bool> installUpdate(String path) => installation.future;
+  Future<ApkInstallOutcome> installUpdate(
+    String path, {
+    bool requestPermission = true,
+  }) => installation.future;
 }
 
 void main() {
@@ -278,7 +281,7 @@ void main() {
       final beforeInstall = saves;
       final installing = service.installUpdate(service.downloadedPath!);
       await updates.settled;
-      updater.installation.complete(true);
+      updater.installation.complete(ApkInstallOutcome.installerLaunched);
       await installing;
       await updates.settled;
       expect(saves, beforeInstall);

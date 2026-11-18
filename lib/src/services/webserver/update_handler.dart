@@ -75,10 +75,35 @@ class UpdateHandler {
           });
           return;
         }
-        _service.downloadAndInstall();
+        _install(reply);
 
       default:
         reply({'error': 'Unknown command: $command'});
+    }
+  }
+
+  Future<void> _install(void Function(Map<String, dynamic>) reply) async {
+    try {
+      if (!await _service.requestRemoteInstall()) {
+        _reply(reply, {
+          'error': 'Installation requires approval on the Android device',
+          'reason': 'local_approval_required',
+        });
+      }
+    } catch (error, stackTrace) {
+      log.warning('Remote update could not start', error, stackTrace);
+      _reply(reply, {'error': 'Could not start the app update'});
+    }
+  }
+
+  void _reply(
+    void Function(Map<String, dynamic>) reply,
+    Map<String, dynamic> message,
+  ) {
+    try {
+      reply(message);
+    } catch (error, stackTrace) {
+      log.fine('Update requester disconnected before reply', error, stackTrace);
     }
   }
 }

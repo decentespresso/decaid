@@ -7,6 +7,7 @@ import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/plugins/plugin_source_service.dart';
 import 'package:reaprime/src/services/android_updater.dart';
+import 'package:reaprime/src/services/apk_installer.dart';
 import 'package:reaprime/src/services/app_update_state.dart';
 import 'package:reaprime/src/services/update_check_service.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
@@ -46,16 +47,20 @@ class _FakeUpdater extends AndroidUpdater {
   bool throwOnCheck = false;
   bool throwOnDownload = false;
   String downloadPath;
-  bool installResult = true;
+  ApkInstallOutcome installResult = ApkInstallOutcome.installerLaunched;
+  bool permissionGranted = true;
+  Object? installFailure;
   List<double> progressToEmit = const [];
 
   int checkCalls = 0;
   UpdateChannel? lastChannel;
   int downloadCalls = 0;
   int installCalls = 0;
+  int permissionChecks = 0;
+  List<bool> requestedPermissions = const [];
 
   Completer<void>? downloadGate;
-  Completer<void>? installGate;
+  Completer<ApkInstallOutcome>? installGate;
   final installStarted = Completer<void>();
 
   @override
@@ -87,15 +92,92 @@ class _FakeUpdater extends AndroidUpdater {
   }
 
   @override
-  Future<bool> installUpdate(String apkPath) async {
+  Future<ApkInstallOutcome> installUpdate(
+    String apkPath, {
+    bool requestPermission = true,
+  }) async {
     installCalls++;
+    requestedPermissions = [...requestedPermissions, requestPermission];
     if (!installStarted.isCompleted) installStarted.complete();
-    if (installGate != null) await installGate!.future;
+    if (installFailure case final error?) throw error;
+    if (installGate case final gate?) return gate.future;
+    if (!permissionGranted && !requestPermission) {
+      return ApkInstallOutcome.permissionRequired;
+    }
     return installResult;
   }
 
   @override
+  Future<bool> canInstallPackages() async {
+    permissionChecks++;
+    return permissionGranted;
+  }
+
+  @override
   void dispose() {}
+}
+
+class _PermissionInstaller extends ApkInstaller {
+  _PermissionInstaller() : super(platformIsAndroid: true);
+
+  bool allowed = false;
+  int permissionRequests = 0;
+  int installs = 0;
+  final permissionReturned = Completer<void>();
+
+  @override
+  Future<bool> isValidApk(String path) async => true;
+
+  @override
+  Future<bool> canInstallPackages() async => allowed;
+
+  @override
+  Future<void> requestInstallPermission() async {
+    permissionRequests++;
+    await permissionReturned.future;
+  }
+
+  @override
+  Future<bool> installApk(String apkPath) async {
+    installs++;
+    return true;
+  }
+}
+
+class _CoordinatedUpdater extends AndroidUpdater {
+  _CoordinatedUpdater(this.installer, this.downloadPath)
+    : super(
+        owner: 'tadelv',
+        repo: 'reaprime',
+        apkInstaller: installer,
+        platformIsAndroid: true,
+      );
+
+  final _PermissionInstaller installer;
+  final String downloadPath;
+  UpdateInfo? nextCheck;
+  int checkCalls = 0;
+  int downloadCalls = 0;
+
+  @override
+  Future<UpdateInfo?> checkForUpdate(
+    String currentVersion, {
+    UpdateChannel channel = UpdateChannel.stable,
+  }) async {
+    checkCalls++;
+    return nextCheck;
+  }
+
+  @override
+  Future<String> downloadUpdate(
+    UpdateInfo updateInfo, {
+    Function(double progress)? onProgress,
+    Directory? cacheDir,
+  }) async {
+    downloadCalls++;
+    await File(downloadPath).writeAsBytes([1, 2, 3]);
+    return downloadPath;
+  }
 }
 
 UpdateInfo _update({String version = '9.9.9'}) => UpdateInfo(
@@ -105,6 +187,12 @@ UpdateInfo _update({String version = '9.9.9'}) => UpdateInfo(
   isPrerelease: false,
   tagName: 'v$version',
 );
+
+Future<void> _waitFor(bool Function() condition) async {
+  while (!condition()) {
+    await Future<void>.delayed(Duration.zero);
+  }
+}
 
 void main() {
   late Directory directory;
@@ -308,7 +396,7 @@ void main() {
         final svc = build();
         addTearDown(svc.dispose);
         updater.nextCheck = _update();
-        updater.installGate = Completer<void>();
+        updater.installGate = Completer<ApkInstallOutcome>();
         await svc.checkForUpdate();
         final path = await svc.downloadUpdate(svc.availableUpdate!, (_) {});
         final first = svc.installUpdate(path);
@@ -317,9 +405,9 @@ void main() {
         final second = svc.installUpdate(path);
         await updater.installStarted.future;
         expect(updater.installCalls, 1);
-        updater.installGate!.complete();
-        expect(await first, isTrue);
-        expect(await second, isTrue);
+        updater.installGate!.complete(ApkInstallOutcome.installerLaunched);
+        expect(await first, ApkInstallOutcome.installerLaunched);
+        expect(await second, ApkInstallOutcome.installerLaunched);
         expect(svc.installationStarted, isFalse);
         expect(svc.currentState.phase, AppUpdatePhase.available);
         await svc.installUpdate(path);
@@ -365,7 +453,7 @@ void main() {
     test('local repeated install requests launch the installer once', () async {
       final svc = build();
       updater.nextCheck = _update();
-      updater.installGate = Completer<void>();
+      updater.installGate = Completer<ApkInstallOutcome>();
       await svc.checkForUpdate();
       final path = await svc.downloadUpdate(svc.availableUpdate!, (_) {});
 
@@ -373,14 +461,71 @@ void main() {
       final second = svc.installUpdate(path);
       await updater.installStarted.future;
       expect(updater.installCalls, 1);
-      updater.installGate!.complete();
-      expect(await first, isTrue);
-      expect(await second, isTrue);
-      expect(await svc.installUpdate(path), isTrue);
+      updater.installGate!.complete(ApkInstallOutcome.installerLaunched);
+      expect(await first, ApkInstallOutcome.installerLaunched);
+      expect(await second, ApkInstallOutcome.installerLaunched);
+      expect(
+        await svc.installUpdate(path),
+        ApkInstallOutcome.installerLaunched,
+      );
       expect(updater.installCalls, 1);
       expect(svc.installationStarted, isTrue);
       svc.dispose();
     });
+
+    test(
+      'repeated resumes after a launch never relaunch the installer',
+      () async {
+        final svc = build();
+        addTearDown(svc.dispose);
+        updater.nextCheck = _update();
+        await svc.downloadAndInstall();
+        expect(updater.installCalls, 1);
+
+        svc.onAppResumed();
+        svc.onAppResumed();
+        svc.onAppResumed();
+
+        expect(updater.installCalls, 1);
+        expect(svc.currentState.phase, AppUpdatePhase.available);
+        expect(svc.currentState.error, isNull);
+      },
+    );
+
+    test('a replaced release cannot install the previous APK', () async {
+      final svc = build();
+      addTearDown(svc.dispose);
+      updater.nextCheck = _update(version: '9.9.9');
+      await svc.checkForUpdate();
+      final path = await svc.downloadUpdate(svc.availableUpdate!, (_) {});
+
+      updater.nextCheck = _update(version: '10.0.0');
+      await svc.checkForUpdate();
+
+      expect(svc.availableUpdate?.version, '10.0.0');
+      expect(svc.downloadedPath, isNull);
+      await expectLater(svc.installUpdate(path), throwsStateError);
+      expect(updater.installCalls, 0);
+    });
+
+    test(
+      'an emptied cached APK is rejected and recovered by a download',
+      () async {
+        final svc = build();
+        addTearDown(svc.dispose);
+        updater.nextCheck = _update();
+        await svc.checkForUpdate();
+        final path = await svc.downloadUpdate(svc.availableUpdate!, (_) {});
+        await File(path).writeAsBytes([]);
+
+        await expectLater(svc.installUpdate(path), throwsStateError);
+        expect(updater.installCalls, 0);
+        expect(svc.downloadedPath, isNull);
+
+        await svc.downloadUpdate(svc.availableUpdate!, (_) {});
+        expect(updater.downloadCalls, 2);
+      },
+    );
 
     test(
       'local download shares progress and waits for install confirmation',
@@ -415,10 +560,10 @@ void main() {
       () async {
         final svc = build();
         updater.nextCheck = _update();
-        updater.installResult = false;
+        updater.installResult = ApkInstallOutcome.permissionRequired;
         await svc.downloadAndInstall();
         expect(svc.downloadedPath, updater.downloadPath);
-        updater.installResult = true;
+        updater.installResult = ApkInstallOutcome.installerLaunched;
 
         await svc.downloadAndInstall();
         await svc.downloadAndInstall();
@@ -513,17 +658,48 @@ void main() {
       svc.dispose();
     });
 
-    test('reports error when install permission is missing', () async {
+    test('permission denial retains a neutral available update', () async {
       final svc = build();
       updater.nextCheck = _update();
-      updater.installResult = false;
+      updater.installResult = ApkInstallOutcome.permissionRequired;
+
+      await svc.downloadAndInstall();
+
+      expect(svc.currentState.phase, AppUpdatePhase.available);
+      expect(svc.currentState.error, isNull);
+      expect(updater.requestedPermissions, [true]);
+      svc.dispose();
+    });
+
+    test('genuine installer failures remain errors', () async {
+      final svc = build();
+      updater.nextCheck = _update();
+      updater.installFailure = StateError('installer unavailable');
 
       await svc.downloadAndInstall();
 
       expect(svc.currentState.phase, AppUpdatePhase.error);
-      expect(svc.currentState.error, contains('permission'));
+      expect(svc.currentState.error, isNotNull);
+      expect(updater.installCalls, 1);
       svc.dispose();
     });
+
+    test(
+      'disposing a pending installation cannot publish to closed state',
+      () async {
+        final svc = build();
+        updater.nextCheck = _update();
+        updater.installGate = Completer<ApkInstallOutcome>();
+        final installation = svc.downloadAndInstall();
+        await updater.installStarted.future;
+        expect(updater.installCalls, 1);
+
+        svc.dispose();
+        updater.installGate!.complete(ApkInstallOutcome.cancelled);
+
+        await expectLater(installation, completes);
+      },
+    );
 
     test('reports error when the download throws', () async {
       final svc = build();
@@ -562,6 +738,252 @@ void main() {
       expect(updater.checkCalls, 0);
       svc.dispose();
     });
+  });
+
+  group('install attempt ownership', () {
+    UpdateCheckService buildCoordinated(_CoordinatedUpdater coordinated) {
+      settingsService = MockSettingsService();
+      webUIStorage = _RecordingWebUIStorage(
+        SettingsController(settingsService),
+      );
+      return UpdateCheckService(
+        settingsService: settingsService,
+        webUIStorage: webUIStorage,
+        updater: coordinated,
+        platformIsAndroid: true,
+        platformIsMacOS: false,
+        externallyManaged: false,
+      );
+    }
+
+    test('removing the owning route cancels the permission attempt without a late launch', () async {
+      final installer = _PermissionInstaller();
+      final coordinated = _CoordinatedUpdater(
+        installer,
+        '${directory.path}/coordinated.apk',
+      );
+      addTearDown(coordinated.dispose);
+      final svc = buildCoordinated(coordinated);
+      addTearDown(svc.dispose);
+      coordinated.nextCheck = _update();
+      await svc.checkForUpdate();
+      final path = await svc.downloadUpdate(svc.availableUpdate!, (_) {});
+
+      final attempt = svc.installUpdate(path);
+      await _waitFor(() => installer.permissionRequests == 1);
+      expect(svc.currentState.phase, AppUpdatePhase.installing);
+
+      svc.cancelInstallAttempt();
+
+      installer.allowed = true;
+      installer.permissionReturned.complete();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(await attempt, ApkInstallOutcome.cancelled);
+      expect(installer.installs, 0);
+      expect(svc.downloadedPath, path);
+      expect(coordinated.downloadCalls, 1);
+      expect(svc.currentState.phase, AppUpdatePhase.available);
+      expect(svc.currentState.error, isNull);
+
+      expect(
+        await svc.installUpdate(path),
+        ApkInstallOutcome.installerLaunched,
+      );
+      expect(installer.installs, 1);
+    });
+
+    test(
+      'a granted permission installs once and never claims completion',
+      () async {
+        final installer = _PermissionInstaller();
+        final coordinated = _CoordinatedUpdater(
+          installer,
+          '${directory.path}/granted.apk',
+        );
+        addTearDown(coordinated.dispose);
+        final svc = buildCoordinated(coordinated);
+        addTearDown(svc.dispose);
+        coordinated.nextCheck = _update();
+        await svc.checkForUpdate();
+        final path = await svc.downloadUpdate(svc.availableUpdate!, (_) {});
+
+        final attempt = svc.installUpdate(path);
+        await _waitFor(() => installer.permissionRequests == 1);
+
+        installer.allowed = true;
+        installer.permissionReturned.complete();
+
+        expect(await attempt, ApkInstallOutcome.installerLaunched);
+        expect(installer.installs, 1);
+        expect(svc.currentState.phase, AppUpdatePhase.installing);
+        expect(svc.currentState.error, isNull);
+        expect(coordinated.downloadCalls, 1);
+      },
+    );
+
+    test('cancelling during cache validation has no permission or installer side effect', () async {
+      final installer = _PermissionInstaller();
+      final coordinated = _CoordinatedUpdater(
+        installer,
+        '${directory.path}/validated.apk',
+      );
+      addTearDown(coordinated.dispose);
+      final svc = buildCoordinated(coordinated);
+      addTearDown(svc.dispose);
+      coordinated.nextCheck = _update();
+      await svc.checkForUpdate();
+      final path = await svc.downloadUpdate(svc.availableUpdate!, (_) {});
+
+      final attempt = svc.installUpdate(path);
+      svc.cancelInstallAttempt();
+
+      expect(await attempt, ApkInstallOutcome.cancelled);
+      await Future<void>.delayed(Duration.zero);
+      expect(installer.permissionRequests, 0);
+      expect(installer.installs, 0);
+      expect(svc.downloadedPath, path);
+      expect(svc.currentState.phase, AppUpdatePhase.available);
+    });
+  });
+
+  group('operation ownership', () {
+    test(
+      'a check finishing during a download cannot replace the release',
+      () async {
+        final svc = build();
+        addTearDown(svc.dispose);
+        updater.nextCheck = _update(version: '9.9.9');
+        await svc.checkForUpdate();
+
+        final lateCheck = Completer<UpdateInfo?>();
+        updater.checkGate = lateCheck;
+        final checking = svc.checkForUpdate();
+        await _waitFor(() => updater.checkCalls == 2);
+        final downloadGate = Completer<void>();
+        updater.downloadGate = downloadGate;
+        final download = svc.downloadUpdate(svc.availableUpdate!, (_) {});
+        expect(svc.currentState.phase, AppUpdatePhase.downloading);
+
+        lateCheck.complete(_update(version: '10.0.0'));
+
+        expect((await checking)?.version, '9.9.9');
+        expect(svc.availableUpdate?.version, '9.9.9');
+        expect(svc.currentState.phase, AppUpdatePhase.downloading);
+
+        downloadGate.complete();
+        final path = await download;
+        expect(svc.downloadedPath, path);
+        expect(svc.availableUpdate?.version, '9.9.9');
+      },
+    );
+
+    test(
+      'a failed late check cannot publish an error over an active download',
+      () async {
+        final svc = build();
+        addTearDown(svc.dispose);
+        updater.nextCheck = _update(version: '9.9.9');
+        await svc.checkForUpdate();
+
+        final lateCheck = Completer<UpdateInfo?>();
+        updater.checkGate = lateCheck;
+        final checking = svc.checkForUpdate();
+        await _waitFor(() => updater.checkCalls == 2);
+        final downloadGate = Completer<void>();
+        updater.downloadGate = downloadGate;
+        final download = svc.downloadUpdate(svc.availableUpdate!, (_) {});
+
+        lateCheck.completeError(StateError('check boom'));
+
+        expect((await checking)?.version, '9.9.9');
+        expect(svc.currentState.phase, AppUpdatePhase.downloading);
+        expect(svc.currentState.error, isNull);
+
+        downloadGate.complete();
+        await download;
+        expect(svc.currentState.phase, AppUpdatePhase.available);
+      },
+    );
+  });
+
+  group('remote installation preflight', () {
+    test(
+      'missing approval leaves state unchanged without any update work',
+      () async {
+        final svc = build();
+        updater.permissionGranted = false;
+        final before = svc.currentState;
+        final states = <AppUpdateState>[];
+        final subscription = svc.updateState.listen(states.add);
+        await Future<void>.delayed(Duration.zero);
+        final beforeCount = states.length;
+
+        expect(await svc.requestRemoteInstall(), isFalse);
+
+        expect(svc.currentState, same(before));
+        expect(states.length, beforeCount);
+        expect(updater.permissionChecks, 1);
+        expect(updater.checkCalls, 0);
+        expect(updater.downloadCalls, 0);
+        expect(updater.installCalls, 0);
+        expect(updater.requestedPermissions, isEmpty);
+        await subscription.cancel();
+        svc.dispose();
+      },
+    );
+
+    test(
+      'approved remote installation never requests local settings',
+      () async {
+        final svc = build();
+        updater.nextCheck = _update();
+
+        expect(await svc.requestRemoteInstall(), isTrue);
+
+        expect(updater.permissionChecks, 1);
+        expect(updater.checkCalls, 1);
+        expect(updater.downloadCalls, 1);
+        expect(updater.installCalls, 1);
+        expect(updater.requestedPermissions, [false]);
+        expect(svc.currentState.phase, AppUpdatePhase.installing);
+        svc.dispose();
+      },
+    );
+
+    test(
+      'permission revoked during a remote download remains neutral',
+      () async {
+        final svc = build();
+        updater.nextCheck = _update();
+        updater.downloadGate = Completer<void>();
+        final installation = svc.requestRemoteInstall();
+        await Future<void>.delayed(Duration.zero);
+        updater.permissionGranted = false;
+        updater.installResult = ApkInstallOutcome.permissionRequired;
+        updater.downloadGate!.complete();
+
+        expect(await installation, isTrue);
+
+        expect(updater.requestedPermissions, [false]);
+        expect(svc.currentState.phase, AppUpdatePhase.available);
+        expect(svc.currentState.error, isNull);
+        svc.dispose();
+      },
+    );
+
+    test(
+      'unsupported builds are rejected without checking permission',
+      () async {
+        for (final isAndroid in [false, true]) {
+          final svc = build(isAndroid: isAndroid, externallyManaged: isAndroid);
+          expect(svc.canInstall, isFalse);
+          expect(await svc.requestRemoteInstall(), isFalse);
+          expect(updater.permissionChecks, 0);
+          svc.dispose();
+        }
+      },
+    );
   });
 
   group('externally managed builds', () {

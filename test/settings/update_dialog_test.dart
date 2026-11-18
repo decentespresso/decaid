@@ -26,7 +26,8 @@ class _Updater extends AndroidUpdater {
 
   Future<String> Function(void Function(double)) download = (_) async =>
       '/tmp/decent.apk';
-  Future<bool> Function(String) install = (_) async => false;
+  Future<ApkInstallOutcome> Function(String) install = (_) async =>
+      ApkInstallOutcome.permissionRequired;
   int downloadCalls = 0;
   int installCalls = 0;
   Completer<UpdateInfo?>? checkGate;
@@ -51,7 +52,10 @@ class _Updater extends AndroidUpdater {
   }
 
   @override
-  Future<bool> installUpdate(String path) {
+  Future<ApkInstallOutcome> installUpdate(
+    String path, {
+    bool requestPermission = true,
+  }) {
     installCalls++;
     return install(path);
   }
@@ -92,6 +96,21 @@ void main() {
     onViewReleaseNotes: onViewReleaseNotes ?? () {},
   );
 
+  Future<void> tapInstall(
+    WidgetTester tester, {
+    String label = 'Install',
+  }) async {
+    await tester.runAsync(() async {
+      await tester.tap(find.text(label));
+      final deadline = DateTime.now().add(const Duration(seconds: 10));
+      while (service.currentState.phase == AppUpdatePhase.installing &&
+          DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+      }
+    });
+    await tester.pumpAndSettle();
+  }
+
   Future<void> mount(WidgetTester tester) => tester.pumpWidget(
     MaterialApp(
       home: Scaffold(
@@ -126,16 +145,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Install'), findsOneWidget);
     expect(updater.installCalls, 0);
-    await tester.runAsync(() async {
-      final finished = service.updateState.firstWhere(
-        (state) => state.phase == AppUpdatePhase.error,
-      );
-      await tester.tap(find.text('Install'));
-      await finished;
-    });
-    await tester.pumpAndSettle();
+    await tapInstall(tester);
     expect(updater.installCalls, 1);
     expect(find.text('Retry'), findsOneWidget);
+    expect(
+      find.textContaining('Installation is not authorized'),
+      findsOneWidget,
+    );
     expect(service.downloadedPath, apk.path);
   });
 
@@ -326,14 +342,14 @@ void main() {
   testWidgets('rapid Install taps close only the update dialog', (
     tester,
   ) async {
-    late Completer<bool> installation;
+    late Completer<ApkInstallOutcome> installation;
     await mount(tester);
     await tester.tap(find.text('Open update'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Download'));
     await tester.pumpAndSettle();
     await tester.runAsync(() async {
-      installation = Completer<bool>();
+      installation = Completer<ApkInstallOutcome>();
       final requested = Completer<void>();
       updater.install = (_) {
         requested.complete();
@@ -348,7 +364,7 @@ void main() {
       final finished = service.updateState.firstWhere(
         (_) => service.installationStarted,
       );
-      installation.complete(true);
+      installation.complete(ApkInstallOutcome.installerLaunched);
       await finished;
     });
     await tester.pumpAndSettle();
@@ -360,7 +376,7 @@ void main() {
   testWidgets('returning from the installer allows a cached explicit retry', (
     tester,
   ) async {
-    updater.install = (_) async => true;
+    updater.install = (_) async => ApkInstallOutcome.installerLaunched;
     await mount(tester);
     await tester.tap(find.text('Open update'));
     await tester.pumpAndSettle();
@@ -495,5 +511,82 @@ void main() {
     await tester.tap(find.text("What's new"));
     await tester.pump();
     expect(calls, 1);
+  });
+
+  testWidgets(
+    'permission denial is neutral and retry reuses the downloaded APK',
+    (tester) async {
+      final installedPaths = <String>[];
+      updater.install = (path) async {
+        installedPaths.add(path);
+        return ApkInstallOutcome.permissionRequired;
+      };
+      await tester.pumpWidget(MaterialApp(home: dialog()));
+      await tester.tap(find.text('Download'));
+      await tester.pumpAndSettle();
+      await tapInstall(tester);
+
+      expect(find.byType(UpdateDialog), findsOneWidget);
+      final guidance = tester.widget<Text>(
+        find.textContaining('Installation is not authorized'),
+      );
+      expect(guidance.style?.color, isNull);
+      expect(find.textContaining("Couldn't"), findsNothing);
+      expect(service.currentState.error, isNull);
+
+      await tapInstall(tester, label: 'Retry');
+
+      expect(updater.downloadCalls, 1);
+      expect(installedPaths, [apk.path, apk.path]);
+      expect(service.currentState.error, isNull);
+    },
+  );
+
+  testWidgets('invalid APK is discarded and Retry downloads again', (
+    tester,
+  ) async {
+    updater.install = (_) async => throw const InvalidApkException();
+    await tester.pumpWidget(MaterialApp(home: dialog()));
+    await tester.tap(find.text('Download'));
+    await tester.pumpAndSettle();
+    await tapInstall(tester);
+
+    expect(
+      find.text("Couldn't install the app update. Try again."),
+      findsOneWidget,
+    );
+    expect(service.downloadedPath, isNull);
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+
+    expect(updater.downloadCalls, 2);
+    expect(find.text('Install'), findsOneWidget);
+    expect(find.textContaining("Couldn't"), findsNothing);
+  });
+
+  testWidgets('native cancellation never relaunches and reuses the cache', (
+    tester,
+  ) async {
+    updater.install = (_) async => ApkInstallOutcome.cancelled;
+    await tester.pumpWidget(MaterialApp(home: dialog()));
+    await tester.tap(find.text('Download'));
+    await tester.pumpAndSettle();
+    await tapInstall(tester);
+
+    expect(find.byType(UpdateDialog), findsOneWidget);
+    expect(find.text('Install'), findsOneWidget);
+    expect(find.textContaining("Couldn't"), findsNothing);
+    expect(service.currentState.error, isNull);
+
+    service.onAppResumed();
+    service.onAppResumed();
+    await tester.pumpAndSettle();
+
+    expect(updater.installCalls, 1);
+    expect(find.text('Install'), findsOneWidget);
+    await tapInstall(tester);
+
+    expect(updater.installCalls, 2);
+    expect(updater.downloadCalls, 1);
   });
 }

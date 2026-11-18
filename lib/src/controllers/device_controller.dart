@@ -17,6 +17,16 @@ import 'package:reaprime/src/services/ble/ble_discovery_service.dart';
 import 'package:reaprime/src/services/telemetry/telemetry_service.dart';
 import 'package:rxdart/rxdart.dart';
 
+class DeviceStartupOutcome {
+  const DeviceStartupOutcome({this.failures = const [], this.blocking = false});
+
+  final List<Object> failures;
+
+  final bool blocking;
+
+  bool get recoveryRequired => failures.isNotEmpty;
+}
+
 class DeviceController
     implements DeviceScanner, DeviceAttachNotifier, UsbAttachProbe {
   final List<DeviceDiscoveryService> _services;
@@ -105,35 +115,80 @@ class DeviceController
     _flatDevicesCache = null;
   }
 
-  DeviceController(this._services) {
+  DeviceController(
+    this._services, {
+    bool Function(DeviceDiscoveryService service)? startupRelevance,
+  }) : _startupRelevant = startupRelevance ?? _everyServiceIsRelevant {
     _devices = {};
   }
 
+  final bool Function(DeviceDiscoveryService service) _startupRelevant;
+
+  static bool _everyServiceIsRelevant(DeviceDiscoveryService service) => true;
+
   bool _initialized = false;
   bool _disposed = false;
+  Future<void>? _initializationFuture;
+  final Set<DeviceDiscoveryService> _initializedServices = {};
+  final Map<DeviceDiscoveryService, Object> _initializationFailuresByService =
+      {};
 
-  Future<void> initialize() async {
-    if (_disposed) return;
+  List<Object> get initializationFailures =>
+      List.unmodifiable(_initializationFailuresByService.values);
+
+  DeviceStartupOutcome get startupOutcome {
+    final relevantFailures = <Object>[];
+    var relevantServiceReady = false;
+    for (final service in _services) {
+      final relevant = _startupRelevant(service);
+      if (_initializedServices.contains(service)) {
+        relevantServiceReady = relevantServiceReady || relevant;
+        continue;
+      }
+      final failure = _initializationFailuresByService[service];
+      if (relevant && failure != null) relevantFailures.add(failure);
+    }
+    return DeviceStartupOutcome(
+      failures: List.unmodifiable(relevantFailures),
+      blocking: relevantFailures.isNotEmpty && !relevantServiceReady,
+    );
+  }
+
+  Future<void> initialize() {
+    if (_disposed) return Future<void>.value();
+    final inFlight = _initializationFuture;
+    if (inFlight != null) return inFlight;
     if (_initialized) {
       _log.fine("Already initialized, skipping");
-      return;
+      return Future<void>.value();
     }
-    _initialized = true;
+    _initializationFuture = _initializeServices();
+    return _initializationFuture!;
+  }
 
+  Future<void> _initializeServices() async {
+    _initializationFailuresByService.clear();
     for (var service in _services) {
+      if (_initializedServices.contains(service)) continue;
+      StreamSubscription? attachSubscription;
       try {
         if (service case final DeviceAttachNotifier notifier) {
-          final attachSub = notifier.deviceAttached.listen((event) {
+          attachSubscription = notifier.deviceAttached.listen((event) {
             _attachOrigins[event] = service;
             _log.info("device attached on $service: $event");
             if (!_deviceAttachedStream.isClosed) {
               _deviceAttachedStream.add(event);
             }
           });
-          _serviceSubscriptions.add(attachSub);
         }
         await service.initialize();
-        if (_disposed) return;
+        if (_disposed) {
+          await attachSubscription?.cancel();
+          break;
+        }
+        if (attachSubscription != null) {
+          _serviceSubscriptions.add(attachSubscription);
+        }
         if (service case final DeviceWatchCapable watch) {
           _serviceSubscriptions.add(
             watch.deviceWatchState.listen(_scaleWatchState.add),
@@ -151,10 +206,15 @@ class DeviceController
           });
           _serviceSubscriptions.add(adapterSub);
         }
-      } catch (e) {
-        _log.warning("Service $service failed to init:", e);
+        _initializedServices.add(service);
+      } catch (e, st) {
+        await attachSubscription?.cancel();
+        _initializationFailuresByService[service] = e;
+        _log.warning("Service $service failed to init:", e, st);
       }
     }
+    _initialized = _initializedServices.length == _services.length;
+    _initializationFuture = null;
   }
 
   Future<ScanResult>? _inFlightScan;

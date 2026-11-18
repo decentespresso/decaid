@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 import 'package:rxdart/rxdart.dart';
 
 typedef StepWidgetBuilder = Widget Function(OnboardingController controller);
+typedef StepEntryHook = FutureOr<void> Function(OnboardingStep step);
 
 class OnboardingStep {
   final String id;
@@ -17,9 +20,11 @@ class OnboardingStep {
 
 class OnboardingController {
   final List<OnboardingStep> _allSteps;
+  final StepEntryHook? onStepEntered;
   List<OnboardingStep> _activeSteps = [];
   int _currentIndex = 0;
   bool _disposed = false;
+  bool _enteringStep = false;
 
   final _currentStepSubject = BehaviorSubject<OnboardingStep>();
   final _completedSubject = PublishSubject<bool>();
@@ -29,8 +34,10 @@ class OnboardingController {
   OnboardingStep get currentStep => _activeSteps[_currentIndex];
   List<OnboardingStep> get activeSteps => List.unmodifiable(_activeSteps);
 
-  OnboardingController({required List<OnboardingStep> steps})
-    : _allSteps = steps;
+  OnboardingController({
+    required List<OnboardingStep> steps,
+    this.onStepEntered,
+  }) : _allSteps = steps;
 
   Future<void> initialize() async {
     if (_disposed) return;
@@ -44,18 +51,34 @@ class OnboardingController {
     }
     _currentIndex = 0;
     if (_activeSteps.isNotEmpty) {
-      _currentStepSubject.add(_activeSteps[_currentIndex]);
+      await _enterStep(0);
     }
   }
 
   void advance() {
-    if (_disposed) return;
+    if (_disposed || _enteringStep) return;
     if (_currentIndex >= _activeSteps.length - 1) {
       _completedSubject.add(true);
       return;
     }
-    _currentIndex++;
-    _currentStepSubject.add(_activeSteps[_currentIndex]);
+    unawaited(_enterStep(_currentIndex + 1));
+  }
+
+  Future<void> _enterStep(int index) async {
+    _enteringStep = true;
+    try {
+      final step = _activeSteps[index];
+      final hook = onStepEntered;
+      if (hook != null) {
+        final entry = hook(step);
+        if (entry is Future) await entry;
+      }
+      if (_disposed) return;
+      _currentIndex = index;
+      _currentStepSubject.add(step);
+    } finally {
+      _enteringStep = false;
+    }
   }
 
   void dispose() {

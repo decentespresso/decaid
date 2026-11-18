@@ -48,11 +48,14 @@ class _Updater extends AndroidUpdater {
   }
 
   @override
-  Future<bool> installUpdate(String path) async {
+  Future<ApkInstallOutcome> installUpdate(
+    String path, {
+    bool requestPermission = true,
+  }) async {
     installations++;
     if (installGate != null) await installGate!.future;
     if (failInstall) throw StateError('private installer detail');
-    return true;
+    return ApkInstallOutcome.installerLaunched;
   }
 
   @override
@@ -87,6 +90,30 @@ class _Settings extends MockSettingsService {
     await _wait('skipped');
     return super.skippedVersion();
   }
+}
+
+class _GatedExistsFile implements File {
+  _GatedExistsFile(this._delegate, this.existsStarted);
+
+  final File _delegate;
+  final Completer<void> existsStarted;
+  final existsGate = Completer<bool>();
+
+  @override
+  String get path => _delegate.path;
+
+  @override
+  Future<FileStat> stat() => _delegate.stat();
+
+  @override
+  Future<bool> exists() {
+    if (!existsStarted.isCompleted) existsStarted.complete();
+    return existsGate.future;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnsupportedError('${invocation.memberName}');
 }
 
 UpdateInfo _update({String version = '1.0.0', String? url}) => UpdateInfo(
@@ -177,7 +204,12 @@ void main() {
             );
             expect(after, same(before));
             expect(service.availableUpdate, same(update));
-            expect(operationResult, operation == 'download' ? path : isTrue);
+            expect(
+              operationResult,
+              operation == 'download'
+                  ? path
+                  : ApkInstallOutcome.installerLaunched,
+            );
           },
         );
       }
@@ -363,7 +395,10 @@ void main() {
         isNot(contains('private installer detail')),
       );
       updater.failInstall = false;
-      expect(await service.installUpdate(path), isTrue);
+      expect(
+        await service.installUpdate(path),
+        ApkInstallOutcome.installerLaunched,
+      );
       expect(updater.installations, 2);
       expect(updater.downloads, 1);
     },
@@ -397,6 +432,48 @@ void main() {
     expect(service.availableUpdate, same(update));
     expect(updater.installations, 1);
   });
+
+  test(
+    'a superseded installation failure cannot clear a completed replacement',
+    () async {
+      final path = await service.downloadUpdate(update, (_) {});
+      final cached = File(path);
+      final existsStarted = Completer<void>();
+      final gated = _GatedExistsFile(cached, existsStarted);
+      updater.failInstall = true;
+
+      final stale = IOOverrides.runZoned(
+        () => _result(service.installUpdate(path)),
+        createFile: (candidate) {
+          expect(candidate, path);
+          return gated;
+        },
+      );
+      await existsStarted.future;
+
+      service.cancelInstallAttempt();
+      updater.failInstall = false;
+      final installGate = Completer<void>();
+      updater.installGate = installGate;
+      final replacement = service.installUpdate(path);
+      await Future<void>.delayed(Duration.zero);
+      final installingState = service.currentState;
+      expect(installingState.phase, AppUpdatePhase.installing);
+
+      gated.existsGate.complete(true);
+      expect(await stale, isA<StateError>());
+
+      expect(service.currentState, same(installingState));
+      expect(service.installUpdate(path), same(replacement));
+      expect(service.downloadedPath, path);
+      expect(updater.installations, 2);
+
+      installGate.complete();
+      expect(await replacement, ApkInstallOutcome.installerLaunched);
+      expect(updater.installations, 2);
+      expect(updater.downloads, 1);
+    },
+  );
 
   test(
     'cache inspection errors discard the path and allow a fresh retry',

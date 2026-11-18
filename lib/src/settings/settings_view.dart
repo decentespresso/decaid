@@ -17,6 +17,7 @@ import 'package:reaprime/src/settings/presence_settings_page.dart';
 import 'package:reaprime/src/settings/security_page.dart';
 import 'package:reaprime/src/settings/charging_mode.dart';
 import 'package:reaprime/src/settings/app_update_dialog.dart';
+import 'package:reaprime/src/settings/update_dialog.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
 import 'package:reaprime/src/widgets/remote_error_snack_bar.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
@@ -582,5 +583,26 @@ class SettingsView extends StatelessWidget {
         ),
       );
     }
+  }
+}
+
+Future<void> showAndroidUpdateDialog(
+  BuildContext context, {
+  required UpdateInfo updateInfo,
+  required AndroidUpdater updater,
+}) async {
+  try {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AndroidQuickUpdateDialog(
+        updateInfo: updateInfo,
+        onDownload: (info, onProgress) =>
+            updater.downloadUpdate(info, onProgress: onProgress),
+        onInstall: updater.installUpdate,
+      ),
+    );
+  } finally {
+    updater.dispose();
   }
 }

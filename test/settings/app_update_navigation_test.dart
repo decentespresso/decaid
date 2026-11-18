@@ -81,9 +81,12 @@ class _Updater extends AndroidUpdater {
   }
 
   @override
-  Future<bool> installUpdate(String path) async {
+  Future<ApkInstallOutcome> installUpdate(
+    String path, {
+    bool requestPermission = true,
+  }) async {
     installations++;
-    return false;
+    return ApkInstallOutcome.cancelled;
   }
 }
 
