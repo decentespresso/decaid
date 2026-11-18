@@ -9,6 +9,7 @@ import 'package:reaprime/src/models/device/de1_rawmessage.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/firmware_update_state.dart';
+import 'package:reaprime/src/models/device/impl/de1/unified_de1/bengle_est_sample.dart';
 import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
 import 'package:reaprime/src/models/device/impl/replay/shot_replayer.dart';
 import 'package:clock/clock.dart';
@@ -344,6 +345,10 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
   Stream<bool> get probeAttached => Stream<bool>.value(false);
   @override
   Stream<double> get probeTemperature => const Stream<double>.empty();
+
+  @override
+  Stream<BengleEstSample> get puckEstimator =>
+      const Stream<BengleEstSample>.empty();
 
   @override
   Stream<bool> get ready => _synthetic.ready;

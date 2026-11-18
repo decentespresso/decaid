@@ -9,6 +9,7 @@ import 'package:reaprime/src/controllers/presence_controller.dart';
 import 'package:reaprime/src/models/device/bengle_interface.dart';
 import 'package:reaprime/src/models/device/cup_warmer.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
+import 'package:reaprime/src/models/device/impl/de1/unified_de1/bengle_est_sample.dart';
 import 'package:reaprime/src/models/firmware_wake_window.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
@@ -140,6 +141,9 @@ class _FakeBengle extends MockDe1 implements BengleInterface {
   Stream<bool> get probeAttached => const Stream.empty();
   @override
   Stream<double> get probeTemperature => const Stream.empty();
+
+  @override
+  Stream<BengleEstSample> get puckEstimator => const Stream.empty();
 }
 
 class _TestDe1Controller extends De1Controller {

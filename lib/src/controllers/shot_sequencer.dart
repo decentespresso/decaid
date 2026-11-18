@@ -4,6 +4,7 @@ import 'package:logging/logging.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
+import 'package:reaprime/src/controllers/sensor_controller.dart';
 import 'package:reaprime/src/controllers/step_exit_arbiter.dart';
 import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/data/shot_snapshot.dart';
@@ -11,6 +12,7 @@ import 'package:reaprime/src/models/data/shot_state_event.dart';
 import 'package:reaprime/src/models/device/bengle_interface.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/scale.dart';
+import 'package:reaprime/src/models/device/sensor.dart';
 import 'package:reaprime/src/models/device/device.dart' as device;
 import 'package:rxdart/rxdart.dart';
 
@@ -22,6 +24,25 @@ class ShotSequencer {
   final ScaleController scaleController;
   final PersistenceController persistenceController;
   final Profile targetProfile;
+
+  /// Optional so every existing construction site keeps working; when absent,
+  /// shots simply record no sensor channels, exactly as before.
+  final SensorController? sensorController;
+
+  /// deviceId -> that sensor's latest frame, refreshed as frames arrive and
+  /// copied into each ShotSnapshot.
+  final Map<String, Map<String, dynamic>> _latestSensorFrames = {};
+  final Map<
+    String,
+    ({
+      Sensor sensor,
+      StreamSubscription<Map<String, dynamic>> subscription,
+      StreamSubscription<device.ConnectionState> link,
+    })
+  >
+  _sensorBindings = {};
+  final Map<String, Stream<Map<String, dynamic>>> _endedSensorStreams = {};
+  final Set<String> _disconnectedSensors = {};
 
   final Logger _log = Logger("ShotSequencer");
 
@@ -63,6 +84,7 @@ class ShotSequencer {
     required this.de1controller,
     required this.persistenceController,
     required this.targetProfile,
+    this.sensorController,
     required this.targetYield,
     double? targetWaterVolume,
     required this._bypassSAW,
@@ -110,16 +132,133 @@ class ShotSequencer {
     _snapshotSubscription = de1controller.connectedDe1().currentSnapshot.listen(
       (machine) {
         _syncScaleConnectionGeneration();
+        _syncSensorSubscriptions();
         _processSnapshot(
-          ShotSnapshot(machine: machine, scale: _scaleFor(machine)),
+          ShotSnapshot(
+            machine: machine,
+            scale: _scaleFor(machine),
+            sensors: _sensorFrames(),
+          ),
         );
       },
       onError: (error) => _log.warning("Error processing DE1 snapshot: $error"),
     );
   }
 
+  /// Attach to any sensor that has appeared and drop any that has gone.
+  ///
+  /// Re-checked per snapshot rather than once at start: a sensor can register
+  /// MID-SHOT -- the Bengle puck estimator registers on its first decoded
+  /// frame, so binding only at shot start would miss it on every shot where the
+  /// observer had not yet spoken.
+  void _syncSensorSubscriptions() {
+    final controller = sensorController;
+    if (controller == null) return;
+    final current = controller.sensors;
+
+    for (final entry in _sensorBindings.entries.toList()) {
+      if (identical(current[entry.key], entry.value.sensor)) continue;
+      _unbindSensor(entry.key);
+    }
+
+    for (final entry in current.entries) {
+      if (_sensorBindings.containsKey(entry.key)) continue;
+      final stream = entry.value.data;
+      if (stream == _endedSensorStreams[entry.key]) continue;
+      _bindSensor(entry.key, entry.value, stream);
+    }
+  }
+
+  void _bindSensor(
+    String id,
+    Sensor sensor,
+    Stream<Map<String, dynamic>> stream,
+  ) {
+    _endedSensorStreams.remove(id);
+    Map<String, dynamic>? frameBeforeBind = _currentValue(stream);
+    final subscription = stream.listen(
+      (frame) {
+        final replayed = identical(frame, frameBeforeBind);
+        frameBeforeBind = null;
+        if (replayed || _disconnectedSensors.contains(id)) return;
+        _latestSensorFrames[id] = _finiteChannels(frame);
+      },
+      onError: (Object e) {
+        frameBeforeBind = null;
+        _log.warning('sensor $id data error, clearing its last frame: $e');
+        _latestSensorFrames.remove(id);
+      },
+      onDone: () {
+        _unbindSensor(id);
+        _endedSensorStreams[id] = stream;
+      },
+    );
+    final link = sensor.connectionState.listen(
+      (state) => _onSensorConnection(id, state),
+      onError: (Object e) =>
+          _log.warning('sensor $id connection state error: $e'),
+    );
+    _sensorBindings[id] = (
+      sensor: sensor,
+      subscription: subscription,
+      link: link,
+    );
+  }
+
+  static Map<String, dynamic>? _currentValue(
+    Stream<Map<String, dynamic>> stream,
+  ) => stream is ValueStream<Map<String, dynamic>> ? stream.valueOrNull : null;
+
+  void _onSensorConnection(String id, device.ConnectionState state) {
+    if (state != device.ConnectionState.disconnected &&
+        state != device.ConnectionState.disconnecting) {
+      _disconnectedSensors.remove(id);
+      return;
+    }
+    if (_disconnectedSensors.add(id)) {
+      _log.info('sensor $id is $state, clearing its last frame');
+    }
+    _latestSensorFrames.remove(id);
+  }
+
+  void _unbindSensor(String id) {
+    final binding = _sensorBindings.remove(id);
+    binding?.subscription.cancel();
+    binding?.link.cancel();
+    _disconnectedSensors.remove(id);
+    _latestSensorFrames.remove(id);
+  }
+
+  static Map<String, dynamic> _finiteChannels(Map<String, dynamic> frame) => {
+    for (final entry in frame.entries) entry.key: _finiteValue(entry.value),
+  };
+
+  static Object? _finiteValue(Object? value) => switch (value) {
+    double number when !number.isFinite => null,
+    Map map => {
+      for (final entry in map.entries) entry.key: _finiteValue(entry.value),
+    },
+    List list => [for (final item in list) _finiteValue(item)],
+    _ => value,
+  };
+
+  Map<String, Map<String, dynamic>>? _sensorFrames() {
+    if (_latestSensorFrames.isEmpty) return null;
+    return {
+      for (final e in _latestSensorFrames.entries)
+        e.key: Map<String, dynamic>.from(e.value),
+    };
+  }
+
   void dispose() {
     _log.fine("dispose");
+    for (final binding in _sensorBindings.values) {
+      binding.subscription.cancel();
+      binding.link.cancel();
+    }
+    _sensorBindings.clear();
+    _disconnectedSensors.clear();
+    _endedSensorStreams.clear();
     _snapshotSubscription?.cancel();
     _scaleConnectionSubscription?.cancel();
     _scaleWeightSubscription?.cancel();
