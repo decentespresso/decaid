@@ -2,6 +2,8 @@
 
 For unfamiliar or multi-subsystem tasks, read `doc/AI_REPO_MAP.md` first. For known files or exact symbols, open them directly. Read domain-specific docs only when the task needs them.
 
+For specification, PR evidence, independent review, and integration handoffs, follow [`doc/AGENT_WORKFLOW.md`](doc/AGENT_WORKFLOW.md). Its supplemental evidence fields are advisory while piloted; the verification and contribution rules below, and every other existing gate, remain required.
+
 ## Workflow
 
 ### Starting Work
