@@ -22,8 +22,8 @@ function createPlugin(host) {
   const MACHINE_INFO_RETRY_MS = 30000;
   const MACHINE_INFO_ATTEMPTS = 5;
   const MACHINE_INFO_REFRESH_MS = 60000;
-  const STALL_WINDOW_SECONDS = 60;
-  const STALL_GAIN_CELSIUS = 0.5;
+  const STALL_WINDOW_SECONDS = 30;
+  const STALL_GAIN_CELSIUS = 0.25;
   const STALL_COVERAGE_TOLERANCE = 0.95;
   const MIN_CONTINUING_WARMED_CELSIUS =
     (STALL_GAIN_CELSIUS * RATE_WINDOW_SECONDS) / STALL_WINDOW_SECONDS;
@@ -222,7 +222,9 @@ function createPlugin(host) {
       startHeatSession(now, currentTemp);
     } else if (state.heatStartTime !== null &&
       currentTemp < state.heatStartTemp - 2) {
-      resetHeatStart();
+      const stallSamples = state.stallSamples;
+      startHeatSession(now, currentTemp);
+      state.stallSamples = stallSamples;
     }
     if (state.heatStartTime === null && machineState !== 'sleeping' &&
       currentTemp < targetTemp) {
@@ -273,22 +275,25 @@ function createPlugin(host) {
       };
     }
 
-    const heatingRate = calculateRecentRate(now);
-    if (heatingRate === null) {
-      const stalled = state.heatStartTime !== null &&
-        now - state.heatStartTime >= STALL_WINDOW_SECONDS * 1000 &&
-        !isHeating(now, STALL_WINDOW_SECONDS);
-      if (stalled) {
-        state.published = false;
-        state.maximumRemainingTimeSeconds = null;
-      }
+    if (state.heatStartTime !== null && !isHeating(now, STALL_WINDOW_SECONDS)) {
+      state.published = false;
+      state.maximumRemainingTimeSeconds = null;
+      state.peakRate = null;
       return {
         remainingTimeMs: null,
-        heatingRate: stalled ? 0 : null,
-        status: stalled ? 'not_heating' : 'insufficient_data',
-        message: stalled
-          ? 'Temperature is stable or decreasing'
-          : 'Collecting temperature data...',
+        heatingRate: 0,
+        status: 'not_heating',
+        message: 'Temperature is stable or decreasing',
+      };
+    }
+
+    const heatingRate = calculateRecentRate(now);
+    if (heatingRate === null) {
+      return {
+        remainingTimeMs: null,
+        heatingRate: null,
+        status: 'insufficient_data',
+        message: 'Collecting temperature data...',
       };
     }
 
@@ -386,7 +391,8 @@ function createPlugin(host) {
     if (window.length < 2) return true;
     const coveredSeconds = (window.at(-1).timestamp - window[0].timestamp) / 1000;
     if (coveredSeconds < spanSeconds * STALL_COVERAGE_TOLERANCE) return true;
-    const gain = window.at(-1).temperature - window[0].temperature;
+    const coldest = Math.min(...window.map((sample) => sample.temperature));
+    const gain = window.at(-1).temperature - coldest;
     return gain >= STALL_GAIN_CELSIUS;
   }
 
