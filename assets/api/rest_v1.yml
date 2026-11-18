@@ -32,8 +32,9 @@ info:
     or webUiPath, and a pull or two-way sync that includes the settings
     section. A trusted origin is scheme `http` on localhost, 127.0.0.1, ::1 or
     a numeric address currently assigned to a local network interface, on the
-    live skin page port or the actual API listener port; anything else,
-    including `Origin: null`, `https`, a hostname and a retired port, is
+    live skin page port, the actual API listener port, or the built-in API docs
+    viewer port while its listener is bound; anything else, including
+    `Origin: null`, `https`, a hostname and a retired port, is
     refused. A literal loopback host is trusted only from a request whose TCP
     socket peer is loopback or one of the device's current addresses; a peer
     that is missing, unreadable or belongs to another machine is refused, so a
@@ -45,6 +46,27 @@ info:
     admitted. Requests without an `Origin` header are unaffected. Origin is not
     authentication: a non-browser client can omit or forge it, so this
     boundary covers browser pages only.
+
+    A `GET` of a built-in page that arrives through a hostname is answered with
+    302 to the same path on the numeric local endpoint: `/` and `/index.html`
+    on the docs viewer port, `/api/v1/plugins/settings.reaplugin/ui` on the API
+    port. The destination carries only `http`, the port the listener bound and
+    one numeric address of the client's address family: the address the
+    listener actually bound when that is concrete, otherwise the single usable
+    current interface address, and 127.0.0.1 or ::1 for a loopback client. The
+    incoming query string and credentials are not carried over, and the
+    `Location` ends in an explicitly empty fragment so a fragment on the alias
+    address is not inherited by the numeric page (a browser reattaches it when
+    the redirect target has no fragment, and it never reaches the server), and
+    the answer carries `Cache-Control: no-store`. The page entry is refused with
+    403 and `{"error":"This page is only served from the device address"}` when
+    that destination is not unique (more than one current address of the
+    family), when the listener has not bound, or when the request carries no
+    socket peer or an unclassifiable `Host` - anything that is not a numeric
+    address, `localhost`, a bracketed IPv6 literal or DNS labels with an optional
+    port in 1-65535; opening the numeric address directly avoids the redirect.
+    No other route, spec file, third-party plugin page or mutation is redirected,
+    and the redirect adds no trusted origin.
 x-admission-control:
   windowSeconds: 1
   globalConcurrent: 128
@@ -76,7 +98,9 @@ paths:
         Returns the static API documentation locations. The paths under `docs`
         are relative to the same host as the API request, using the advertised
         documentation port (4001) rather than port 8080. The documentation
-        listener may be unavailable even when this endpoint responds.
+        listener may be unavailable even when this endpoint responds. A viewer
+        opened through a hostname is redirected to the same path on the numeric
+        local endpoint.
       tags: [Documentation]
       responses:
         "200":
@@ -7115,24 +7139,22 @@ components:
             milk-probe scaffolding lives in `/sensors`, not here.
           items:
             type: string
-            enum: [
-              cupWarmer,
-              integratedScale,
-              ledStrip,
-              stopAtWeight,
-              scaleCalibration,
-              preheat,
-              wakeSchedule,
-            ]
-          example: [
-            cupWarmer,
-            integratedScale,
-            ledStrip,
-            stopAtWeight,
-            scaleCalibration,
-            preheat,
-            wakeSchedule,
-          ]
+            enum:
+              - cupWarmer
+              - integratedScale
+              - ledStrip
+              - stopAtWeight
+              - scaleCalibration
+              - preheat
+              - wakeSchedule
+          example:
+            - cupWarmer
+            - integratedScale
+            - ledStrip
+            - stopAtWeight
+            - scaleCalibration
+            - preheat
+            - wakeSchedule
 
     CupWarmerState:
       type: object
@@ -7271,18 +7293,17 @@ components:
           description: Seconds left in the current settle/average phase
         status:
           type: string
-          enum: [
-            ok,
-            incomplete,
-            noZero,
-            notSettled,
-            badWeight,
-            badDelta,
-            illConditioned,
-            outOfRange,
-            notIsolated,
-            none,
-          ]
+          enum:
+            - ok
+            - incomplete
+            - noZero
+            - notSettled
+            - badWeight
+            - badDelta
+            - illConditioned
+            - outOfRange
+            - notIsolated
+            - none
           description: Result of the last latch attempt (`none` = in progress / not attempted)
 
     ScaleCalibrationCommandRequest:
