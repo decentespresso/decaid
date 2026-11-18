@@ -18,6 +18,7 @@ class _Updater extends AndroidUpdater {
   Completer<void>? checkGate;
   Completer<void>? downloadGate;
   Completer<void>? installGate;
+  Completer<void>? installEntered;
   bool failCheck = false;
   bool failInstall = false;
   int downloads = 0;
@@ -53,6 +54,8 @@ class _Updater extends AndroidUpdater {
     bool requestPermission = true,
   }) async {
     installations++;
+    final entered = installEntered;
+    if (entered != null && !entered.isCompleted) entered.complete();
     if (installGate != null) await installGate!.future;
     if (failInstall) throw StateError('private installer detail');
     return ApkInstallOutcome.installerLaunched;
@@ -455,8 +458,10 @@ void main() {
       updater.failInstall = false;
       final installGate = Completer<void>();
       updater.installGate = installGate;
+      final entered = Completer<void>();
+      updater.installEntered = entered;
       final replacement = service.installUpdate(path);
-      await Future<void>.delayed(Duration.zero);
+      await entered.future;
       final installingState = service.currentState;
       expect(installingState.phase, AppUpdatePhase.installing);
 
@@ -469,6 +474,50 @@ void main() {
       expect(updater.installations, 2);
 
       installGate.complete();
+      expect(await replacement, ApkInstallOutcome.installerLaunched);
+      expect(updater.installations, 2);
+      expect(updater.downloads, 1);
+    },
+  );
+
+  test(
+    'releasing a stale failure before installer entry asserts prematurely',
+    () async {
+      final path = await service.downloadUpdate(update, (_) {});
+      final cached = File(path);
+      final existsStarted = Completer<void>();
+      final gated = _GatedExistsFile(cached, existsStarted);
+      updater.failInstall = true;
+
+      final stale = IOOverrides.runZoned(
+        () => _result(service.installUpdate(path)),
+        createFile: (candidate) {
+          expect(candidate, path);
+          return gated;
+        },
+      );
+      await existsStarted.future;
+
+      service.cancelInstallAttempt();
+      updater.failInstall = false;
+      final statEntered = Completer<void>();
+      final statGate = Completer<FileStat>();
+      final replacement = IOOverrides.runZoned(
+        () => service.installUpdate(path),
+        stat: (_) {
+          statEntered.complete();
+          return statGate.future;
+        },
+      );
+      await statEntered.future;
+
+      expect(updater.installations, 1);
+      gated.existsGate.complete(true);
+      expect(await stale, isA<StateError>());
+      expect(service.currentState.phase, AppUpdatePhase.installing);
+      expect(updater.installations, 1);
+
+      statGate.complete(cached.statSync());
       expect(await replacement, ApkInstallOutcome.installerLaunched);
       expect(updater.installations, 2);
       expect(updater.downloads, 1);
