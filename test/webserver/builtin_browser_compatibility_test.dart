@@ -31,6 +31,14 @@ const _managedInterfaceAddress = '192.168.12.64';
 const _nodeHarness = 'test/plugins/builtin_browser_requests.cjs';
 const _nodeTimeout = Duration(seconds: 60);
 
+class _ScopedPeerAddress extends Fake implements InternetAddress {
+  @override
+  String get address => 'fe80::1%test-interface';
+
+  @override
+  Uint8List get rawAddress => InternetAddress('fe80::1').rawAddress;
+}
+
 class _Reply {
   _Reply(this.status, this.body, this.headers);
 
@@ -1444,7 +1452,7 @@ void main() {
       );
       expect(
         canonicalPageHost(
-          peer: InternetAddress('fe80::1%en0'),
+          peer: _ScopedPeerAddress(),
           addresses: {'2001:db8:12::64'},
         ),
         isNull,
