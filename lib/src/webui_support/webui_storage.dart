@@ -152,6 +152,7 @@ class WebUIStorage {
 
   late Directory _webUIDir;
   final Map<String, WebUISkin> _installedSkins = {};
+  final Map<String, List<String>> _skinPaths = {};
   final Map<String, WebUIReaMetadata> _skinMetadata = {};
   bool _initialized = false;
   final ValueNotifier<Future<void>?> _updateCheck = ValueNotifier(null);
@@ -243,6 +244,16 @@ class WebUIStorage {
   List<WebUISkin> get installedSkins => _installedSkins.values.toList();
 
   WebUISkin? getSkin(String id) => _installedSkins[id];
+
+  Iterable<String> legacySkinPaths(String path) {
+    final skin = _installedSkins.values
+        .where((skin) => skin.path == path)
+        .firstOrNull;
+    if (skin == null) return const [];
+    return (_skinPaths[skin.id] ?? const <String>[]).reversed.where(
+      (candidate) => candidate != path,
+    );
+  }
 
   WebUISkin? get defaultSkin {
     final preferredSkinId = _settingsController.defaultSkinId;
@@ -1132,9 +1143,12 @@ class WebUIStorage {
   }
 
   Future<void> _scanInstalledSkins() async {
-    _installedSkins.clear();
+    final installedSkins = <String, WebUISkin>{};
+    final skinPaths = <String, List<String>>{};
 
     if (!_webUIDir.existsSync()) {
+      _installedSkins.clear();
+      _skinPaths.clear();
       return;
     }
 
@@ -1190,12 +1204,23 @@ class WebUIStorage {
           continue;
         }
 
-        _installedSkins[skin.id] = skin;
+        (skinPaths[skin.id] ??= []).add(skin.path);
+        final existing = installedSkins[skin.id];
+        if (existing != null && p.basename(existing.path) == skin.id) {
+          continue;
+        }
+        installedSkins[skin.id] = skin;
         _log.fine('Found skin: ${skin.id} at ${skin.path}');
       } catch (e) {
         _log.warning('Failed to load skin from ${dir.path}', e);
       }
     }
+    _installedSkins
+      ..clear()
+      ..addAll(installedSkins);
+    _skinPaths
+      ..clear()
+      ..addAll(skinPaths);
   }
 
   bool _isBundledSkin(String skinId) {

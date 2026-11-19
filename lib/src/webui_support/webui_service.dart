@@ -209,6 +209,7 @@ class WebUIService {
   String? Function(String path)? skinProxyTokenProvider;
   void Function()? skinProxyTokenRevoker;
   String? Function(String path)? skinIdentityProvider;
+  Iterable<String> Function(String path)? legacySkinPathsProvider;
 
   Future<bool> _isDeviceAddress(String host) async {
     if (host == 'localhost' || host == '127.0.0.1' || host == '::1') {
@@ -487,6 +488,16 @@ class WebUIService {
     if (identity == null) {
       _log.warning('Skin has no identity; serving on a temporary port');
       return _serveTemporarySkinPort(handler, assignments);
+    }
+    if (!assignments.containsKey(identity)) {
+      final legacyPath = legacySkinPathsProvider
+          ?.call(identity)
+          .where(assignments.containsKey)
+          .firstOrNull;
+      if (legacyPath != null) {
+        assignments[identity] = assignments.remove(legacyPath)!;
+        await _persistSkinPortAssignments(assignments);
+      }
     }
     final assigned = assignments[identity];
     if (assigned != null) {
