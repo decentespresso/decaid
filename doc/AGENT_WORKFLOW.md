@@ -190,12 +190,46 @@ not constitute maintainer product acceptance or an automatic merge gate.
 
 ## 5. Integration and merge readiness
 
-For related PRs, assess merge order, changed shared interfaces, simultaneous assumptions,
-migrations, feature flags, and how earlier merges affect later evidence. For integration-sensitive
-work, exercise the combined candidate in a disposable branch or worktree and record the combined
-commit(s) and scenarios. Check CI and review-thread status, then present a hold or merge
-recommendation. Do not merge, bypass protection, or use physical hardware without explicit
-authorization. Phase 3 (#1205) formalizes this and evaluates narrowly scoped, non-brittle CI checks.
+Use [`decent-integration`](../.agents/skills/decent-integration/SKILL.md) for the operational G5
+procedure: collect live metadata for named PRs, inspect actual diffs and shared contracts, build a
+directed dependency/order plan, exercise a disposable local combination where feasible, and refresh
+the analysis as `main` advances. This section remains authoritative for the **single merge-batch
+report template**. G4 review and current-head CI remain prerequisites, not substitutes for combined
+behavioral evidence. GitHub mergeability does not establish semantic compatibility.
+
+Record author-tested, reviewer-reviewed and combined integration SHAs separately. For L3 or
+overlapping changes, attempt isolated combined verification; if execution is unavailable or conflicts
+block assembly, label it **not tested**, give the concrete blocker and exact runnable follow-up
+commands. Simulation does not prove physical-machine behavior. No unattended merge, protection
+bypass, contributor-branch rewrite, push or physical-device operation is authorized by this process.
+Maintainers retain merge authorization. Phase 3 Deliverable A is advisory; evidence-field validation
+and ruleset recommendations belong to separate Deliverables B/C of #1205.
+
+### Merge-batch report
+
+```markdown
+## G5 merge-batch analysis — <batch / PR numbers>
+- Collected at: <UTC>; analysis start/finish: <UTC>; repository: <owner/repo>
+- Current main: <full SHA>; previous analysis main: <SHA or none>
+- Environment/tools: <OS, SDK, simulated flags, available executor and limitations>
+- Sources: <live metadata, complete diffs, issues/comments, CI, reviews/threads, artifact links>
+
+| PR / head SHA / base SHA / merge-base SHA | Risk and rationale | G4, current-head CI and unresolved findings | Author-tested / reviewer-reviewed SHAs; scoped older evidence | Prerequisite / blocked-on | Suggested sequence and rationale | Recommendation: ready / hold / needs human validation; exact reason |
+| --- | --- | --- | --- | --- | --- | --- |
+| <PR fingerprint> | <L0–L3> | <status and links; unknowns> | <distinct SHAs or unknown> | <explicit/inferred edges and mechanism> | <order or undecided> | <recommendation, not authorization> |
+
+- Dependency graph: <directed edges, evidence, uncertain edges/cycles and required decisions>
+- Shared contracts / overlaps: <files and semantic risks; API/schema/client, auth, plugin/skin updates, BLE/machine, persistence/migrations, onboarding; textual conflicts separately>
+- Checks per PR and combined: <preconditions, exact commands/scenarios, expected and actual results, exit codes, negative/error/rollback paths, evidence links; not-tested labels>
+- Disposable combination: <path/branch, pinned inputs and order, intermediate/final commit and tree SHAs, clean/conflicted state; or concrete blocker plus exact runnable commands>
+- Human/platform/hardware validation: <owner/action, simulator limitations, residual risks; authorization pending or recorded>
+- Changes since earlier verification: <landed changes and impacted contracts/tests; invalidated versus explicitly reused evidence>
+- Refresh after each merge: <fetch/pin new main, re-query remaining heads/CI/threads, rebuild graph and combination, rerun affected checks and delta review; superseded report link>
+- Exceptions/waivers: <specific item, authorized maintainer, rationale and residual risk, or none; no hard-gate waivers>
+- Maintainer merge authorization: <pending or actual recorded authorization; never inferred from this recommendation>
+- Pilot retrospective: <reviewer burden, maintainer follow-up minutes, extra rounds, missing-proof returns, false positives, observed post-merge regressions and follow-up window; not measured where unavailable>
+- Deferred gates: <what remains advisory and what further evidence/approval is needed; no CI/ruleset change under Deliverable A>
+```
 
 ## 6. Artifact privacy and retention
 
