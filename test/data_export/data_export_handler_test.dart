@@ -116,6 +116,33 @@ class UnicodeExportSection implements DataExportSection {
   ) async => const SectionImportResult();
 }
 
+class ControlledTimer implements Timer {
+  ControlledTimer(this.duration, this._callback);
+
+  final Duration duration;
+  final void Function() _callback;
+  var _active = true;
+  var _tick = 0;
+
+  void fire() {
+    if (!_active) return;
+    _active = false;
+    _tick = 1;
+    _callback();
+  }
+
+  @override
+  void cancel() {
+    _active = false;
+  }
+
+  @override
+  bool get isActive => _active;
+
+  @override
+  int get tick => _tick;
+}
+
 void main() {
   late DataExportHandler handler;
   late MockExportSection profileSection;
@@ -654,19 +681,19 @@ void main() {
       });
 
       test('returns 408 and cancels a stalled import body', () async {
+        const idleTimeout = Duration(milliseconds: 10);
         final stalledHandler = DataExportHandler(
           sections: [shotsSection],
-          limits: const DataTransferLimits(
-            syncIdleTimeout: Duration(milliseconds: 10),
-          ),
+          limits: const DataTransferLimits(syncIdleTimeout: idleTimeout),
         );
         final app = Router().plus;
         stalledHandler.addRoutes(app);
         final cancelled = Completer<void>();
         final body = StreamController<List<int>>(onCancel: cancelled.complete);
         addTearDown(body.close);
-
-        final response = await Future<Response>.sync(
+        final timers = <ControlledTimer>[];
+        final timerArmed = Completer<void>();
+        final responseFuture = runZoned(
           () => app.call(
             Request(
               'POST',
@@ -675,10 +702,30 @@ void main() {
               headers: {'content-type': 'application/octet-stream'},
             ),
           ),
-        ).timeout(const Duration(seconds: 1));
+          zoneSpecification: ZoneSpecification(
+            createTimer: (self, parent, zone, duration, callback) {
+              if (duration == idleTimeout) {
+                final timer = ControlledTimer(duration, callback);
+                timers.add(timer);
+                timerArmed.complete();
+                return timer;
+              }
+              return parent.createTimer(zone, duration, callback);
+            },
+          ),
+        );
 
+        await timerArmed.future;
+        expect(timers, hasLength(1));
+        final timer = timers.single;
+        expect(timer.duration, idleTimeout);
+        expect(timer.isActive, isTrue);
+        timer.fire();
+
+        final response = await responseFuture;
         expect(response.statusCode, 408);
-        await cancelled.future.timeout(const Duration(seconds: 1));
+        await cancelled.future;
+        expect(timer.isActive, isFalse);
         expect(body.hasListener, isFalse);
       });
 
