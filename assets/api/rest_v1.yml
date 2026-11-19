@@ -4256,7 +4256,17 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProfileRecord'
         "400":
-          description: Bad Request (missing required fields or invalid parent ID)
+          description: >-
+            Bad Request (missing required fields, an invalid step limiter, or
+            invalid parent ID). A step limiter without a numeric `value` or
+            `range` is refused with the message
+            `FormatException: limiter "value" must be a number` or
+            `FormatException: limiter "range" must be a number`. A `value` or
+            `range` that parses to NaN or an infinity (for example the string
+            `"NaN"` or the number `1e400`) is refused with
+            `FormatException: limiter "value" must be a finite number` or
+            `FormatException: limiter "range" must be a finite number`. PUT
+            /api/v1/profiles/{id} returns the same text.
         "500":
           description: Internal Server Error
 
@@ -4323,7 +4333,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProfileRecord'
         "400":
-          description: Bad Request (profile not found, target ID already exists, or cannot modify default profile)
+          description: >-
+            Bad Request (profile not found, target ID already exists, cannot
+            modify default profile, or an invalid step limiter). A step limiter
+            without a numeric `value` or `range`, or with a non-finite one, is
+            refused with the same message that POST /api/v1/profiles returns.
         "500":
           description: Internal Server Error
     
@@ -7584,7 +7598,11 @@ components:
 
     StepLimiter:
       type: object
-      description: Safety limiter for a step (caps the non-controlled variable)
+      description: >-
+        Safety limiter for a step (caps the non-controlled variable). Both
+        fields are required numbers: a profile upload whose limiter has a
+        missing, null, non-numeric or non-finite (NaN or infinite) `value` or
+        `range` is refused with a 400 that names the field.
       required:
         - value
         - range

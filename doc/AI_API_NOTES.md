@@ -582,6 +582,20 @@ flutter test test/unit/services/webserver/api_docs_server_port_test.dart
 flutter test test/unit/ui/webserver_port_conflict_app_test.dart
 ```
 
+## Profile Step Limiters
+
+A step limiter is `{value, range}`. Both fields are required numbers.
+`StepLimiter.fromJson` refuses a missing, `null` or non-numeric `value` with
+`FormatException: limiter "value" must be a number`, and a missing, `null` or
+non-numeric `range` with `FormatException: limiter "range" must be a number`.
+A field that parses to NaN or an infinity (`"NaN"`, `"Infinity"`, `1e400`) is
+refused with `FormatException: limiter "<field>" must be a finite number`.
+There is no default for either field. An explicit `range: 0` is accepted and
+stored as 0.
+
+`POST /api/v1/profiles` and `PUT /api/v1/profiles/{id}` both answer such a body
+with a 400 and the same message.
+
 ## Keeping Notes Fresh
 
 Add protocol compatibility rules, API versioning decisions, and endpoint design rationale. Prune when specs are updated.

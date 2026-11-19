@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/profile_controller.dart';
@@ -54,24 +55,32 @@ void main() {
   late ProfileController controller;
   late Handler handler;
 
-  Future<Response> postProfile(Map<String, dynamic> body) async {
+  Future<Response> postRawProfile(String body) async {
     return await handler(
       Request(
         'POST',
         Uri.parse('http://localhost/api/v1/profiles'),
-        body: jsonEncode(body),
+        body: body,
       ),
     );
   }
 
-  Future<Response> putProfile(String id, Map<String, dynamic> body) async {
+  Future<Response> putRawProfile(String id, String body) async {
     return await handler(
       Request(
         'PUT',
         Uri.parse('http://localhost/api/v1/profiles/$id'),
-        body: jsonEncode(body),
+        body: body,
       ),
     );
+  }
+
+  Future<Response> postProfile(Map<String, dynamic> body) async {
+    return await postRawProfile(jsonEncode(body));
+  }
+
+  Future<Response> putProfile(String id, Map<String, dynamic> body) async {
+    return await putRawProfile(id, jsonEncode(body));
   }
 
   setUp(() {
@@ -211,6 +220,283 @@ void main() {
       });
 
       expect(response.statusCode, 400);
+    });
+  });
+
+  group('a limiter with no range', () {
+    const rangeRefusal = {
+      'error': 'Invalid request',
+      'message': 'FormatException: limiter "range" must be a number',
+    };
+    const valueRefusal = {
+      'error': 'Invalid request',
+      'message': 'FormatException: limiter "value" must be a number',
+    };
+
+    String fixture(String name) =>
+        File('test/fixtures/profile_limiter/$name').readAsStringSync();
+
+    Map<String, dynamic> stepWithLimiter(dynamic limiter) => {
+      'name': 'pour',
+      'pump': 'pressure',
+      'transition': 'fast',
+      'volume': 100,
+      'seconds': 30,
+      'temperature': 93,
+      'sensor': 'coffee',
+      'pressure': 9,
+      'limiter': limiter,
+    };
+
+    Map<String, dynamic> profileWithStepLimiter(dynamic limiter) =>
+        profileWithoutMetadata()
+          ..['steps'] = <dynamic>[stepWithLimiter(limiter)];
+
+    Future<String> seedRecord() async {
+      final response = await postProfile({'profile': profileWithoutMetadata()});
+      final created =
+          jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+      return created['id'] as String;
+    }
+
+    Future<Map<String, dynamic>> decode(Response response) async =>
+        jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+
+    test('POST refuses the device-verbatim body that returned 500', () async {
+      final response = await postRawProfile(
+        fixture('post_body_without_range.json'),
+      );
+
+      expect(response.statusCode, 400);
+      expect(await decode(response), rangeRefusal);
+    });
+
+    test('PUT refuses the device-verbatim body with the POST text', () async {
+      final id = await seedRecord();
+
+      final response = await putRawProfile(
+        id,
+        fixture('put_body_without_range.json'),
+      );
+
+      expect(response.statusCode, 400);
+      expect(await decode(response), rangeRefusal);
+    });
+
+    test('the three captured poison shapes are all refused', () async {
+      final id = await seedRecord();
+      for (final limiter in [
+        {'value': 0.1},
+        {'value': 2.5},
+        {'value': 0},
+      ]) {
+        final body = {'profile': profileWithStepLimiter(limiter)};
+
+        final post = await postProfile(body);
+        final put = await putProfile(id, body);
+
+        expect(post.statusCode, 400, reason: 'POST limiter $limiter');
+        expect(put.statusCode, 400, reason: 'PUT limiter $limiter');
+        expect(await decode(post), rangeRefusal, reason: 'POST $limiter');
+        expect(await decode(put), rangeRefusal, reason: 'PUT $limiter');
+      }
+    });
+
+    final refusedForms = <String, (Map<String, dynamic>, Map<String, String>)>{
+      '(a) {value: 6}': (const {'value': 6}, rangeRefusal),
+      '(c) {value: 6, range: null}': (
+        const {'value': 6, 'range': null},
+        rangeRefusal,
+      ),
+      '(d) {range: 1}': (const {'range': 1}, valueRefusal),
+      '(e) {value: null, range: 1}': (
+        const {'value': null, 'range': 1},
+        valueRefusal,
+      ),
+      '(f) {value: 6, range: "x"}': (
+        const {'value': 6, 'range': 'x'},
+        rangeRefusal,
+      ),
+    };
+
+    for (final MapEntry(key: form, value: (limiter, refusal))
+        in refusedForms.entries) {
+      test(
+        'form $form: POST and PUT both answer 400 with the same text',
+        () async {
+          final id = await seedRecord();
+          final body = {'profile': profileWithStepLimiter(limiter)};
+
+          final post = await postProfile(body);
+          final put = await putProfile(id, body);
+
+          expect(post.statusCode, 400);
+          expect(put.statusCode, 400);
+          expect(await decode(post), refusal);
+          expect(await decode(put), refusal);
+        },
+      );
+    }
+
+    test('form (b) {value: 6, range: 0}: POST and PUT store range 0', () async {
+      final id = await seedRecord();
+      final body = {
+        'profile': profileWithStepLimiter({'value': 6, 'range': 0}),
+      };
+
+      final post = await postProfile(body);
+      final put = await putProfile(id, body);
+
+      expect(post.statusCode, 201);
+      expect(put.statusCode, 200);
+      for (final response in [post, put]) {
+        final record = await decode(response);
+        final steps =
+            (record['profile'] as Map<String, dynamic>)['steps']
+                as List<dynamic>;
+        expect((steps.single as Map<String, dynamic>)['limiter'], {
+          'value': 6.0,
+          'range': 0.0,
+        });
+      }
+    });
+
+    test('a boolean range gets the named refusal on POST and PUT', () async {
+      final id = await seedRecord();
+      final body = {
+        'profile': profileWithStepLimiter({'value': 6, 'range': true}),
+      };
+
+      final post = await postProfile(body);
+      final put = await putProfile(id, body);
+
+      expect(post.statusCode, 400);
+      expect(put.statusCode, 400);
+      expect(await decode(post), rangeRefusal);
+      expect(await decode(put), rangeRefusal);
+    });
+
+    for (final limiter in <dynamic>[5, 'x', <dynamic>[]]) {
+      test('a non-object limiter $limiter is a 400 on POST and PUT', () async {
+        final id = await seedRecord();
+        final body = {'profile': profileWithStepLimiter(limiter)};
+
+        final post = await postProfile(body);
+        final put = await putProfile(id, body);
+        final postBody = await post.readAsString();
+        final putBody = await put.readAsString();
+
+        expect(post.statusCode, 400);
+        expect(put.statusCode, 400);
+        expect(postBody, equals(putBody));
+      });
+    }
+
+    test('POST and PUT answer identically for a valueless limiter', () async {
+      final id = await seedRecord();
+      final body = {'profile': profileWithStepLimiter(<String, dynamic>{})};
+
+      final post = await postProfile(body);
+      final put = await putProfile(id, body);
+
+      expect(post.statusCode, 400);
+      expect(put.statusCode, 400);
+      expect(await decode(post), valueRefusal);
+      expect(await decode(put), valueRefusal);
+    });
+
+    test('POST and PUT answer identically for a residual TypeError', () async {
+      final id = await seedRecord();
+      final body = profileWithoutMetadata()
+        ..['steps'] = <dynamic>[
+          stepWithLimiter({'value': 1, 'range': 0.6})..['transition'] = null,
+        ];
+
+      final post = await postProfile({'profile': body});
+      final put = await putProfile(id, {'profile': body});
+      final postBody = await post.readAsString();
+      final putBody = await put.readAsString();
+
+      expect(post.statusCode, 400);
+      expect(put.statusCode, 400);
+      expect(postBody, equals(putBody));
+    });
+
+    group('a non-finite limiter', () {
+      Map<String, String> notFiniteRefusal(String field) => {
+        'error': 'Invalid request',
+        'message': 'FormatException: limiter "$field" must be a finite number',
+      };
+
+      final nonFiniteForms = <(Map<String, dynamic>, String)>[
+        (const {'value': 'NaN', 'range': 1}, 'value'),
+        (const {'value': 'Infinity', 'range': 1}, 'value'),
+        (const {'value': 6, 'range': 'NaN'}, 'range'),
+        (const {'value': 6, 'range': '-Infinity'}, 'range'),
+      ];
+
+      for (final (limiter, field) in nonFiniteForms) {
+        test(
+          '$limiter: POST and PUT both answer 400 naming "$field"',
+          () async {
+            final id = await seedRecord();
+            final body = {'profile': profileWithStepLimiter(limiter)};
+
+            final post = await postProfile(body);
+            final put = await putProfile(id, body);
+
+            expect(post.statusCode, 400);
+            expect(put.statusCode, 400);
+            expect(await decode(post), notFiniteRefusal(field));
+            expect(await decode(put), notFiniteRefusal(field));
+          },
+        );
+      }
+
+      for (final (number, field) in [('1e400', 'value'), ('-1e400', 'range')]) {
+        test(
+          'the JSON number $number in "$field" is a 400 on POST and PUT',
+          () async {
+            final id = await seedRecord();
+            final limiter = <String, dynamic>{'value': 6, 'range': 1}
+              ..[field] = 'PLACEHOLDER';
+            final body = jsonEncode({
+              'profile': profileWithStepLimiter(limiter),
+            }).replaceFirst('"PLACEHOLDER"', number);
+
+            final post = await postRawProfile(body);
+            final put = await putRawProfile(id, body);
+
+            expect(post.statusCode, 400);
+            expect(put.statusCode, 400);
+            expect(await decode(post), notFiniteRefusal(field));
+            expect(await decode(put), notFiniteRefusal(field));
+          },
+        );
+      }
+
+      test('the hex string "0x10" is still stored as 16', () async {
+        final id = await seedRecord();
+        final body = {
+          'profile': profileWithStepLimiter({'value': '0x10', 'range': 1}),
+        };
+
+        final post = await postProfile(body);
+        final put = await putProfile(id, body);
+
+        expect(post.statusCode, 201);
+        expect(put.statusCode, 200);
+        for (final response in [post, put]) {
+          final record = await decode(response);
+          final steps =
+              (record['profile'] as Map<String, dynamic>)['steps']
+                  as List<dynamic>;
+          expect((steps.single as Map<String, dynamic>)['limiter'], {
+            'value': 16.0,
+            'range': 1.0,
+          });
+        }
+      });
     });
   });
 }
