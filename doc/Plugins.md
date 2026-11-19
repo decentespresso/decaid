@@ -652,6 +652,12 @@ a slow positive ramp keeps its countdown as long as the window gained more than
 0.15 K, which is what a decelerating DE1 approaches near target. Below that, the
 stall detector decides between `not_heating` and continued measurement.
 
+A session that published and then stalled can publish again without the start gate
+once the newer half of the rate window averages more than 0.075 K above the older
+half. Averaging keeps a single noisy reading on standby from starting a countdown,
+while a slow reheat such as 0.03 K/s regains it. A session that never published
+still has to pass the start gate.
+
 That ceiling is stricter than de1app, whose own monotonic guard is unreachable: its
 `force_update` flag is set to `1` immediately before the comparison, so the guard
 never runs.

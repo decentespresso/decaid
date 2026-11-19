@@ -909,6 +909,91 @@ test('recovering from a temperature dip is not reported as not_heating', () => {
   );
 });
 
+function slowRamp(start, ratePerSecond, seconds) {
+  return Array.from({ length: seconds }, (_, index) => start + (index + 1) * ratePerSecond);
+}
+
+function firstCountdownAfter(emitted, timestamp) {
+  return estimates(emitted).find(
+    (value) => value.timestamp >= timestamp && value.status === 'heating',
+  );
+}
+
+test('a slow resume after standby brings the countdown back', () => {
+  const now = { value: 0 };
+  const emitted = [];
+  const plugin = loadPlugin(now, emitted);
+  driveRamp(plugin, now, temperatures(50, 0.5, 40), 1000, 92);
+  driveRamp(plugin, now, Array(45).fill(69.5), 1000, 92);
+  assert.equal(estimates(emitted).at(-1).status, 'not_heating');
+
+  const resumedAt = now.value;
+  driveRamp(plugin, now, slowRamp(69.5, 0.03, 120), 1000, 92);
+
+  const countdown = firstCountdownAfter(emitted, resumedAt);
+  assert.ok(countdown, 'a 0.03 K/s resume never regained its countdown');
+  assert.ok(
+    countdown.timestamp - resumedAt <= 20000,
+    'the countdown took ' + (countdown.timestamp - resumedAt) / 1000 + ' s to return',
+  );
+  assert.equal(estimates(emitted).at(-1).status, 'heating');
+});
+
+test('a slow resume after cooling past the session reset brings the countdown back', () => {
+  const now = { value: 0 };
+  const emitted = [];
+  const plugin = loadPlugin(now, emitted);
+  driveRamp(plugin, now, temperatures(80, 0.5, 20), 1000, 92);
+  assert.equal(estimates(emitted).at(-1).status, 'heating');
+  driveRamp(plugin, now, slowRamp(89.5, -0.1, 130), 1000, 92);
+  assert.equal(estimates(emitted).at(-1).status, 'not_heating');
+
+  const resumedAt = now.value;
+  driveRamp(plugin, now, slowRamp(76.5, 0.03, 120), 1000, 92);
+
+  assert.ok(
+    firstCountdownAfter(emitted, resumedAt),
+    'cooling past the session reset lost the established session',
+  );
+});
+
+test('standby noise after a stall does not bring the countdown back', () => {
+  const now = { value: 0 };
+  const emitted = [];
+  const plugin = loadPlugin(now, emitted);
+  driveRamp(plugin, now, temperatures(50, 0.5, 40), 1000, 92);
+  driveRamp(plugin, now, Array(45).fill(69.5), 1000, 92);
+
+  const stalledAt = now.value;
+  const jitter = [0, 0.03, -0.02, 0.04, -0.03, 0.02, -0.04, 0.01];
+  const noise = Array.from(
+    { length: 120 },
+    (_, second) => 69.5 + jitter[second % jitter.length] + (second % 40 === 39 ? 0.4 : 0),
+  );
+  driveRamp(plugin, now, noise, 1000, 92);
+
+  assert.equal(
+    firstCountdownAfter(emitted, stalledAt),
+    undefined,
+    'stationary noise published a countdown',
+  );
+});
+
+test('a slow rise that never published stays behind the cold-start gate', () => {
+  const now = { value: 0 };
+  const emitted = [];
+  const plugin = loadPlugin(now, emitted);
+  driveRamp(plugin, now, Array(45).fill(60), 1000, 92);
+  assert.equal(estimates(emitted).at(-1).status, 'not_heating');
+
+  driveRamp(plugin, now, slowRamp(60, 0.03, 120), 1000, 92);
+
+  assert.ok(
+    estimates(emitted).every((value) => value.status !== 'heating'),
+    'the cold-start gate was weakened',
+  );
+});
+
 test('reached state publishes zero remaining time', () => {
   const now = { value: 0 };
   const emitted = [];

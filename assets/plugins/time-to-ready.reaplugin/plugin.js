@@ -27,6 +27,7 @@ function createPlugin(host) {
   const STALL_COVERAGE_TOLERANCE = 0.95;
   const MIN_CONTINUING_WARMED_CELSIUS =
     (STALL_GAIN_CELSIUS * RATE_WINDOW_SECONDS) / STALL_WINDOW_SECONDS;
+  const MIN_RESUMED_HALF_WINDOW_RISE_CELSIUS = MIN_CONTINUING_WARMED_CELSIUS / 2;
   const DECELERATION_TRIGGER = 0.8;
   const MAX_DECELERATION_FACTOR = 1.4;
 
@@ -44,6 +45,7 @@ function createPlugin(host) {
       temperatureSamples: [],
       stallSamples: [],
       published: false,
+      resumable: false,
     };
   }
 
@@ -146,6 +148,7 @@ function createPlugin(host) {
     state.maximumRemainingTimeSeconds = null;
     state.peakRate = null;
     state.published = false;
+    state.resumable = false;
     state.temperatureSamples = [];
     state.stallSamples = [];
   }
@@ -156,6 +159,7 @@ function createPlugin(host) {
     state.maximumRemainingTimeSeconds = null;
     state.peakRate = null;
     state.published = false;
+    state.resumable = false;
     state.temperatureSamples = [];
     state.stallSamples = [];
   }
@@ -222,9 +226,10 @@ function createPlugin(host) {
       startHeatSession(now, currentTemp);
     } else if (state.heatStartTime !== null &&
       currentTemp < state.heatStartTemp - 2) {
-      const stallSamples = state.stallSamples;
+      const { stallSamples, resumable } = state;
       startHeatSession(now, currentTemp);
       state.stallSamples = stallSamples;
+      state.resumable = resumable;
     }
     if (state.heatStartTime === null && machineState !== 'sleeping' &&
       currentTemp < targetTemp) {
@@ -276,6 +281,7 @@ function createPlugin(host) {
     }
 
     if (state.heatStartTime !== null && !isHeating(now, STALL_WINDOW_SECONDS)) {
+      state.resumable = state.resumable || state.published;
       state.published = false;
       state.maximumRemainingTimeSeconds = null;
       state.peakRate = null;
@@ -327,6 +333,7 @@ function createPlugin(host) {
     }
 
     state.published = true;
+    state.resumable = false;
     const remainingTimeSeconds = state.maximumRemainingTimeSeconds;
     const remainingTimeMs = remainingTimeSeconds * 1000;
     return {
@@ -353,7 +360,8 @@ function createPlugin(host) {
       (sessionSeconds >= SESSION_AGE_FALLBACK_SECONDS &&
         warmed >= MIN_FALLBACK_WARMED_CELSIUS);
     const continuing = state.published && warmed > MIN_CONTINUING_WARMED_CELSIUS;
-    if (!established && !continuing) return null;
+    const resuming = state.resumable && hasSustainedRise();
+    if (!established && !continuing && !resuming) return null;
 
     let fallbackRate = null;
     for (let spanSeconds = RATE_SPAN_STEP_SECONDS;
@@ -381,6 +389,19 @@ function createPlugin(host) {
       fallbackRate = rate;
     }
     return fallbackRate;
+  }
+
+  function hasSustainedRise() {
+    const samples = state.temperatureSamples;
+    const middle = Math.floor(samples.length / 2);
+    const rise = meanTemperature(samples.slice(middle)) -
+      meanTemperature(samples.slice(0, middle));
+    return rise > MIN_RESUMED_HALF_WINDOW_RISE_CELSIUS;
+  }
+
+  function meanTemperature(samples) {
+    const total = samples.reduce((sum, sample) => sum + sample.temperature, 0);
+    return total / samples.length;
   }
 
   function isHeating(now, spanSeconds) {
