@@ -12,6 +12,8 @@ import 'package:reaprime/src/services/telemetry/telemetry_service.dart';
 
 import 'settings_service.dart';
 
+final _log = Logger('Settings');
+
 class SettingsController with ChangeNotifier {
   SettingsController(this._settingsService);
 
@@ -48,6 +50,9 @@ class SettingsController with ChangeNotifier {
   String _defaultSkinId = 'streamline.js';
 
   bool _automaticUpdateCheck = true;
+
+  bool _requireExtensionManagementAuthorization = true;
+  Future<void> _extensionManagementAuthorizationOps = Future.value();
 
   UpdateChannel _updateChannel = UpdateChannel.stable;
 
@@ -97,6 +102,8 @@ class SettingsController with ChangeNotifier {
   String? get preferredGrinderDeviceId => _preferredGrinderDeviceId;
   String get defaultSkinId => _defaultSkinId;
   bool get automaticUpdateCheck => _automaticUpdateCheck;
+  bool get requireExtensionManagementAuthorization =>
+      _requireExtensionManagementAuthorization;
   UpdateChannel get updateChannel => _updateChannel;
   bool get telemetryConsent => _telemetryConsent;
   bool get telemetryPromptShown => _telemetryPromptShown;
@@ -125,6 +132,7 @@ class SettingsController with ChangeNotifier {
   set telemetryService(TelemetryService service) => _telemetryService = service;
 
   Future<void> loadSettings() async {
+    await currentRequireExtensionManagementAuthorization();
     _themeMode = await _settingsService.themeMode();
     _gatewayMode = await _settingsService.gatewayMode();
     _logLevel = await _settingsService.logLevel();
@@ -368,6 +376,45 @@ class SettingsController with ChangeNotifier {
     _automaticUpdateCheck = value;
     await _settingsService.setAutomaticUpdateCheck(value);
     notifyListeners();
+  }
+
+  Future<bool> currentRequireExtensionManagementAuthorization() {
+    final read = _extensionManagementAuthorizationOps.then((_) async {
+      bool stored;
+      try {
+        stored = await _settingsService
+            .requireExtensionManagementAuthorization();
+      } catch (error, stackTrace) {
+        _log.warning(
+          'Reading requireExtensionManagementAuthorization failed; keeping '
+          'extension management protected',
+          error,
+          stackTrace,
+        );
+        stored = true;
+      }
+      if (stored != _requireExtensionManagementAuthorization) {
+        _requireExtensionManagementAuthorization = stored;
+        notifyListeners();
+      }
+      return stored;
+    });
+    _extensionManagementAuthorizationOps = read.then(
+      (_) {},
+      onError: (Object _) {},
+    );
+    return read;
+  }
+
+  Future<void> setRequireExtensionManagementAuthorization(bool value) {
+    final write = _extensionManagementAuthorizationOps.then((_) async {
+      if (value == _requireExtensionManagementAuthorization) return;
+      await _settingsService.setRequireExtensionManagementAuthorization(value);
+      _requireExtensionManagementAuthorization = value;
+      notifyListeners();
+    });
+    _extensionManagementAuthorizationOps = write.catchError((Object _) {});
+    return write;
   }
 
   Future<void> setUpdateChannel(UpdateChannel channel) async {

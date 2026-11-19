@@ -53,6 +53,20 @@ Gotchas:
 
 Keep these stores independent. A settings reset must not clear account credentials unless explicitly requested.
 
+## Legacy Skin Port Assignments
+
+`webUISkinPorts` stores serving-path-to-port assignments. Skin discovery prefers
+the canonical directory when duplicate manifest IDs exist, but retains the
+same-ID legacy paths in memory. `WebUIService` transfers an existing legacy
+assignment to an unassigned canonical path before allocating or binding its
+port; `main.dart` wires the storage lookup into the service. The legacy key is
+removed from the saved map so ports stay unique. Existing canonical assignments
+and unrelated skins are unchanged. Failed persistence leaves the in-memory
+assignment usable and the unchanged persisted legacy mapping available for a
+retry after restart. No folder, browser profile, preferences key or Drift schema
+is migrated or deleted. This preserves the origin, not direct customizations to
+files replaced by a skin update.
+
 ## Native Notification Snapshot
 
 `NotificationCenter` owns `private.notificationCenter.v1`, a versioned JSON
@@ -239,6 +253,33 @@ This DE1-specific conversion constraint is documented in
 ## SharedPreferences Keys
 
 Settings persist via `SharedPreferencesSettingsService`. Key prefixes are flat strings. Feature flags use the `FeatureFlag` enum + `SettingsService.featureFlag/setFeatureFlag` + `SettingsController.isFeatureFlagEnabled/setFeatureFlag`.
+
+**Extension management protection (decaid#1191).** The native `Settings >
+Security` toggle persists `requireExtensionManagementAuthorization` through
+`SettingsService`. `requireExtensionManagementAuthorization()` reads it as
+`?? false`, so an absent key means compatibility mode (the shipped default for
+a fresh install and for an upgrade from a build that never stored it) and the
+presence of an old `extensions:manage` token is never inferred as protected.
+`SettingsController.currentRequireExtensionManagementAuthorization()` wraps that
+read:
+
+- it is called fresh for every API request through the
+  `requireExtensionManagementAuthorization` callback wired in
+  `buildWebServerHandler`, and again when the app resumes, so a toggle change
+  applies without a restart;
+- it fails closed. A throwing `SharedPreferences` read resolves to `true`
+  (protected) and logs a warning; that is the opposite default from a missing
+  key on purpose, so a storage fault cannot downgrade security;
+- reads and the native write share one serialized operation queue, so an
+  overlapping refresh cannot publish a stale value and the write persists
+  before it publishes.
+
+The key is native-only. `SettingsExportSection` never emits it and import, pull
+and two-way sync never read it, so a restored backup or a peer cannot change
+the policy; `POST /api/v1/settings` ignores it as an unknown key;
+`extensionManagementSettingsKeys`, `host.localApi` and the plugin KV store
+exclude it; `GET /api/v1/settings` does not return it.
+`lib/src/settings/security_page.dart` is the only writer.
 
 **First feature flag foundation (PR #371):** "Smart Step Advance" — the pattern for all future feature flags. Flag enum, settings service get/set, controller wrapper, UI toggle in Advanced Settings.
 

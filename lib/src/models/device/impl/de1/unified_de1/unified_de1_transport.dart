@@ -774,50 +774,59 @@ class UnifiedDe1Transport {
     return read(Endpoint.fwMapRequest);
   }
 
-  Future<void> write(LogicalEndpoint endpoint, Uint8List data) async {
+  Future<void> write(
+    LogicalEndpoint endpoint,
+    Uint8List data, {
+    bool retryOnTimeout = true,
+  }) async {
     if (await _transport.connectionState.first !=
         device.ConnectionState.connected) {
       throw const DeviceNotConnectedException.machine();
     }
-    try {
-      _log.fine('about to write to ${endpoint.name}');
-      _log.fine(
-        'payload: ${data.map((el) => el.toRadixString(16).padLeft(2, '0')).join(' ')}',
-      );
+    var retried = false;
+    while (true) {
+      try {
+        _log.fine('about to write to ${endpoint.name}');
+        _log.fine(
+          'payload: ${data.map((el) => el.toRadixString(16).padLeft(2, '0')).join(' ')}',
+        );
 
-      switch (transportType) {
-        case TransportType.ble:
-          if (endpoint.uuid == null) {
-            throw StateError(
-              'UnifiedDe1Transport.write: endpoint ${endpoint.name} has no BLE wire support',
-            );
-          }
-          await _bleWrite(endpoint, data, false);
-          break;
-        case TransportType.serial:
-          if (endpoint.representation == null) {
-            throw StateError(
-              'UnifiedDe1Transport.write: endpoint ${endpoint.name} has no serial wire support',
-            );
-          }
-          await _serialWrite(endpoint, data);
-          break;
-        default:
-          throw ("Unknown transport type: $transportType");
-      }
-    } catch (e, st) {
-      if (_isBleTimeout(e)) {
-        if (await _handleBleTimeout(e, st)) {
-          _log.info('Retrying write to ${endpoint.name} after reconnect');
-          return write(endpoint, data);
+        switch (transportType) {
+          case TransportType.ble:
+            if (endpoint.uuid == null) {
+              throw StateError(
+                'UnifiedDe1Transport.write: endpoint ${endpoint.name} has no BLE wire support',
+              );
+            }
+            await _bleWrite(endpoint, data, false);
+            break;
+          case TransportType.serial:
+            if (endpoint.representation == null) {
+              throw StateError(
+                'UnifiedDe1Transport.write: endpoint ${endpoint.name} has no serial wire support',
+              );
+            }
+            await _serialWrite(endpoint, data);
+            break;
+          default:
+            throw ("Unknown transport type: $transportType");
         }
+        return;
+      } catch (e, st) {
+        if (_isBleTimeout(e) && retryOnTimeout && !retried) {
+          retried = true;
+          if (await _handleBleTimeout(e, st)) {
+            _log.info('Retrying write to ${endpoint.name} after reconnect');
+            continue;
+          }
+        }
+        if (e is TimeoutException) {
+          _log.warning('write to ${endpoint.name} timed out', e, st);
+        } else {
+          _log.severe("failed to write", e, st);
+        }
+        rethrow;
       }
-      if (e is TimeoutException) {
-        _log.warning('write to ${endpoint.name} timed out', e, st);
-      } else {
-        _log.severe("failed to write", e, st);
-      }
-      rethrow;
     }
   }
 
@@ -825,57 +834,63 @@ class UnifiedDe1Transport {
     LogicalEndpoint endpoint,
     Uint8List data, {
     void Function()? beforeDispatch,
+    bool retryOnTimeout = true,
   }) async {
     if (await _transport.connectionState.first !=
         device.ConnectionState.connected) {
       throw const DeviceNotConnectedException.machine();
     }
-    try {
-      _log.fine('about to write to ${endpoint.name}');
-      if (endpoint != Endpoint.writeToMMR) {
-        _log.fine(
-          'payload: ${data.map((el) => el.toRadixString(16).padLeft(2, '0')).join(' ')}',
-        );
-      }
-      switch (transportType) {
-        case TransportType.ble:
-          if (endpoint.uuid == null) {
-            throw StateError(
-              'UnifiedDe1Transport.writeWithResponse: endpoint ${endpoint.name} has no BLE wire support',
-            );
-          }
-          beforeDispatch?.call();
-          await _bleWrite(endpoint, data, true);
-          break;
-        case TransportType.serial:
-          if (endpoint.representation == null) {
-            throw StateError(
-              'UnifiedDe1Transport.writeWithResponse: endpoint ${endpoint.name} has no serial wire support',
-            );
-          }
-          beforeDispatch?.call();
-          await _serialWrite(endpoint, data);
-          break;
-        default:
-          throw ("Unknown transport type: $transportType");
-      }
-    } catch (e, st) {
-      if (_isBleTimeout(e)) {
-        if (await _handleBleTimeout(e, st)) {
-          _log.info('Retrying write to ${endpoint.name} after reconnect');
-          return writeWithResponse(
-            endpoint,
-            data,
-            beforeDispatch: beforeDispatch,
+    var retried = false;
+    while (true) {
+      try {
+        _log.fine('about to write to ${endpoint.name}');
+        if (endpoint != Endpoint.writeToMMR) {
+          _log.fine(
+            'payload: ${data.map((el) => el.toRadixString(16).padLeft(2, '0')).join(' ')}',
           );
         }
+        switch (transportType) {
+          case TransportType.ble:
+            if (endpoint.uuid == null) {
+              throw StateError(
+                'UnifiedDe1Transport.writeWithResponse: endpoint ${endpoint.name} has no BLE wire support',
+              );
+            }
+            beforeDispatch?.call();
+            await _bleWrite(endpoint, data, true);
+            break;
+          case TransportType.serial:
+            if (endpoint.representation == null) {
+              throw StateError(
+                'UnifiedDe1Transport.writeWithResponse: endpoint ${endpoint.name} has no serial wire support',
+              );
+            }
+            beforeDispatch?.call();
+            await _serialWrite(endpoint, data);
+            break;
+          default:
+            throw ("Unknown transport type: $transportType");
+        }
+        return;
+      } catch (e, st) {
+        if (_isBleTimeout(e) && retryOnTimeout && !retried) {
+          retried = true;
+          if (await _handleBleTimeout(e, st)) {
+            _log.info('Retrying write to ${endpoint.name} after reconnect');
+            continue;
+          }
+        }
+        if (e is TimeoutException) {
+          _log.warning(
+            'writeWithResponse to ${endpoint.name} timed out',
+            e,
+            st,
+          );
+        } else {
+          _log.severe("failed to write", e, st);
+        }
+        rethrow;
       }
-      if (e is TimeoutException) {
-        _log.warning('writeWithResponse to ${endpoint.name} timed out', e, st);
-      } else {
-        _log.severe("failed to write", e, st);
-      }
-      rethrow;
     }
   }
 

@@ -67,23 +67,56 @@
   <script src="https://unpkg.com/js-yaml@5.4.2/dist/browser/js-yaml.umd.min.js"></script>
 
   <script>
+    function pageApiHost() {
+      const host = window.location.hostname;
+      return host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
+    }
+
+    function withPageApiHost(schema) {
+      const servers = schema && schema.servers;
+      if (!servers) return schema;
+      const entries = Array.isArray(servers) ? servers : Object.values(servers);
+      for (const server of entries) {
+        const variables = server && server.variables;
+        const variable = variables && variables['tablet-ip'];
+        if (variable && typeof variable === 'object' && 'default' in variable) {
+          variable.default = pageApiHost();
+        }
+      }
+      return schema;
+    }
+
+    async function fetchSpec(specUrl) {
+      const resp = await fetch(specUrl);
+      return jsyaml.load(await resp.text());
+    }
+
     window.onload = async function () {
+      let restSchema = null;
+      try {
+        restSchema = withPageApiHost(await fetchSpec('rest_v1.yml'));
+      } catch (err) {
+        console.error('Failed to prepare the REST spec:', err);
+      }
+
       // Initialize Swagger UI
-      SwaggerUIBundle({
-        url: 'rest_v1.yml',
-        dom_id: '#viewer-rest',
-        presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
-        layout: 'BaseLayout',
-        deepLinking: true
-      });
+      SwaggerUIBundle(
+        Object.assign(
+          restSchema ? { spec: restSchema } : { url: 'rest_v1.yml' },
+          {
+            dom_id: '#viewer-rest',
+            presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+            layout: 'BaseLayout',
+            deepLinking: true
+          }
+        )
+      );
 
       const container = document.getElementById('asyncapi-container');
       const specUrl = 'websocket_v1.yml';
 
       try {
-        const resp = await fetch(specUrl);
-        const yamlText = await resp.text();
-        const schema = jsyaml.load(yamlText);
+        const schema = withPageApiHost(await fetchSpec(specUrl));
 
         // Use the global defined by the standalone UMD
         const AsyncApiStandalone = window.AsyncApiStandalone;

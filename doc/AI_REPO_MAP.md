@@ -7,6 +7,7 @@ Use this for unfamiliar or multi-subsystem tasks. For known files or exact symbo
 | Task | Read first | Then |
 |------|-----------|------|
 | Any Dart code or test change | `doc/AI_TESTING_NOTES.md` | Domain-specific file below |
+| Independent PR review / post-push delta review | `.agents/skills/decent-review/SKILL.md` | `doc/AGENT_WORKFLOW.md` (G4), linked issue, actual PR diff and evidence |
 | BLE transport, connection, GATT errors | `doc/AI_BLE_NOTES.md` | `lib/src/services/ble/`, `lib/src/controllers/connection/` |
 | Bengle machine (MMR surface, capability mixins, wake sync) | `doc/device-notes/bengle.md` | `lib/src/models/device/impl/bengle/`, `lib/src/models/device/impl/de1/unified_de1/*_capability.dart` |
 | DE1 firmware, serial behavior, profile sync | `doc/device-notes/de1.md` | `lib/src/models/device/impl/de1/`, `lib/src/controllers/de1_controller.dart` |
@@ -25,6 +26,7 @@ Use this for unfamiliar or multi-subsystem tasks. For known files or exact symbo
 | Build, platform, CLI flags | `doc/AI_BUILD_NOTES.md` | `Makefile`, `pubspec.yaml` |
 | Crashes, error tracing | `doc/AI_DEBUG_NOTES.md` | `lib/src/services/crashlytics_error_filter.dart` |
 | Onboarding or settings UI | — | `lib/src/onboarding_feature/`, `lib/src/settings/`, `lib/src/launcher/` |
+| App startup readiness | `doc/DeviceManagement.md` | `lib/src/services/app_startup_coordinator.dart`, `lib/src/app.dart`, `lib/main.dart` |
 | Release process | `doc/RELEASE.md` | `.github/workflows/release.yml` |
 | Historical design rationale | — | `doc/plans/archive/` — search for the feature name |
 

@@ -26,8 +26,18 @@ class UpdateCheckService {
   final bool _isMacOS;
 
   Timer? _periodicTimer;
+  Timer? _initializeTimer;
+  bool _disposed = false;
   UpdateInfo? _availableUpdate;
   bool _hasCompletedCheck = false;
+  Future<String>? _download;
+  Future<ApkInstallOutcome>? _installation;
+  int _installRevision = 0;
+  bool _installationStarted = false;
+  bool _resumedDuringInstallation = false;
+  String? _downloadedPath;
+  (String, String)? _downloadedRelease;
+  int _operationRevision = 0;
 
   late final BehaviorSubject<AppUpdateState> _state;
 
@@ -70,7 +80,27 @@ class UpdateCheckService {
 
   AppUpdateState get currentState => _state.value;
 
-  bool get canInstall => _isAndroid;
+  bool get installationStarted => _installationStarted;
+
+  void onAppResumed() {
+    if (currentState.phase != AppUpdatePhase.installing) return;
+    if (!_installationStarted) {
+      _resumedDuringInstallation = true;
+      return;
+    }
+    _installation = null;
+    _installationStarted = false;
+    _resumedDuringInstallation = false;
+    _emit(hasAvailableUpdate ? AppUpdatePhase.available : AppUpdatePhase.idle);
+  }
+
+  String? get downloadedPath =>
+      _downloadedRelease ==
+          (_availableUpdate?.version, _availableUpdate?.downloadUrl)
+      ? _downloadedPath
+      : null;
+
+  bool get canInstall => _isAndroid && !externallyManaged;
 
   bool get canCheck => !_isMacOS && !externallyManaged;
 
@@ -94,7 +124,15 @@ class UpdateCheckService {
   }
 
   void _emit(AppUpdatePhase phase, {double? progress, String? error}) {
-    _state.add(_snapshot(phase, progress: progress, error: error));
+    if (!_state.isClosed) {
+      _state.add(_snapshot(phase, progress: progress, error: error));
+    }
+  }
+
+  void _emitNeutral() {
+    _installationStarted = false;
+    _resumedDuringInstallation = false;
+    _emit(hasAvailableUpdate ? AppUpdatePhase.available : AppUpdatePhase.idle);
   }
 
   bool get _inProgress => const {
@@ -112,7 +150,13 @@ class UpdateCheckService {
     }
   }
 
-  Future<void> downloadAndInstall() async {
+  Future<bool> requestRemoteInstall() async {
+    if (!canInstall || !await _updater.canInstallPackages()) return false;
+    await downloadAndInstall(requestPermission: false);
+    return true;
+  }
+
+  Future<void> downloadAndInstall({bool requestPermission = true}) async {
     if (_inProgress) return;
     if (!_isAndroid) return;
 
@@ -128,44 +172,190 @@ class UpdateCheckService {
       }
     }
 
-    final update = _availableUpdate!;
-    var action = 'download the app update';
     try {
-      _emit(AppUpdatePhase.downloading, progress: 0);
-      var lastEmitted = 0.0;
+      final path = await downloadUpdate(_availableUpdate!, (_) {});
+      await installUpdate(path, requestPermission: requestPermission);
+    } catch (e) {
+      _log.fine('Update failed; error state already emitted: $e');
+    }
+  }
+
+  Future<String> downloadUpdate(
+    UpdateInfo update,
+    void Function(double) onProgress,
+  ) {
+    if (!_isAndroid ||
+        externallyManaged ||
+        update.version != availableUpdate?.version ||
+        update.downloadUrl != availableUpdate?.downloadUrl) {
+      return Future.error(StateError('The app update is no longer available'));
+    }
+    if (_download case final pending?) return pending;
+    if (_installation != null ||
+        currentState.phase == AppUpdatePhase.installing) {
+      return Future.error(StateError('An app update operation is in progress'));
+    }
+    _installation = null;
+    _installationStarted = false;
+    return _download = _downloadUpdate(update, onProgress).whenComplete(() {
+      _download = null;
+    });
+  }
+
+  Future<String> _downloadUpdate(
+    UpdateInfo update,
+    void Function(double) onProgress,
+  ) async {
+    _operationRevision++;
+    try {
+      if (downloadedPath case final path?) {
+        if (await _isUsableApk(path)) {
+          _emit(AppUpdatePhase.available);
+          return path;
+        }
+      }
+      _downloadedPath = null;
+      _downloadedRelease = null;
+      _emit(AppUpdatePhase.downloading);
+      double? lastEmitted;
       final path = await _updater.downloadUpdate(
         update,
-        onProgress: (p) {
-          if (p - lastEmitted >= 0.01 || p >= 1.0) {
-            lastEmitted = p;
-            _emit(AppUpdatePhase.downloading, progress: p);
+        onProgress: (progress) {
+          if (!progress.isFinite || progress < 0 || progress > 1) return;
+          if (lastEmitted == null ||
+              progress - lastEmitted! >= 0.01 ||
+              progress >= 1) {
+            lastEmitted = progress;
+            _emit(AppUpdatePhase.downloading, progress: progress);
+            onProgress(progress);
           }
         },
       );
-
-      _emit(AppUpdatePhase.installing);
-      action = 'install the app update';
-      final started = await _updater.installUpdate(path);
-      if (!started) {
-        _emit(
-          AppUpdatePhase.error,
-          error: 'Installation permission required. Grant it and retry.',
-        );
-      }
+      _downloadedPath = path;
+      _downloadedRelease = (update.version, update.downloadUrl);
+      _emit(AppUpdatePhase.available);
+      return path;
     } catch (e, st) {
-      _log.severe('Update download/install failed', e, st);
-      _emit(AppUpdatePhase.error, error: remoteErrorMessage(e, action: action));
+      _downloadedPath = null;
+      _downloadedRelease = null;
+      _log.warning('App update download failed', e, st);
+      _emit(
+        AppUpdatePhase.error,
+        error: remoteErrorMessage(e, action: 'download the app update'),
+      );
+      rethrow;
     }
+  }
+
+  Future<ApkInstallOutcome> installUpdate(
+    String apkPath, {
+    bool requestPermission = true,
+  }) {
+    if (!_isAndroid || externallyManaged || apkPath != downloadedPath) {
+      return Future.error(
+        StateError('The downloaded app update is unavailable'),
+      );
+    }
+    if (_installation case final pending?) return pending;
+    if (_download != null || currentState.phase == AppUpdatePhase.downloading) {
+      return Future.error(StateError('An app update operation is in progress'));
+    }
+    final revision = ++_installRevision;
+    return _installation = _installAttempt(
+      apkPath,
+      requestPermission,
+      revision,
+    );
+  }
+
+  Future<ApkInstallOutcome> _installAttempt(
+    String apkPath,
+    bool requestPermission,
+    int revision,
+  ) async {
+    _operationRevision++;
+    _installationStarted = false;
+    _resumedDuringInstallation = false;
+    _emit(AppUpdatePhase.installing);
+    var cacheValidated = false;
+    try {
+      cacheValidated = await _isUsableApk(apkPath);
+      if (!cacheValidated) {
+        throw StateError('The downloaded app update is unavailable');
+      }
+      if (revision != _installRevision) return ApkInstallOutcome.cancelled;
+      final outcome = await _updater.installUpdate(
+        apkPath,
+        requestPermission: requestPermission,
+      );
+      if (revision != _installRevision) return outcome;
+      _installationStarted = outcome == ApkInstallOutcome.installerLaunched;
+      switch (outcome) {
+        case ApkInstallOutcome.installerLaunched:
+          _emit(AppUpdatePhase.installing);
+          if (_resumedDuringInstallation) onAppResumed();
+        case ApkInstallOutcome.permissionRequired:
+          _installation = null;
+          _emitNeutral();
+        case ApkInstallOutcome.cancelled:
+          _installation = null;
+          _emitNeutral();
+      }
+      return outcome;
+    } catch (e, st) {
+      if (revision != _installRevision) rethrow;
+      final obsoleteCache =
+          e is InvalidApkException ||
+          !cacheValidated ||
+          !await File(apkPath).exists();
+      if (revision != _installRevision) rethrow;
+      if (obsoleteCache) {
+        _downloadedPath = null;
+        _downloadedRelease = null;
+      }
+      _installation = null;
+      _installationStarted = false;
+      _resumedDuringInstallation = false;
+      _log.warning('App update installation failed', e, st);
+      _emit(
+        AppUpdatePhase.error,
+        error: remoteErrorMessage(e, action: 'install the app update'),
+      );
+      rethrow;
+    }
+  }
+
+  void cancelInstallAttempt() {
+    if (_installation == null) return;
+    _installRevision++;
+    _installation = null;
+    _emitNeutral();
+    _updater.cancelInstall();
+  }
+
+  Future<bool> _isUsableApk(String path) async {
+    final cached = await File(path).stat();
+    return cached.type == FileSystemEntityType.file && cached.size > 0;
+  }
+
+  void scheduleInitialize({Duration delay = const Duration(minutes: 10)}) {
+    if (_disposed) return;
+    _initializeTimer?.cancel();
+    _initializeTimer = Timer(delay, () {
+      _initializeTimer = null;
+      unawaited(initialize());
+    });
   }
 
   Future<void> initialize() async {
+    if (_disposed) return;
     final automaticUpdateCheck = await _settingsService.automaticUpdateCheck();
-    if (automaticUpdateCheck) {
-      await _startPeriodicChecks();
-    }
+    if (_disposed || !automaticUpdateCheck) return;
+    await _startPeriodicChecks();
   }
 
   Future<void> _startPeriodicChecks() async {
+    if (_disposed) return;
     _log.info(
       'Starting periodic update checks (every ${_checkInterval.inHours} hours)'
       '${_isMacOS ? ' [skins only — Sparkle owns macOS app updates]' : ''}',
@@ -175,17 +365,22 @@ class UpdateCheckService {
       await _updateManagedContent();
     } else {
       final lastCheck = await _settingsService.lastUpdateCheckTime();
+      if (_disposed) return;
       if (lastCheck == null ||
           DateTime.now().difference(lastCheck) > _checkInterval) {
         await checkForUpdate(quiet: true);
+        if (_disposed) return;
         await _updateManagedContent();
       }
     }
 
+    if (_disposed) return;
     _periodicTimer?.cancel();
     _periodicTimer = Timer.periodic(_checkInterval, (_) async {
+      if (_disposed) return;
       if (!_isMacOS) {
         await checkForUpdate(quiet: true);
+        if (_disposed) return;
       }
       await _updateManagedContent();
     });
@@ -198,6 +393,7 @@ class UpdateCheckService {
   }
 
   Future<void> _updateManagedContent() async {
+    if (_disposed) return;
     try {
       _log.info('Updating skins...');
       await _webUIStorage.updateAllSkins();
@@ -206,6 +402,7 @@ class UpdateCheckService {
       _log.warning('Error updating skins', e, st);
     }
 
+    if (_disposed) return;
     final pluginSourceService = _pluginSourceService;
     if (pluginSourceService == null) return;
     try {
@@ -218,6 +415,13 @@ class UpdateCheckService {
   }
 
   Future<UpdateInfo?> checkForUpdate({bool quiet = false}) async {
+    if (_disposed) return availableUpdate;
+    if (_download != null ||
+        _installation != null ||
+        currentState.phase == AppUpdatePhase.downloading ||
+        currentState.phase == AppUpdatePhase.installing) {
+      return availableUpdate;
+    }
     if (externallyManaged) {
       _availableUpdate = null;
       _emit(AppUpdatePhase.idle);
@@ -227,20 +431,28 @@ class UpdateCheckService {
       _log.info('macOS app updates are owned by Sparkle; skipping APK check');
       return null;
     }
+    final revision = _operationRevision;
     try {
       _emit(AppUpdatePhase.checking);
       _log.info('Checking for updates (current: ${BuildInfo.version})');
 
+      final channel = await _settingsService.updateChannel();
+      if (revision != _operationRevision || _disposed) return availableUpdate;
       final updateInfo = await _updater.checkForUpdate(
         BuildInfo.version,
-        channel: await _settingsService.updateChannel(),
+        channel: channel,
       );
+      if (revision != _operationRevision || _disposed) return availableUpdate;
 
       await _settingsService.setLastUpdateCheckTime(DateTime.now());
+      if (revision != _operationRevision || _disposed) return availableUpdate;
+      final skipped = updateInfo == null
+          ? null
+          : await _settingsService.skippedVersion();
+      if (revision != _operationRevision || _disposed) return availableUpdate;
       _hasCompletedCheck = true;
 
       if (updateInfo != null) {
-        final skipped = await _settingsService.skippedVersion();
         if (skipped != null && skipped == updateInfo.version) {
           _log.info('Update ${updateInfo.version} skipped by user');
           _availableUpdate = null;
@@ -260,6 +472,7 @@ class UpdateCheckService {
       );
       return updateInfo;
     } catch (e, stackTrace) {
+      if (revision != _operationRevision || _disposed) return availableUpdate;
       _log.warning('Error checking for updates', e, stackTrace);
       if (quiet) {
         _emit(
@@ -342,6 +555,11 @@ class UpdateCheckService {
   }
 
   void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    _operationRevision++;
+    _initializeTimer?.cancel();
+    _initializeTimer = null;
     _periodicTimer?.cancel();
     _updater.dispose();
     _state.close();

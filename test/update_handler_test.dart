@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/services/android_updater.dart';
@@ -11,7 +13,39 @@ import 'package:shelf_plus/shelf_plus.dart';
 import 'helpers/mock_settings_service.dart';
 
 class _NoopUpdater extends AndroidUpdater {
-  _NoopUpdater() : super(owner: 'tadelv', repo: 'reaprime');
+  _NoopUpdater({this.downloadPath = '/update.apk'})
+    : super(owner: 'tadelv', repo: 'reaprime');
+  final String downloadPath;
+  bool allowed = false;
+  int downloads = 0;
+  int installs = 0;
+  final permissionRequests = <bool>[];
+  final installRequested = Completer<void>();
+
+  @override
+  Future<bool> canInstallPackages() async => allowed;
+
+  @override
+  Future<String> downloadUpdate(
+    UpdateInfo info, {
+    Function(double)? onProgress,
+    Directory? cacheDir,
+  }) async {
+    downloads++;
+    return downloadPath;
+  }
+
+  @override
+  Future<ApkInstallOutcome> installUpdate(
+    String path, {
+    bool requestPermission = true,
+  }) async {
+    installs++;
+    permissionRequests.add(requestPermission);
+    if (!installRequested.isCompleted) installRequested.complete();
+    return ApkInstallOutcome.installerLaunched;
+  }
+
   @override
   Future<UpdateInfo?> checkForUpdate(
     String v, {
@@ -85,6 +119,107 @@ void main() {
   });
 
   group('handleCommand', () {
+    test('a disconnected rejection callback is attempted only once', () async {
+      final before = service.currentState;
+      var replies = 0;
+
+      updateHandler.handleCommand({'command': 'install'}, (_) {
+        replies++;
+        throw StateError('requesting socket closed');
+      });
+      await Future<void>.delayed(Duration.zero);
+
+      expect(replies, 1);
+      expect(service.currentState, same(before));
+    });
+
+    test('managed Android install reports unsupported, not local approval', () {
+      final managed = _RecordingUpdateService(
+        isMacOS: false,
+        externallyManaged: true,
+      );
+      addTearDown(managed.dispose);
+      final replies = <Map<String, dynamic>>[];
+
+      UpdateHandler(service: managed)
+          .handleCommand({'command': 'install'}, replies.add);
+
+      expect(managed.canInstall, isFalse);
+      expect(replies.single['error'], contains('not supported'));
+      expect(replies.single.containsKey('reason'), isFalse);
+    });
+
+    test(
+      'approved remote installation uses the noninteractive install path',
+      () async {
+        final directory = await Directory.systemTemp.createTemp(
+          'update-handler-',
+        );
+        addTearDown(() => directory.delete(recursive: true));
+        final apk = File('${directory.path}/update.apk');
+        await apk.writeAsBytes([1, 2, 3]);
+        final updater = _NoopUpdater(downloadPath: apk.path)..allowed = true;
+        final settings = MockSettingsService();
+        final local = UpdateCheckService(
+          settingsService: settings,
+          webUIStorage: WebUIStorage(SettingsController(settings)),
+          updater: updater,
+          platformIsAndroid: true,
+          platformIsMacOS: false,
+        );
+        addTearDown(local.dispose);
+        local.debugForceUpdate();
+        final replies = <Map<String, dynamic>>[];
+
+        UpdateHandler(service: local)
+            .handleCommand({'command': 'install'}, replies.add);
+        await updater.installRequested.future.timeout(
+          const Duration(seconds: 10),
+        );
+
+        expect(replies, isEmpty);
+        expect(updater.downloads, 1);
+        expect(updater.installs, 1);
+        expect(updater.permissionRequests, [false]);
+      },
+    );
+
+    test(
+      'missing local approval rejects only the requesting command',
+      () async {
+        final updater = _NoopUpdater();
+        final settings = MockSettingsService();
+        final local = UpdateCheckService(
+          settingsService: settings,
+          webUIStorage: WebUIStorage(SettingsController(settings)),
+          updater: updater,
+          platformIsAndroid: true,
+          platformIsMacOS: false,
+        );
+        addTearDown(local.dispose);
+        local.debugForceUpdate();
+        final before = local.currentState.toJson();
+        final broadcasts = <Map<String, dynamic>>[];
+        final subscription = local.updateState.listen(
+          (s) => broadcasts.add(s.toJson()),
+        );
+        addTearDown(subscription.cancel);
+        await Future<void>.delayed(Duration.zero);
+        final broadcastCount = broadcasts.length;
+        final replies = <Map<String, dynamic>>[];
+
+        UpdateHandler(service: local)
+            .handleCommand({'command': 'install'}, replies.add);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(replies.single['reason'], 'local_approval_required');
+        expect(local.currentState.toJson(), before);
+        expect(broadcasts.length, broadcastCount);
+        expect(updater.downloads, 0);
+        expect(updater.installs, 0);
+      },
+    );
+
     test('unknown command yields an error reply', () {
       final replies = <Map<String, dynamic>>[];
       updateHandler.handleCommand({'command': 'bogus'}, replies.add);

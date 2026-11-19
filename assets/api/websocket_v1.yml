@@ -243,6 +243,12 @@ channels:
       - `{"command": "install"}` — on Android: auto-check if needed, then
         download + launch the system installer. On other platforms this is not
         supported and replies with a transient `{"error", "url"}`.
+        Android installation authorization is checked before metadata checks or
+        downloading. If missing, only the requesting client receives
+        `{"error":"Installation requires approval on the Android device",
+        "reason":"local_approval_required"}`. No settings activity, download,
+        global state change or rejection broadcast occurs. The client must
+        explicitly retry after permission is granted locally.
       Command-level problems (unknown command, unsupported platform or
       externally managed build) come back as a direct `{"error": ...}` reply;
       operational outcomes (download/install progress and failures) flow
@@ -252,6 +258,8 @@ channels:
         $ref: '#/components/messages/UpdateState'
       updateCommand:
         $ref: '#/components/messages/UpdateCommand'
+      updateRejection:
+        $ref: '#/components/messages/UpdateRejection'
 
 operations:
   machineSnapshot:
@@ -342,6 +350,7 @@ operations:
       $ref: '#/channels/Update'
     messages:
       - $ref: '#/channels/Update/messages/updateState'
+      - $ref: '#/channels/Update/messages/updateRejection'
   updateCommand:
     action: send
     channel:
@@ -470,6 +479,12 @@ components:
       summary: Command sent by the client to check for or install an app update.
       payload:
         $ref: '#/components/schemas/UpdateCommand'
+    UpdateRejection:
+      name: UpdateRejection
+      title: Update command rejected
+      summary: Transient reply sent only to the requesting connection.
+      payload:
+        $ref: '#/components/schemas/UpdateRejection'
   schemas:
     Error:
       type: object
@@ -526,6 +541,21 @@ components:
         command:
           type: string
           enum: [check, install]
+    UpdateRejection:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        reason:
+          type: string
+          enum: [local_approval_required]
+        url:
+          type: string
+          format: uri
+      examples:
+        - error: Installation requires approval on the Android device
+          reason: local_approval_required
     ConnectionError:
       type: object
       required: [kind, severity, timestamp, message]

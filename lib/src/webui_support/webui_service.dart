@@ -209,6 +209,7 @@ class WebUIService {
   String? Function(String path)? skinProxyTokenProvider;
   void Function()? skinProxyTokenRevoker;
   String? Function(String path)? skinIdentityProvider;
+  Iterable<String> Function(String path)? legacySkinPathsProvider;
 
   Future<bool> _isDeviceAddress(String host) async {
     if (host == 'localhost' || host == '127.0.0.1' || host == '::1') {
@@ -488,6 +489,16 @@ class WebUIService {
       _log.warning('Skin has no identity; serving on a temporary port');
       return _serveTemporarySkinPort(handler, assignments);
     }
+    if (!assignments.containsKey(identity)) {
+      final legacyPath = legacySkinPathsProvider
+          ?.call(identity)
+          .where(assignments.containsKey)
+          .firstOrNull;
+      if (legacyPath != null) {
+        assignments[identity] = assignments.remove(legacyPath)!;
+        await _persistSkinPortAssignments(assignments);
+      }
+    }
     final assigned = assignments[identity];
     if (assigned != null) {
       await _closeAliasServer(assigned);
@@ -651,6 +662,18 @@ class WebUIService {
   }
 
   bool get isServing => _server != null;
+
+  Set<int> get browserOriginPorts => _server == null ? const {} : {port};
+
+  Future<Set<String>> currentBrowserOriginAddresses() async => {
+    for (final address in await _listLocalAddresses())
+      ?_numericAddress(address),
+  };
+
+  String? _numericAddress(String address) {
+    if (address.contains('%')) return null;
+    return InternetAddress.tryParse(address)?.address;
+  }
 
   Future<void> stopServing() async {
     final version = ++_lifecycleVersion;

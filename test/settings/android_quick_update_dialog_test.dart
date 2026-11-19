@@ -17,12 +17,12 @@ void main() {
   Widget dialog({
     required Future<String> Function(UpdateInfo, void Function(double))
     onDownload,
-    Future<bool> Function(String)? onInstall,
+    Future<ApkInstallOutcome> Function(String)? onInstall,
   }) => MaterialApp(
     home: AndroidQuickUpdateDialog(
       updateInfo: updateInfo,
       onDownload: onDownload,
-      onInstall: onInstall ?? (_) async => true,
+      onInstall: onInstall ?? (_) async => ApkInstallOutcome.installerLaunched,
     ),
   );
 
@@ -96,7 +96,7 @@ void main() {
 
   testWidgets('transitions from downloading to installing', (tester) async {
     final download = Completer<String>();
-    final install = Completer<bool>();
+    final install = Completer<ApkInstallOutcome>();
     String? installedPath;
 
     await tester.pumpWidget(
@@ -115,5 +115,95 @@ void main() {
     expect(find.text('Downloading update…'), findsNothing);
     expect(find.text('Installing update…'), findsOneWidget);
     expect(installedPath, '/tmp/decent.apk');
+  });
+
+  testWidgets('permission denial offers neutral retry without redownloading', (
+    tester,
+  ) async {
+    var downloads = 0;
+    final installedPaths = <String>[];
+    await tester.pumpWidget(
+      dialog(
+        onDownload: (_, _) async {
+          downloads++;
+          return '/tmp/cached.apk';
+        },
+        onInstall: (path) async {
+          installedPaths.add(path);
+          return ApkInstallOutcome.permissionRequired;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    final guidance = tester.widget<Text>(
+      find.textContaining('Installation is not authorized'),
+    );
+    expect(guidance.style?.color, isNull);
+    expect(find.textContaining("Couldn't"), findsNothing);
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+
+    expect(downloads, 1);
+    expect(installedPaths, ['/tmp/cached.apk', '/tmp/cached.apk']);
+    expect(find.byType(AndroidQuickUpdateDialog), findsOneWidget);
+  });
+
+  testWidgets('invalid APK is not reused for an installation retry', (
+    tester,
+  ) async {
+    var downloads = 0;
+    var installations = 0;
+    await tester.pumpWidget(
+      dialog(
+        onDownload: (_, _) async {
+          downloads++;
+          return '/tmp/download-$downloads.apk';
+        },
+        onInstall: (_) async {
+          installations++;
+          if (installations == 1) throw const InvalidApkException();
+          return ApkInstallOutcome.permissionRequired;
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+
+    expect(downloads, 2);
+    expect(installations, 2);
+    expect(
+      find.textContaining('Installation is not authorized'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('pending installation cannot be retried or closed twice', (
+    tester,
+  ) async {
+    final install = Completer<ApkInstallOutcome>();
+    var installations = 0;
+    await tester.pumpWidget(
+      dialog(
+        onDownload: (_, _) async => '/tmp/cached.apk',
+        onInstall: (_) {
+          installations++;
+          return install.future;
+        },
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Retry'), findsNothing);
+    expect(
+      tester
+          .widget<TextButton>(find.widgetWithText(TextButton, 'Close'))
+          .onPressed,
+      isNull,
+    );
+    expect(installations, 1);
+    install.complete(ApkInstallOutcome.permissionRequired);
+    await tester.pumpAndSettle();
+    expect(find.text('Retry'), findsOneWidget);
   });
 }

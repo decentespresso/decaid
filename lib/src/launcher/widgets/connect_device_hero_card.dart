@@ -25,7 +25,9 @@ class ConnectDeviceHeroCard extends StatelessWidget {
                 size: 20,
                 color: theme.colorScheme.primary,
               ),
-              Text('Connect your machine', style: theme.textTheme.h4),
+              Flexible(
+                child: Text('Connect your machine', style: theme.textTheme.h4),
+              ),
             ],
           ),
           Text(
@@ -34,10 +36,11 @@ class ConnectDeviceHeroCard extends StatelessWidget {
             style: theme.textTheme.muted,
           ),
           ShadButton(
-            size: ShadButtonSize.sm,
-            leading: const Icon(LucideIcons.radar, size: 14),
+            size: ShadButtonSize.lg,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            leading: const Icon(LucideIcons.radar, size: 18),
             onPressed: onScan,
-            child: const Text('Scan for devices'),
+            child: const Flexible(child: Text('Scan for devices')),
           ),
         ],
       ),

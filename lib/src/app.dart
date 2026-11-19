@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
-import 'package:reaprime/build_info.dart';
 import 'package:reaprime/main.dart';
 import 'package:reaprime/src/controllers/account_tokens_controller.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
@@ -21,6 +20,7 @@ import 'package:reaprime/src/models/data/workflow.dart';
 import 'package:reaprime/src/controllers/scan_state_guardian.dart';
 import 'package:reaprime/src/onboarding_feature/onboarding_controller.dart';
 import 'package:reaprime/src/onboarding_feature/onboarding_view.dart';
+import 'package:reaprime/src/onboarding_feature/startup_navigation_guard.dart';
 import 'package:reaprime/src/onboarding_feature/steps/android_warning_step.dart';
 import 'package:reaprime/src/onboarding_feature/steps/import_step.dart';
 import 'package:reaprime/src/onboarding_feature/steps/initialization_step.dart';
@@ -29,6 +29,7 @@ import 'package:reaprime/src/onboarding_feature/steps/scan_step.dart';
 import 'package:reaprime/src/onboarding_feature/steps/welcome_step.dart';
 import 'package:reaprime/src/onboarding_feature/steps/login_step.dart';
 import 'package:reaprime/src/onboarding_feature/steps/shot_upload_step.dart';
+import 'package:reaprime/src/onboarding_feature/widgets/startup_discovery_recovery.dart';
 import 'package:reaprime/src/services/account/account_consent_store.dart';
 import 'package:reaprime/src/realtime_shot_feature/realtime_shot_feature.dart';
 import 'package:reaprime/src/realtime_steam_feature/realtime_steam_feature.dart';
@@ -40,7 +41,6 @@ import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:reaprime/src/services/installed_components.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
 import 'package:shadcn_ui/shadcn_ui.dart' hide Scale;
-import 'package:url_launcher/url_launcher.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
@@ -55,7 +55,6 @@ import 'package:reaprime/src/notifications/notification_actions.dart';
 import 'package:reaprime/src/notifications/update_notifications.dart';
 import 'package:reaprime/src/services/android_updater.dart';
 import 'package:reaprime/src/services/github_credentials.dart';
-import 'package:reaprime/src/settings/update_dialog.dart';
 import 'package:reaprime/src/debug_feature/scale_debug_view.dart';
 import 'package:reaprime/src/services/storage/bean_storage_service.dart';
 import 'package:reaprime/src/services/storage/grinder_storage_service.dart';
@@ -80,6 +79,40 @@ import 'settings/settings_view.dart';
 
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/app_log_upload_service.dart';
+import 'package:reaprime/src/services/app_startup_coordinator.dart';
+
+Future<void> openStartupSkin({
+  required WebUIService service,
+  required WebUIStorage storage,
+  required bool Function() isCurrent,
+  required StartupNavigationGuard navigationGuard,
+  required VoidCallback openSkin,
+}) async {
+  final log = Logger('MyApp');
+  if (!isCurrent()) return;
+  final lease = navigationGuard.lease();
+  bool owned() => isCurrent() && navigationGuard.owns(lease);
+  if (!service.isServing) {
+    log.info('WebUI not serving, attempting to start...');
+    final defaultSkin = storage.defaultSkin;
+    if (defaultSkin == null) {
+      log.warning('No default skin available — staying on launcher.');
+      return;
+    }
+    try {
+      await service.serveFolderAtPath(defaultSkin.path);
+      log.info('WebUI service started successfully');
+    } catch (error) {
+      log.severe(
+        'Failed to start WebUI service: $error — staying on launcher.',
+      );
+      return;
+    }
+  }
+  if (!owned()) return;
+  log.info('Navigating to SkinView');
+  openSkin();
+}
 
 class NavigationService {
   static final GlobalKey<NavigatorState> navigatorKey =
@@ -119,6 +152,7 @@ class MyApp extends StatefulWidget {
     this.batteryController,
     this.accountConsentStore,
     required this.credentials,
+    required this.startupCoordinator,
   });
 
   final bool directConnect;
@@ -148,6 +182,7 @@ class MyApp extends StatefulWidget {
   final BatteryController? batteryController;
   final AccountConsentStore? accountConsentStore;
   final GithubCredentialProvider credentials;
+  final AppStartupCoordinator startupCoordinator;
 
   @override
   State<MyApp> createState() => _MyAppState();
@@ -162,6 +197,8 @@ class _MyAppState extends State<MyApp> {
   UpdateNotifications? _updateNotifications;
 
   bool _degradedAndroid = false;
+
+  final _startupNavigationGuard = StartupNavigationGuard();
 
   @override
   void initState() {
@@ -182,11 +219,12 @@ class _MyAppState extends State<MyApp> {
       _updateNotifications = UpdateNotifications(
         center: widget.pluginLoaderService.pluginManager.notifications,
         service: service,
-        onDownload: _confirmUpdateDownload,
+        onView: _openAppUpdate,
       );
     }
     _initializeDe1StateManager();
-    _onboardingController = OnboardingController(
+    _onboardingController = createStartupOnboardingController(
+      startupCoordinator: widget.startupCoordinator,
       steps: [
         createAndroidWarningStep(settingsController: widget.settingsController),
         OnboardingStep(
@@ -206,14 +244,8 @@ class _MyAppState extends State<MyApp> {
             accountService: widget.decentAccountService!,
             settingsController: widget.settingsController,
           ),
-        createPermissionsStep(de1Controller: widget.de1Controller),
-        createInitializationStep(
-          deviceController: widget.deviceController,
-          de1Controller: widget.de1Controller,
-          pluginLoaderService: widget.pluginLoaderService,
-          webUIStorage: widget.webUIStorage,
-          webUIService: widget.webUIService,
-        ),
+        createPermissionsStep(),
+        createInitializationStep(startupCoordinator: widget.startupCoordinator),
         if (widget.profileStorageService != null &&
             widget.beanStorage != null &&
             widget.grinderStorage != null)
@@ -259,33 +291,10 @@ class _MyAppState extends State<MyApp> {
     }
   }
 
-  Future<void> _confirmUpdateDownload(UpdateInfo update) async {
-    final context = NavigationService.context;
-    if (context == null || !context.mounted) return;
-    final updater = AndroidUpdater(
-      owner: 'tadelv',
-      repo: 'reaprime',
-      credentials: widget.credentials,
-    );
-    try {
-      await showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => UpdateDialog(
-          updateInfo: update,
-          currentVersion: BuildInfo.version,
-          onViewReleaseNotes: () {
-            final url = widget.updateCheckService?.getReleaseUrl(update);
-            if (url != null) launchUrl(Uri.parse(url));
-          },
-          onDownload: (info, onProgress) =>
-              updater.downloadUpdate(info, onProgress: onProgress),
-          onInstall: updater.installUpdate,
-        ),
-      );
-    } finally {
-      updater.dispose();
-    }
+  Future<void> _openAppUpdate(UpdateInfo update) async {
+    final navigator = NavigationService.navigatorKey.currentState;
+    if (navigator == null) return;
+    await SettingsView.openUpdate(navigator, update.version);
   }
 
   @override
@@ -341,24 +350,16 @@ class _MyAppState extends State<MyApp> {
       return;
     }
 
-    if (!widget.webUIService.isServing) {
-      _log.info('WebUI not serving, attempting to start...');
-      final defaultSkin = widget.webUIStorage.defaultSkin;
-      if (defaultSkin == null) {
-        _log.warning('No default skin available — staying on launcher.');
-        return;
-      }
-      try {
-        await widget.webUIService.serveFolderAtPath(defaultSkin.path);
-        _log.info('WebUI service started successfully');
-      } catch (e) {
-        _log.severe('Failed to start WebUI service: $e — staying on launcher.');
-        return;
-      }
-    }
-
-    _log.info('Navigating to SkinView');
-    SkinView.open(navigator);
+    await openStartupSkin(
+      service: widget.webUIService,
+      storage: widget.webUIStorage,
+      isCurrent: () =>
+          mounted &&
+          navigator.mounted &&
+          identical(navigator, NavigationService.navigatorKey.currentState),
+      navigationGuard: _startupNavigationGuard,
+      openSkin: () => SkinView.open(navigator),
+    );
   }
 
   @override
@@ -406,6 +407,7 @@ class _MyAppState extends State<MyApp> {
               PresenceNavigatorObserver(
                 presenceController: widget.presenceController,
               ),
+              _startupNavigationGuard,
             ],
             onGenerateRoute: (RouteSettings routeSettings) {
               return MaterialPageRoute<void>(
@@ -420,6 +422,7 @@ class _MyAppState extends State<MyApp> {
                         presenceController: widget.presenceController,
                         webUIStorage: widget.webUIStorage,
                         githubCredentials: widget.credentials,
+                        updateVersion: routeSettings.arguments as String?,
                       );
                     case De1DebugView.routeName:
                       final args = routeSettings.arguments;
@@ -519,22 +522,25 @@ class _MyAppState extends State<MyApp> {
                         gatewayMode: widget.settingsController.gatewayMode,
                       );
                     case LauncherView.routeName:
-                      return LauncherView(
-                        notificationCenter: widget
-                            .pluginLoaderService
-                            .pluginManager
-                            .notifications,
-                        notificationActions: _notificationActions,
-                        de1Controller: widget.de1Controller,
-                        scaleController: widget.scaleController,
-                        webUIService: widget.webUIService,
-                        batteryController: widget.batteryController,
-                        decentAccountService: widget.decentAccountService,
-                        isDegradedAndroid: _degradedAndroid,
-                        connectionManager: widget.connectionManager,
-                        deviceController: widget.deviceController,
-                        settingsController: widget.settingsController,
-                        scanStateGuardian: widget.scanStateGuardian,
+                      return StartupDiscoveryRecovery(
+                        startupCoordinator: widget.startupCoordinator,
+                        child: LauncherView(
+                          notificationCenter: widget
+                              .pluginLoaderService
+                              .pluginManager
+                              .notifications,
+                          notificationActions: _notificationActions,
+                          de1Controller: widget.de1Controller,
+                          scaleController: widget.scaleController,
+                          webUIService: widget.webUIService,
+                          batteryController: widget.batteryController,
+                          decentAccountService: widget.decentAccountService,
+                          isDegradedAndroid: _degradedAndroid,
+                          connectionManager: widget.connectionManager,
+                          deviceController: widget.deviceController,
+                          settingsController: widget.settingsController,
+                          scanStateGuardian: widget.scanStateGuardian,
+                        ),
                       );
                     case HistoryFeature.routeName:
                       final possibleShot = routeSettings.arguments as String;

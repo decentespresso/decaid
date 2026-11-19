@@ -615,6 +615,11 @@ jobs:
         env:
           FEEDBACK_TOKEN: ${{ secrets.FEEDBACK_TOKEN }}
 
+      - name: Validate archived iOS location privacy declarations
+        run: |
+          python3 tool/ci/check_ios_location_privacy.py \
+            build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app/Info.plist
+
       - name: Package unsigned IPA
         run: |
           APP_PATH="build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app"

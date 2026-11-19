@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/plugins/plugin_local_api_bridge.dart';
 import 'package:reaprime/src/services/webserver/extension_management_auth.dart';
+import 'package:reaprime/src/services/webserver_service.dart';
 import 'package:shelf/shelf.dart';
 
 class _Grant implements ExtensionManagementGrant {
@@ -189,6 +190,10 @@ void main() {
       {'logLevel': 'FINE'},
       {'webUiPath': '/'},
       {'defaultSkinId': 'a', 'webUiPath': '/'},
+      {'requireExtensionManagementAuthorization': true},
+      {'requireExtensionManagementAuthorization': false},
+      {'defaultSkinId': 'a', 'requireExtensionManagementAuthorization': true},
+      '{"requireExtensionManagementAuthorization": true}',
       '{"defaultSkinId": "a", "gatewayMode": "full"}',
       r'{"defaultSkinId": "a", "gatew\u0061yMode": "full"}',
       '{"defaultSkinId": "a"',
@@ -211,6 +216,47 @@ void main() {
       );
     }
     expect(received, hasLength(2));
+  });
+
+  test('refuses the security setting before dispatch in both modes', () async {
+    for (final protect in [false, true]) {
+      final dispatched = <String>[];
+      bridge.handler = buildWebServerHandler((request) {
+        dispatched.add('${request.method} /${request.url.path}');
+        return Response.ok('dispatched');
+      }, requireExtensionManagementAuthorization: () async => protect);
+
+      for (final value in [true, false]) {
+        for (final body in <Object>[
+          {'requireExtensionManagementAuthorization': value},
+          {
+            'defaultSkinId': 'a',
+            'requireExtensionManagementAuthorization': value,
+          },
+        ]) {
+          await expectLater(
+            send('/api/v1/settings', method: 'POST', body: body),
+            throwsA(
+              isA<ArgumentError>().having(
+                (e) => e.message,
+                'message',
+                contains('localApi changes only these settings'),
+              ),
+            ),
+            reason: '${protect ? 'protected' : 'compatibility'} mode $body',
+          );
+        }
+      }
+      expect(dispatched, isEmpty, reason: '$protect');
+
+      final allowed = await send(
+        '/api/v1/settings',
+        method: 'POST',
+        body: {'defaultSkinId': 'a'},
+      );
+      expect(allowed['status'], 200, reason: '$protect');
+      expect(dispatched, ['POST /api/v1/settings'], reason: '$protect');
+    }
   });
 
   test('rejects anything but a path under /api/v1/', () async {

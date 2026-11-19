@@ -14,7 +14,7 @@ class UpdateNotifications {
   UpdateNotifications({
     required this.center,
     required this.service,
-    required this.onDownload,
+    required this.onView,
   }) {
     _pending = _restore();
     _subscription = service.updateState.listen((state) {
@@ -31,7 +31,7 @@ class UpdateNotifications {
   static const sourceId = 'app-update';
   final NotificationCenter center;
   final UpdateCheckService service;
-  final Future<void> Function(UpdateInfo) onDownload;
+  final Future<void> Function(UpdateInfo) onView;
   late final StreamSubscription<AppUpdateState> _subscription;
   Future<void> _pending = Future.value();
   bool _disposed = false;
@@ -84,7 +84,22 @@ class UpdateNotifications {
       }
       return;
     }
-    final release = Uri.parse(service.getReleaseUrl(update)!);
+    if (center.value.any(
+      (notice) =>
+          notice.namespace == NotificationNamespace.host &&
+          notice.sourceId == sourceId &&
+          notice.id == update.version &&
+          center.isConfirmed(notice),
+    )) {
+      return;
+    }
+    final previouslyRead = center.value.any(
+      (notice) =>
+          notice.namespace == NotificationNamespace.host &&
+          notice.sourceId == sourceId &&
+          notice.id == update.version &&
+          notice.read,
+    );
     await center.publish(
       NativeNotification(
         namespace: NotificationNamespace.host,
@@ -92,36 +107,41 @@ class UpdateNotifications {
         sourceName: 'Decaid',
         id: update.version,
         message: 'Update available: ${update.version}',
-        actions: [
+        actions: const [
           NotificationAction(
             id: 'view',
             label: 'View',
-            type: NotificationActionType.openExternalUrl,
-            url: release,
-          ),
-          NotificationAction(
-            id: 'download',
-            label: 'Download',
-            type: service.canInstall
-                ? NotificationActionType.downloadUpdate
-                : NotificationActionType.openExternalUrl,
-            url: service.canInstall ? null : release,
-          ),
-          const NotificationAction(
-            id: 'skip',
-            label: 'Skip this version',
-            type: NotificationActionType.skipUpdate,
+            type: NotificationActionType.viewUpdate,
           ),
         ],
       ),
       binding: NotificationBinding(
         owner: (service, update.version),
-        isAlive: () => !_disposed,
-        onActivate: (action) => action.type == NotificationActionType.skipUpdate
-            ? service.skipVersion(update.version)
-            : onDownload(update),
+        isAlive: () =>
+            !_disposed && service.availableUpdate?.version == update.version,
+        onActivate: (action) async {
+          final current = service.availableUpdate;
+          if (_disposed ||
+              action.type != NotificationActionType.viewUpdate ||
+              current?.version != update.version) {
+            return;
+          }
+          await onView(current!);
+        },
       ),
     );
+    if (previouslyRead) {
+      await center.markRead(
+        center.value
+            .where(
+              (notice) =>
+                  notice.namespace == NotificationNamespace.host &&
+                  notice.sourceId == sourceId &&
+                  notice.id == update.version,
+            )
+            .toList(),
+      );
+    }
   }
 
   Future<void> dispose() async {

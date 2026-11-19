@@ -52,6 +52,7 @@ ExtractionResult extractArchiveToDirectory(
   Archive archive,
   Directory destDir, {
   required bool sanitize,
+  bool strict = false,
   Logger? log,
 }) {
   for (final entry in archive) {
@@ -60,6 +61,12 @@ ExtractionResult extractArchiveToDirectory(
         ? sanitizeZipEntryPath(originalName)
         : originalName;
     final outPath = p.normalize(p.join(destDir.path, safeName));
+    if (strict && safeName.isEmpty) {
+      throw FormatException(
+        'Rejecting zip archive: entry "$originalName" resolves to an empty '
+        'path',
+      );
+    }
     if (!isSafeZipEntryPath(originalName) ||
         (outPath != destDir.path && !p.isWithin(destDir.path, outPath))) {
       throw FormatException(
@@ -93,23 +100,57 @@ ExtractionResult extractArchiveToDirectory(
 
     final outPath = p.join(destDir.path, safeName);
 
-    try {
-      if (entry.isFile) {
+    if (entry.isFile) {
+      try {
+        final content = entry.content;
+        final expectedCrc = entry.crc32;
+        if (strict && expectedCrc != null && getCrc32(content) != expectedCrc) {
+          throw FormatException('CRC mismatch for "$originalName"');
+        }
         final outFile = File(outPath);
         outFile.parent.createSync(recursive: true);
-        outFile.writeAsBytesSync(entry.content as List<int>);
+        outFile.writeAsBytesSync(content);
         extracted++;
-      } else {
-        Directory(outPath).createSync(recursive: true);
+      } catch (e, st) {
+        if (strict) {
+          log?.warning(
+            'Failed to extract zip entry "$originalName" '
+            '(sanitised to "$safeName")',
+            e,
+            st,
+          );
+          throw FormatException('Failed to extract zip entry "$originalName"');
+        }
+        skipped++;
+        log?.warning(
+          'Failed to extract zip entry "$originalName" '
+          '(sanitised to "$safeName"); skipping',
+          e,
+          st,
+        );
       }
-    } catch (e, st) {
-      skipped += entry.isFile ? 1 : 0;
-      log?.warning(
-        'Failed to extract zip entry "$originalName" '
-        '(sanitised to "$safeName"); skipping',
-        e,
-        st,
-      );
+    } else {
+      try {
+        Directory(outPath).createSync(recursive: true);
+      } catch (e, st) {
+        if (strict) {
+          log?.warning(
+            'Failed to create zip entry directory "$originalName" '
+            '(sanitised to "$safeName")',
+            e,
+            st,
+          );
+          throw FormatException(
+            'Failed to create zip entry directory "$originalName"',
+          );
+        }
+        log?.warning(
+          'Failed to create zip entry directory "$originalName" '
+          '(sanitised to "$safeName"); skipping',
+          e,
+          st,
+        );
+      }
     }
   }
 

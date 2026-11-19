@@ -1,0 +1,9 @@
+# Skin archive replacement safety
+
+A successful HTTP response or nonempty ZIP is not evidence of a usable skin. Installation selects the existing supported top-level or single-wrapper root, requires index.html there, and accepts either manifest filename or legacy manifestless content. Strict extraction rejects corrupt content and any extraction failure before replacement.
+
+Candidate files are fully copied into a reserved staging container inside the skin installation directory. Replacement renames the previous directory into that same-filesystem container, then renames the staged candidate into its destination. A failed final rename restores the previous directory. Cleanup removes temporary candidates and successful backups; if restoration itself fails, the backup is retained and its location logged rather than destroyed. This is operation-failure rollback, not crash-recovery or a promise against persistent filesystem failure. Two narrow test-only operation hooks allow deterministic copy/rename failures without a filesystem abstraction.
+
+Updates bind their expected skin identity before candidate selection. A changed manifest cannot select another installed destination; an omitted identity retains the established destination, while fresh installs continue accepting manifest-provided IDs. Failed downloads, validation and replacement do not advance source metadata, validators, timestamps or installed versions. Successful unchanged checks may still refresh lastChecked.
+
+The reserved staging container is excluded from installed-skin scans and cannot be used as a skin ID. Regression tests use temporary storage, MockClient and the real storage/router paths, including reloads and mixed batches. Authorization policy is maintained independently in PR #1193; the archive implementation does not change it.

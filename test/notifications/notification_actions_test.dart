@@ -141,12 +141,12 @@ void main() {
 
   for (final retire in [false, true]) {
     test(
-      'download handoff prevents reentry and honors retirement=$retire',
+      'update View handoff prevents reentry and honors retirement=$retire',
       () async {
-        const download = NotificationAction(
-          id: 'download',
-          label: 'Download',
-          type: NotificationActionType.downloadUpdate,
+        const view = NotificationAction(
+          id: 'view',
+          label: 'View',
+          type: NotificationActionType.viewUpdate,
         );
         var preparations = 0;
         var confirmations = 0;
@@ -158,7 +158,7 @@ void main() {
             sourceName: 'Decaid',
             id: '99.0.0',
             message: 'Update available: 99.0.0',
-            actions: const [download],
+            actions: const [view],
           ),
           binding: NotificationBinding(
             onActivate: (_) async => confirmations++,
@@ -172,10 +172,10 @@ void main() {
 
         final opening = actions.activate(
           current,
-          download,
-          beforeDownload: prepare,
+          view,
+          beforeOpenUpdate: prepare,
         );
-        await actions.activate(current, download, beforeDownload: prepare);
+        await actions.activate(current, view, beforeOpenUpdate: prepare);
         expect(preparations, 1);
         expect(confirmations, 0);
         expect(actions.busy, isTrue);
@@ -189,6 +189,23 @@ void main() {
       },
     );
   }
+
+  test('plugin snapshots cannot acquire host update navigation', () {
+    final snapshot = notice.toJson();
+    expect(
+      () => NativeNotification.fromJson({
+        ...snapshot,
+        'actions': [
+          const NotificationAction(
+            id: 'view',
+            label: 'View',
+            type: NotificationActionType.viewUpdate,
+          ).toJson(),
+        ],
+      }),
+      throwsFormatException,
+    );
+  });
 
   for (final retirement in ['replacement', 'removal', 'reload']) {
     test('$retirement invalidates a pending launch and return', () async {

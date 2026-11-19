@@ -1,58 +1,86 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
-import 'package:reaprime/src/controllers/de1_controller.dart';
-import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/onboarding_feature/widgets/onboarding_scaffold.dart';
-import 'package:reaprime/src/plugins/plugin_loader_service.dart';
-import 'package:reaprime/src/services/foreground_service.dart';
-import 'package:reaprime/src/services/telemetry/boot_timing.dart';
-import 'package:reaprime/src/webui_support/webui_service.dart';
-import 'package:reaprime/src/webui_support/webui_storage.dart';
+import 'package:reaprime/src/onboarding_feature/widgets/startup_discovery_recovery.dart';
+import 'package:reaprime/src/services/app_startup_coordinator.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../onboarding_controller.dart';
 
-final _log = Logger('InitializationStep');
+OnboardingController createStartupOnboardingController({
+  required List<OnboardingStep> steps,
+  required AppStartupCoordinator startupCoordinator,
+}) {
+  return OnboardingController(
+    onStepEntered: _startupStepEntryHook(startupCoordinator),
+    steps: steps
+        .map(
+          (step) => const {'import', 'scan'}.contains(step.id)
+              ? _guardStartupStep(step, startupCoordinator)
+              : step,
+        )
+        .toList(),
+  );
+}
+
+StepEntryHook _startupStepEntryHook(AppStartupCoordinator coordinator) {
+  return (step) {
+    if (const {'initialization', 'import', 'scan'}.contains(step.id)) {
+      unawaited(
+        coordinator.ensureInitialized().catchError((
+          Object error,
+          StackTrace stack,
+        ) {
+          Logger('InitializationStep')
+              .warning('Startup failed at onboarding boundary', error, stack);
+        }),
+      );
+    }
+  };
+}
+
+OnboardingStep _guardStartupStep(
+  OnboardingStep step,
+  AppStartupCoordinator coordinator,
+) {
+  return OnboardingStep(
+    id: step.id,
+    shouldShow: step.shouldShow,
+    builder: (controller) => _InitializationStepView(
+      key: ValueKey('startup-${step.id}'),
+      startupCoordinator: coordinator,
+      readyBuilder: (_) => step.builder(controller),
+    ),
+  );
+}
 
 OnboardingStep createInitializationStep({
-  required DeviceController deviceController,
-  required De1Controller de1Controller,
-  PluginLoaderService? pluginLoaderService,
-  required WebUIStorage webUIStorage,
-  required WebUIService webUIService,
+  required AppStartupCoordinator startupCoordinator,
 }) {
+  final coordinator = startupCoordinator;
   return OnboardingStep(
     id: 'initialization',
     shouldShow: () async => true,
     builder: (controller) => _InitializationStepView(
+      key: const ValueKey('initialization'),
       onboardingController: controller,
-      deviceController: deviceController,
-      de1Controller: de1Controller,
-      pluginLoaderService: pluginLoaderService,
-      webUIStorage: webUIStorage,
-      webUIService: webUIService,
+      startupCoordinator: coordinator,
     ),
   );
 }
 
 class _InitializationStepView extends StatefulWidget {
-  final OnboardingController onboardingController;
-  final DeviceController deviceController;
-  final De1Controller de1Controller;
-  final PluginLoaderService? pluginLoaderService;
-  final WebUIStorage webUIStorage;
-  final WebUIService webUIService;
+  final OnboardingController? onboardingController;
+  final AppStartupCoordinator startupCoordinator;
+  final WidgetBuilder? readyBuilder;
 
   const _InitializationStepView({
-    required this.onboardingController,
-    required this.deviceController,
-    required this.de1Controller,
-    this.pluginLoaderService,
-    required this.webUIStorage,
-    required this.webUIService,
+    super.key,
+    this.onboardingController,
+    required this.startupCoordinator,
+    this.readyBuilder,
   });
 
   @override
@@ -61,100 +89,52 @@ class _InitializationStepView extends StatefulWidget {
 }
 
 class _InitializationStepViewState extends State<_InitializationStepView> {
-  late final Future<void> _initFuture;
+  late Future<void> _initFuture;
+  bool _advanced = false;
+  bool _ready = false;
 
   @override
   void initState() {
     super.initState();
-    _initFuture = _initializeServices();
+    _initFuture = widget.startupCoordinator.ensureInitialized();
+    unawaited(_observeInitialization(_initFuture));
   }
 
-  Future<void> _initializeServices() async {
-    BootTiming.mark('init_start');
-
-    final deviceInit = widget.deviceController.initialize();
-
-    _log.info('Initializing WebUI storage...');
+  Future<void> _observeInitialization(Future<void> future) async {
     try {
-      await widget.webUIStorage.initialize(downloadRemote: false);
-      _log.info('WebUI storage initialized successfully');
-    } catch (e) {
-      _log.severe('Failed to initialize WebUI storage', e);
-    }
-
-    final override = widget.webUIService.skinOverride;
-    bool served = false;
-    if (override.source == SkinSource.path) {
-      final path = override.value!;
-      if (await _isReadableDirectory(path)) {
-        _log.info('Starting WebUI service from --skin-path: $path');
-        try {
-          await widget.webUIService.serveFolderAtPath(path);
-          _log.info('WebUI service started successfully from --skin-path');
-          served = true;
-        } catch (e) {
-          _log.severe('Failed to serve --skin-path: $path', e);
-        }
-      } else {
-        _log.severe('--skin-path not readable or not a directory: $path');
+      await future;
+      if (!mounted || _advanced) return;
+      if (widget.readyBuilder != null) {
+        setState(() => _ready = true);
+        return;
       }
-    }
-    if (!served) {
-      if (override.source == SkinSource.path) {
-        _log.info('Falling back to registry default skin');
+      final controller = widget.onboardingController!;
+      if (controller.activeSteps.isEmpty ||
+          controller.currentStep.id != 'initialization') {
+        return;
       }
-      final defaultSkin = widget.webUIStorage.defaultSkin;
-      if (defaultSkin != null) {
-        _log.info('Starting WebUI service with skin: ${defaultSkin.name}');
-        try {
-          await widget.webUIService.serveFolderAtPath(defaultSkin.path);
-          _log.info('WebUI service started successfully');
-        } catch (e) {
-          _log.severe('Failed to start WebUI service', e);
-        }
-      } else {
-        _log.warning('No default skin available, WebUI service not started');
-      }
-    }
-
-    await deviceInit;
-    BootTiming.mark('init_ready');
-
-    if (Platform.isAndroid) {
-      await ForegroundTaskService.start();
-      ForegroundTaskService.watchMachineConnection(widget.de1Controller.de1);
-    }
-
-    BootTiming.mark('scan_start');
-    widget.onboardingController.advance();
-
-    final plugins = widget.pluginLoaderService;
-    if (plugins != null) {
-      unawaited(
-        plugins.initialize().catchError(
-          (Object e) => _log.warning('Background plugin init failed: $e'),
-        ),
-      );
-    }
-    unawaited(
-      widget.webUIStorage.downloadRemoteSkinsAndRescan().catchError(
-        (Object e) =>
-            _log.warning('Background remote-skin download failed: $e'),
-      ),
-    );
-  }
-
-  Future<bool> _isReadableDirectory(String path) async {
-    try {
-      final dir = Directory(path);
-      return await dir.exists();
+      _advanced = true;
+      controller.advance();
     } catch (_) {
-      return false;
+      if (mounted) setState(() {});
     }
+  }
+
+  void _retry() {
+    setState(() {
+      _initFuture = widget.startupCoordinator.retry();
+    });
+    unawaited(_observeInitialization(_initFuture));
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_ready) {
+      return StartupDiscoveryRecovery(
+        startupCoordinator: widget.startupCoordinator,
+        child: widget.readyBuilder!(context),
+      );
+    }
     return OnboardingScaffold(
       semanticsLabel: 'Starting Decaid',
       body: [
@@ -162,9 +142,15 @@ class _InitializationStepViewState extends State<_InitializationStepView> {
           future: _initFuture,
           builder: (context, snapshot) {
             if (snapshot.hasError) {
-              return Semantics(
-                liveRegion: true,
-                child: Text('Error: ${snapshot.error}'),
+              return Column(
+                spacing: 16,
+                children: [
+                  Semantics(
+                    liveRegion: true,
+                    child: Text('Error: ${snapshot.error}'),
+                  ),
+                  TextButton(onPressed: _retry, child: const Text('Retry')),
+                ],
               );
             }
             return Column(

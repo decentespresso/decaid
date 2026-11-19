@@ -97,6 +97,7 @@ import 'package:reaprime/src/controllers/scan_state_guardian.dart';
 
 import 'src/app.dart';
 import 'src/launcher/launcher_view.dart';
+import 'src/services/app_startup_coordinator.dart';
 import 'src/services/foreground_service.dart';
 import 'src/services/network/multicast_lock_service.dart';
 import 'src/settings/machine_settings_store.dart';
@@ -162,6 +163,15 @@ Set<SimulatedDevicesTypes> _parseSimulateFlag(String value) {
       .map((e) => SimulatedDevicesTypesFromString.fromString(e))
       .whereType<SimulatedDevicesTypes>()
       .toSet();
+}
+
+bool isStartupRelevantDiscoveryService(DeviceDiscoveryService service) {
+  if (service is NoOpSerialService) return false;
+  if (service is SimulatedDeviceService) {
+    return service.enabledDevices.isNotEmpty;
+  }
+  if (service is PluginDeviceService) return service.hasRegistrations;
+  return true;
 }
 
 Future<List<domain.ShotRecord>> pageShotsForExport(
@@ -260,6 +270,25 @@ Future<void> prepareShotUploadStartup(
   if (forceOnboarding) {
     await settings.setShotUploadStepSeen(false);
   }
+}
+
+Future<void> loadSettingsBeforeWebServer({
+  required SettingsController settingsController,
+  required SimulatedDeviceService simulatedDevicesService,
+  required Future<void> Function() startWebServer,
+}) async {
+  settingsController.addListener(() {
+    const simEnv = String.fromEnvironment("simulate");
+    final dartDefineDevices = simEnv.isNotEmpty
+        ? _parseSimulateFlag(simEnv)
+        : <SimulatedDevicesTypes>{};
+    simulatedDevicesService.enabledDevices = {
+      ...dartDefineDevices,
+      ...settingsController.simulatedDevices,
+    };
+  });
+  await settingsController.loadSettings();
+  await startWebServer();
 }
 
 void main(List<String> args) async {
@@ -435,7 +464,10 @@ void main(List<String> args) async {
   final profileController = ProfileController(storage: profileStorage);
   await profileController.initialize();
 
-  final deviceController = DeviceController(services);
+  final deviceController = DeviceController(
+    services,
+    startupRelevance: isStartupRelevantDiscoveryService,
+  );
   deviceController.telemetryService = telemetryService;
   final machineSettings = SharedPreferencesMachineSettingsStore();
   final de1Controller = De1Controller(
@@ -542,6 +574,7 @@ void main(List<String> args) async {
     rateLimit: githubRateLimit,
     credentials: githubCredentials,
   );
+  webUIService.legacySkinPathsProvider = webUIStorage.legacySkinPaths;
 
   DecentAccountService? decentAccountService;
   DecentProxyService? decentProxyService;
@@ -725,68 +758,84 @@ void main(List<String> args) async {
       : null;
 
   try {
-    await startWebServer(
-      deviceController,
-      de1Controller,
-      scaleController,
-      settingsController,
-      sensorController,
-      workflowController,
-      persistenceController,
-      pluginService,
-      webUIService,
-      webUIStorage,
-      profileController,
-      '$logDir/log.txt',
-      webViewLogService,
-      batteryController,
-      presenceController,
-      displayController,
-      pluginSourceService: pluginSourceService,
-      beanStorage: beanStorage,
-      grinderStorage: grinderStorage,
-      connectionManager: connectionManager,
-      backupSources: BackupDataSources(
-        pageShots: (limit, {afterTimestamp, afterCreatedAt, afterId}) =>
-            pageShotsForExport(
-              appDatabase,
-              limit,
-              afterTimestamp: afterTimestamp,
-              afterCreatedAt: afterCreatedAt,
-              afterId: afterId,
+    await loadSettingsBeforeWebServer(
+      settingsController: settingsController,
+      simulatedDevicesService: simulatedDevicesService,
+      startWebServer: () async {
+        try {
+          await startWebServer(
+            deviceController,
+            de1Controller,
+            scaleController,
+            settingsController,
+            sensorController,
+            workflowController,
+            persistenceController,
+            pluginService,
+            webUIService,
+            webUIStorage,
+            profileController,
+            '$logDir/log.txt',
+            webViewLogService,
+            batteryController,
+            presenceController,
+            displayController,
+            pluginSourceService: pluginSourceService,
+            beanStorage: beanStorage,
+            grinderStorage: grinderStorage,
+            connectionManager: connectionManager,
+            backupSources: BackupDataSources(
+              pageShots: (limit, {afterTimestamp, afterCreatedAt, afterId}) =>
+                  pageShotsForExport(
+                    appDatabase,
+                    limit,
+                    afterTimestamp: afterTimestamp,
+                    afterCreatedAt: afterCreatedAt,
+                    afterId: afterId,
+                  ),
+              pageSteams:
+                  (limit, {afterTimestamp, afterCreatedAt, afterId}) async {
+                    final rows = await appDatabase.steamDao.getSteamsForExport(
+                      limit: limit,
+                      cursorTimestamp: afterTimestamp,
+                      cursorId: afterId,
+                    );
+                    return rows.map(SteamMapper.fromRow).toList();
+                  },
+              pageBeans:
+                  (limit, {afterTimestamp, afterCreatedAt, afterId}) async {
+                    final rows = await appDatabase.beanDao.getBeansForExport(
+                      limit: limit,
+                      cursorCreatedAt: afterCreatedAt,
+                      cursorId: afterId,
+                    );
+                    return rows.map(BeanMapper.fromRow).toList();
+                  },
+              pageGrinders:
+                  (limit, {afterTimestamp, afterCreatedAt, afterId}) async {
+                    final rows = await appDatabase.grinderDao
+                        .getGrindersForExport(
+                          limit: limit,
+                          cursorCreatedAt: afterCreatedAt,
+                          cursorId: afterId,
+                        );
+                    return rows.map(GrinderMapper.fromRow).toList();
+                  },
             ),
-        pageSteams: (limit, {afterTimestamp, afterCreatedAt, afterId}) async {
-          final rows = await appDatabase.steamDao.getSteamsForExport(
-            limit: limit,
-            cursorTimestamp: afterTimestamp,
-            cursorId: afterId,
+            wifiScaleDiscoveryService: wifiScaleDiscoveryService,
+            rememberedDevicesController: rememberedDevicesController,
+            decentAccountService: decentAccountService,
+            decentProxyService: decentProxyService,
+            proxyTokenService: proxyTokenService,
+            updateCheckService: updateCheckService,
+            credentials: githubCredentials,
           );
-          return rows.map(SteamMapper.fromRow).toList();
-        },
-        pageBeans: (limit, {afterTimestamp, afterCreatedAt, afterId}) async {
-          final rows = await appDatabase.beanDao.getBeansForExport(
-            limit: limit,
-            cursorCreatedAt: afterCreatedAt,
-            cursorId: afterId,
-          );
-          return rows.map(BeanMapper.fromRow).toList();
-        },
-        pageGrinders: (limit, {afterTimestamp, afterCreatedAt, afterId}) async {
-          final rows = await appDatabase.grinderDao.getGrindersForExport(
-            limit: limit,
-            cursorCreatedAt: afterCreatedAt,
-            cursorId: afterId,
-          );
-          return rows.map(GrinderMapper.fromRow).toList();
-        },
-      ),
-      wifiScaleDiscoveryService: wifiScaleDiscoveryService,
-      rememberedDevicesController: rememberedDevicesController,
-      decentAccountService: decentAccountService,
-      decentProxyService: decentProxyService,
-      proxyTokenService: proxyTokenService,
-      updateCheckService: updateCheckService,
-      credentials: githubCredentials,
+        } on WebServerPortInUse {
+          rethrow;
+        } catch (e, st) {
+          log.severe('failed to start web server', e, st);
+        }
+      },
     );
   } on WebServerPortInUse catch (e) {
     log.severe(
@@ -794,21 +843,8 @@ void main(List<String> args) async {
     );
     runApp(WebServerPortConflictApp(port: e.port));
     return;
-  } catch (e, st) {
-    log.severe('failed to start web server', e, st);
   }
   BootTiming.mark('webserver_up');
-  settingsController.addListener(() {
-    const simEnv = String.fromEnvironment("simulate");
-    final dartDefineDevices = simEnv.isNotEmpty
-        ? _parseSimulateFlag(simEnv)
-        : <SimulatedDevicesTypes>{};
-    simulatedDevicesService.enabledDevices = {
-      ...dartDefineDevices,
-      ...settingsController.simulatedDevices,
-    };
-  });
-  await settingsController.loadSettings();
   await prepareShotUploadStartup(
     settingsController,
     forceOnboarding: cliArgs.forceOnboarding,
@@ -875,9 +911,7 @@ void main(List<String> args) async {
       ) ??
       Level.FINE;
 
-  Future.delayed(Duration(minutes: 10), () async {
-    await updateCheckService.initialize();
-  });
+  updateCheckService.scheduleInitialize();
 
   WidgetsBinding.instance.addObserver(
     AppLifecycleObserver(
@@ -885,6 +919,8 @@ void main(List<String> args) async {
       pluginLoaderService: pluginService,
       connectionManager: connectionManager,
       appLogUploadService: appLogUploadService,
+      updateCheckService: updateCheckService,
+      settingsController: settingsController,
     ),
   );
 
@@ -934,6 +970,8 @@ class AppLifecycleObserver with WidgetsBindingObserver {
   final PluginLoaderService? pluginLoaderService;
   final ConnectionManager? connectionManager;
   final AppLogUploadService? appLogUploadService;
+  final UpdateCheckService? updateCheckService;
+  final SettingsController? settingsController;
 
   late Timer _memTimer;
   Future<void>? _detachFuture;
@@ -943,6 +981,8 @@ class AppLifecycleObserver with WidgetsBindingObserver {
     this.pluginLoaderService,
     this.connectionManager,
     this.appLogUploadService,
+    this.updateCheckService,
+    this.settingsController,
   }) {
     _memTimer = Timer.periodic(Duration(minutes: 5), (t) {
       final rss = ProcessInfo.currentRss / (1024 * 1024);
@@ -962,7 +1002,12 @@ class AppLifecycleObserver with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       _log.info("state: resumed");
 
+      updateCheckService?.onAppResumed();
       unawaited(displayController?.onAppResumed() ?? Future<void>.value());
+      final settings = settingsController;
+      if (settings != null) {
+        unawaited(settings.currentRequireExtensionManagementAuthorization());
+      }
     }
   }
 
@@ -983,6 +1028,11 @@ class AppLifecycleObserver with WidgetsBindingObserver {
   }
 
   Future<void> _handleDetached() async {
+    try {
+      updateCheckService?.dispose();
+    } catch (error, stackTrace) {
+      _log.warning('Update service disposal failed', error, stackTrace);
+    }
     try {
       await connectionManager?.shutdown();
     } catch (error, stackTrace) {
@@ -1072,12 +1122,20 @@ class AppRoot extends StatefulWidget {
 class _AppRootState extends State<AppRoot> {
   final Logger _log = Logger("AppRoot");
   Key _key = UniqueKey();
+  late final AppStartupCoordinator _startupCoordinator;
 
   static const _windowChannel = MethodChannel('net.tadel.reaprime/window');
 
   @override
   void initState() {
     super.initState();
+    _startupCoordinator = AppStartupCoordinator(
+      deviceController: widget.deviceController,
+      de1Controller: widget.de1Controller,
+      pluginLoaderService: widget.pluginLoaderService,
+      webUIStorage: widget.webUIStorage,
+      webUIService: widget.webUIService,
+    );
     if (Platform.isWindows) {
       _windowChannel.setMethodCallHandler(_handleWindowMethod);
     }
@@ -1088,6 +1146,7 @@ class _AppRootState extends State<AppRoot> {
     if (Platform.isWindows) {
       _windowChannel.setMethodCallHandler(null);
     }
+    _startupCoordinator.dispose();
     super.dispose();
   }
 
@@ -1153,6 +1212,7 @@ class _AppRootState extends State<AppRoot> {
         displayController: widget.displayController,
         accountConsentStore: widget.accountConsentStore,
         credentials: widget.credentials,
+        startupCoordinator: _startupCoordinator,
       ),
     );
 

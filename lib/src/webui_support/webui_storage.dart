@@ -146,11 +146,13 @@ class WebUISkin {
 
 class WebUIStorage {
   final _log = Logger('WebUIStorage');
+  static const _stagingDirName = '.webui-install-staging';
   final SettingsController _settingsController;
   final Directory? _webUIDirOverride;
 
   late Directory _webUIDir;
   final Map<String, WebUISkin> _installedSkins = {};
+  final Map<String, List<String>> _skinPaths = {};
   final Map<String, WebUIReaMetadata> _skinMetadata = {};
   bool _initialized = false;
   final ValueNotifier<Future<void>?> _updateCheck = ValueNotifier(null);
@@ -242,6 +244,16 @@ class WebUIStorage {
   List<WebUISkin> get installedSkins => _installedSkins.values.toList();
 
   WebUISkin? getSkin(String id) => _installedSkins[id];
+
+  Iterable<String> legacySkinPaths(String path) {
+    final skin = _installedSkins.values
+        .where((skin) => skin.path == path)
+        .firstOrNull;
+    if (skin == null) return const [];
+    return (_skinPaths[skin.id] ?? const <String>[]).reversed.where(
+      (candidate) => candidate != path,
+    );
+  }
 
   WebUISkin? get defaultSkin {
     final preferredSkinId = _settingsController.defaultSkinId;
@@ -641,6 +653,7 @@ class WebUIStorage {
                 entry.value.releaseAssetName,
                 entry.value.includePrerelease ?? false,
                 markAsRemoteBundled: false,
+                expectedSkinId: skinId,
               ),
             ),
           );
@@ -666,6 +679,7 @@ class WebUIStorage {
                 url,
                 markAsRemoteBundled: false,
                 sourceIdentifier: 'github_branch:$repo@$branch',
+                expectedSkinId: skinId,
               ),
             ),
           );
@@ -679,6 +693,7 @@ class WebUIStorage {
               status: await _installFromUrlAsRemoteBundled(
                 sourceUrl,
                 markAsRemoteBundled: false,
+                expectedSkinId: skinId,
               ),
             ),
           );
@@ -703,6 +718,7 @@ class WebUIStorage {
     String? assetName,
     bool includePrerelease, {
     bool markAsRemoteBundled = true,
+    String? expectedSkinId,
   }) async {
     try {
       final apiUrl = includePrerelease
@@ -750,12 +766,15 @@ class WebUIStorage {
       );
 
       final sourceIdentifier = 'github_release:$repo@$releaseTag';
-      final existingMetadata = _skinMetadata.values.firstWhere(
-        (meta) => meta.sourceUrl == sourceIdentifier,
-        orElse: () => WebUIReaMetadata(skinId: '', installedAt: DateTime.now()),
-      );
+      final existingMetadata = expectedSkinId != null
+          ? _skinMetadata[expectedSkinId]
+          : _skinMetadata.values
+                .where((meta) => _tracksReleaseRepo(meta, repo))
+                .firstOrNull;
+      final boundSkinId = expectedSkinId ?? existingMetadata?.skinId;
 
-      if (existingMetadata.skinId.isNotEmpty) {
+      if (existingMetadata != null &&
+          existingMetadata.sourceUrl == sourceIdentifier) {
         _log.info('Release $releaseTag already installed, skipping download');
 
         _skinMetadata[existingMetadata.skinId] = existingMetadata.copyWith(
@@ -777,7 +796,10 @@ class WebUIStorage {
 
       String installedSkinId;
       try {
-        installedSkinId = await _installFromZip(tempFile.path);
+        installedSkinId = await _installFromZip(
+          tempFile.path,
+          expectedSkinId: boundSkinId,
+        );
       } finally {
         await tempDir.delete(recursive: true);
       }
@@ -812,10 +834,14 @@ class WebUIStorage {
     }
   }
 
+  bool _tracksReleaseRepo(WebUIReaMetadata metadata, String repo) =>
+      metadata.sourceUrl?.startsWith('github_release:$repo@') ?? false;
+
   Future<RemoteUpdateStatus> _installFromUrlAsRemoteBundled(
     String url, {
     bool markAsRemoteBundled = true,
     String? sourceIdentifier,
+    String? expectedSkinId,
   }) async {
     try {
       final headResponse = await http.head(Uri.parse(url));
@@ -827,6 +853,9 @@ class WebUIStorage {
         (meta) => meta.sourceUrl == trackedSource,
         orElse: () => WebUIReaMetadata(skinId: '', installedAt: DateTime.now()),
       );
+      final boundSkinId =
+          expectedSkinId ??
+          (existingMetadata.skinId.isNotEmpty ? existingMetadata.skinId : null);
 
       bool needsUpdate = true;
       if (existingMetadata.skinId.isNotEmpty) {
@@ -838,14 +867,13 @@ class WebUIStorage {
           needsUpdate = false;
           _log.info('Skin from $url is up to date (Last-Modified match)');
         }
+      }
 
+      if (!needsUpdate) {
         _skinMetadata[existingMetadata.skinId] = existingMetadata.copyWith(
           lastChecked: DateTime.now(),
         );
         await _saveSkinMetadata();
-      }
-
-      if (!needsUpdate) {
         return RemoteUpdateStatus.alreadyCurrent;
       }
 
@@ -869,7 +897,10 @@ class WebUIStorage {
 
       String installedSkinId;
       try {
-        installedSkinId = await _installFromZip(tempFile.path);
+        installedSkinId = await _installFromZip(
+          tempFile.path,
+          expectedSkinId: boundSkinId,
+        );
       } finally {
         await tempDir.delete(recursive: true);
       }
@@ -1112,13 +1143,18 @@ class WebUIStorage {
   }
 
   Future<void> _scanInstalledSkins() async {
-    _installedSkins.clear();
+    final installedSkins = <String, WebUISkin>{};
+    final skinPaths = <String, List<String>>{};
 
     if (!_webUIDir.existsSync()) {
+      _installedSkins.clear();
+      _skinPaths.clear();
       return;
     }
 
-    final directories = _webUIDir.listSync().whereType<Directory>();
+    final directories = _webUIDir.listSync().whereType<Directory>().where(
+      (dir) => p.basename(dir.path) != _stagingDirName,
+    );
 
     for (final dir in directories) {
       try {
@@ -1168,12 +1204,23 @@ class WebUIStorage {
           continue;
         }
 
-        _installedSkins[skin.id] = skin;
+        (skinPaths[skin.id] ??= []).add(skin.path);
+        final existing = installedSkins[skin.id];
+        if (existing != null && p.basename(existing.path) == skin.id) {
+          continue;
+        }
+        installedSkins[skin.id] = skin;
         _log.fine('Found skin: ${skin.id} at ${skin.path}');
       } catch (e) {
         _log.warning('Failed to load skin from ${dir.path}', e);
       }
     }
+    _installedSkins
+      ..clear()
+      ..addAll(installedSkins);
+    _skinPaths
+      ..clear()
+      ..addAll(skinPaths);
   }
 
   bool _isBundledSkin(String skinId) {
@@ -1190,6 +1237,7 @@ class WebUIStorage {
   Future<String> _installFromZip(
     String zipPath, {
     bool overwriteIfExists = true,
+    String? expectedSkinId,
   }) async {
     _log.info('Installing WebUI from zip: $zipPath');
 
@@ -1197,30 +1245,49 @@ class WebUIStorage {
         .createTemp('webui_extract');
 
     try {
-      final zipFile = File(zipPath);
-      final bytes = await zipFile.readAsBytes();
-      final archive = ZipDecoder().decodeBytes(bytes);
+      final bytes = await File(zipPath).readAsBytes();
+      final Archive archive;
+      try {
+        archive = ZipDecoder().decodeBytes(bytes);
+      } catch (e, st) {
+        _log.warning('Failed to decode skin archive: $zipPath', e, st);
+        throw const UserFacingFormatException(
+          'The file is not a valid skin archive.',
+        );
+      }
+      if (archive.files.isEmpty) {
+        _log.warning('Skin archive has no entries: $zipPath');
+        throw const UserFacingFormatException(
+          'The file is not a valid skin archive.',
+        );
+      }
 
-      extractArchiveToDirectory(
-        archive,
-        tempDir,
-        sanitize: Platform.isWindows,
-        log: _log,
-      );
-
-      final extractedContents = tempDir.listSync();
-      Directory contentDir;
-
-      if (extractedContents.length == 1 &&
-          extractedContents.first is Directory) {
-        contentDir = extractedContents.first as Directory;
-      } else {
-        contentDir = tempDir;
+      final ExtractionResult extraction;
+      try {
+        extraction = extractArchiveToDirectory(
+          archive,
+          tempDir,
+          sanitize: Platform.isWindows,
+          strict: true,
+          log: _log,
+        );
+      } catch (e, st) {
+        _log.warning('Failed to extract skin archive: $zipPath', e, st);
+        throw const UserFacingFormatException(
+          'The skin archive is damaged and could not be extracted.',
+        );
+      }
+      if (extraction.extracted == 0) {
+        _log.warning('Skin archive contains no files: $zipPath');
+        throw const UserFacingFormatException(
+          'The skin archive does not contain any files.',
+        );
       }
 
       return await _installFromDirectory(
-        contentDir,
+        _selectCandidateRoot(tempDir),
         overwriteIfExists: overwriteIfExists,
+        expectedSkinId: expectedSkinId,
       );
     } finally {
       if (tempDir.existsSync()) {
@@ -1229,25 +1296,22 @@ class WebUIStorage {
     }
   }
 
+  Directory _selectCandidateRoot(Directory extractDir) {
+    final extractedContents = extractDir.listSync();
+    if (extractedContents.length == 1 && extractedContents.first is Directory) {
+      return extractedContents.first as Directory;
+    }
+    return extractDir;
+  }
+
   Future<String> _installFromDirectory(
     Directory sourceDir, {
     bool overwriteIfExists = true,
+    String? expectedSkinId,
   }) async {
-    String skinId;
-    final skinManifestFile = File('${sourceDir.path}/skin-manifest.json');
-    final manifestFile = File('${sourceDir.path}/manifest.json');
-
-    if (skinManifestFile.existsSync()) {
-      final skinManifestJson = jsonDecode(
-        await skinManifestFile.readAsString(),
-      );
-      skinId = skinManifestJson['id'] as String? ?? p.basename(sourceDir.path);
-    } else if (manifestFile.existsSync()) {
-      final manifestJson = jsonDecode(await manifestFile.readAsString());
-      skinId = manifestJson['id'] as String? ?? p.basename(sourceDir.path);
-    } else {
-      skinId = p.basename(sourceDir.path);
-    }
+    final declaredSkinId = await _readCandidateSkinId(sourceDir);
+    final skinId =
+        expectedSkinId ?? declaredSkinId ?? p.basename(sourceDir.path);
 
     if (!isSafePathComponent(skinId)) {
       throw const UserFacingFormatException(
@@ -1255,27 +1319,175 @@ class WebUIStorage {
       );
     }
 
+    if (skinId == _stagingDirName || declaredSkinId == _stagingDirName) {
+      throw const UserFacingFormatException(
+        'The skin package declares a reserved skin id.',
+      );
+    }
+
+    if (expectedSkinId != null &&
+        declaredSkinId != null &&
+        declaredSkinId != expectedSkinId) {
+      throw const UserFacingFormatException(
+        'The skin package declares a different skin id than the installed '
+        'skin.',
+      );
+    }
+
+    if (!File('${sourceDir.path}/index.html').existsSync()) {
+      throw const UserFacingFormatException(
+        'The skin package does not contain an index.html file.',
+      );
+    }
+
     final destDir = Directory('${_webUIDir.path}/$skinId');
-    if (destDir.existsSync() &&
-        destDir.listSync().isNotEmpty &&
-        !overwriteIfExists) {
+    final destExists = destDir.existsSync();
+    final destHasFiles = destExists && destDir.listSync().isNotEmpty;
+    if (destHasFiles && !overwriteIfExists) {
       _log.info(
         'Skin "$skinId" already installed; skipping to avoid clobbering existing copy',
       );
       return skinId;
     }
-    if (destDir.existsSync()) {
-      _log.info('Skin already exists: $skinId, overwriting...');
-      await destDir.delete(recursive: true);
-    }
 
-    destDir.createSync(recursive: true);
-
-    await _copyDirectory(sourceDir, destDir);
+    await _replaceInstalledSkin(
+      sourceDir,
+      destDir,
+      replaceExisting: destExists,
+    );
 
     _log.info('Installed WebUI skin: $skinId at ${destDir.path}');
 
     return skinId;
+  }
+
+  static const _manifestStringFields = ['id', 'name', 'description', 'version'];
+
+  Future<String?> _readCandidateSkinId(Directory sourceDir) async {
+    for (final manifestName in const ['skin-manifest.json', 'manifest.json']) {
+      final manifestFile = File('${sourceDir.path}/$manifestName');
+      if (!manifestFile.existsSync()) continue;
+
+      final Map<String, dynamic> manifest;
+      try {
+        manifest = jsonDecode(
+          await manifestFile.readAsString(),
+        ) as Map<String, dynamic>;
+      } catch (e, st) {
+        _log.warning(
+          'Failed to read $manifestName in ${sourceDir.path}',
+          e,
+          st,
+        );
+        throw const UserFacingFormatException(
+          'The skin manifest is not valid JSON.',
+        );
+      }
+
+      for (final field in _manifestStringFields) {
+        final value = manifest[field];
+        if (value == null || value is String) continue;
+        _log.warning(
+          'Skin manifest $manifestName in ${sourceDir.path} has a non-string '
+          '"$field": $value',
+        );
+        throw UserFacingFormatException(
+          'The skin manifest has an invalid "$field" value.',
+        );
+      }
+
+      return manifest['id'] as String?;
+    }
+
+    return null;
+  }
+
+  Future<void> _replaceInstalledSkin(
+    Directory sourceDir,
+    Directory destDir, {
+    required bool replaceExisting,
+  }) async {
+    final stagingRoot = Directory('${_webUIDir.path}/$_stagingDirName')
+      ..createSync(recursive: true);
+    Directory? candidate;
+    Directory? previous;
+    var keepPrevious = false;
+
+    try {
+      candidate = stagingRoot.createTempSync('candidate_');
+      await copySkinFiles(sourceDir, candidate);
+
+      if (replaceExisting) {
+        previous = _reserveDirectoryPath(stagingRoot, 'previous_');
+        try {
+          await moveSkinDirectory(destDir, previous);
+        } catch (e, st) {
+          _log.severe('Failed to move aside ${destDir.path}', e, st);
+          rethrow;
+        }
+      }
+
+      try {
+        await moveSkinDirectory(candidate, destDir);
+        candidate = null;
+      } catch (e, st) {
+        _log.severe(
+          'Failed to move the staged skin into ${destDir.path}',
+          e,
+          st,
+        );
+        final movedAside = previous;
+        if (movedAside != null) {
+          try {
+            await moveSkinDirectory(movedAside, destDir);
+            previous = null;
+          } catch (restoreError, restoreStack) {
+            keepPrevious = true;
+            _log.severe(
+              'Failed to restore the previous skin at ${destDir.path}; '
+              'it is preserved at ${movedAside.path}',
+              restoreError,
+              restoreStack,
+            );
+          }
+        }
+        rethrow;
+      }
+    } finally {
+      if (candidate != null) _deleteDirectoryQuietly(candidate);
+      if (!keepPrevious && previous != null) {
+        _deleteDirectoryQuietly(previous);
+      }
+      if (stagingRoot.existsSync() && stagingRoot.listSync().isEmpty) {
+        _deleteDirectoryQuietly(stagingRoot);
+      }
+    }
+  }
+
+  Directory _reserveDirectoryPath(Directory parent, String prefix) {
+    final reserved = parent.createTempSync(prefix);
+    reserved.deleteSync();
+    return reserved;
+  }
+
+  void _deleteDirectoryQuietly(Directory directory) {
+    try {
+      if (directory.existsSync()) directory.deleteSync(recursive: true);
+    } catch (e, st) {
+      _log.warning('Failed to clean up ${directory.path}', e, st);
+    }
+  }
+
+  @visibleForTesting
+  Future<void> copySkinFiles(Directory source, Directory destination) =>
+      _copyDirectory(source, destination);
+
+  @visibleForTesting
+  Future<void> moveSkinDirectory(
+    Directory source,
+    Directory destination,
+  ) async {
+    await source.rename(destination.path);
   }
 
   Future<void> _copyDirectory(Directory source, Directory destination) async {

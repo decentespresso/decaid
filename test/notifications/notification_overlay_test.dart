@@ -13,7 +13,10 @@ import 'package:reaprime/src/services/webview_log_service.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/settings/update_dialog.dart';
 import 'package:reaprime/src/services/android_updater.dart';
+import 'package:reaprime/src/services/app_update_state.dart';
+import 'package:reaprime/src/services/update_check_service.dart';
 import 'package:reaprime/src/skin_feature/skin_view.dart';
+import 'package:reaprime/src/webui_support/webui_storage.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../helpers/mock_de1_controller.dart';
@@ -30,6 +33,17 @@ class _WebViewState extends State<_WebView> {
   @override
   Widget build(BuildContext context) =>
       const ColoredBox(color: Colors.green, child: SizedBox.expand());
+}
+
+UpdateCheckService _updateService() {
+  final settings = MockSettingsService();
+  return UpdateCheckService(
+    settingsService: settings,
+    webUIStorage: WebUIStorage(SettingsController(settings)),
+    platformIsAndroid: true,
+    platformIsMacOS: false,
+    externallyManaged: false,
+  )..debugForceUpdate();
 }
 
 void main() {
@@ -270,75 +284,73 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('download confirmation replaces rather than stacks the center', (
-    tester,
-  ) async {
-    var overlayPresent = false;
-    var downloads = 0;
-    await tester.runAsync(
-      () => center.publish(
-        NativeNotification(
-          namespace: NotificationNamespace.host,
-          sourceId: 'app-update',
-          sourceName: 'Decaid',
-          id: '99.0.0',
-          message: 'Update available: 99.0.0',
-          actions: const [
-            NotificationAction(
-              id: 'download',
-              label: 'Download',
-              type: NotificationActionType.downloadUpdate,
-            ),
-          ],
-        ),
-        binding: NotificationBinding(
-          onActivate: (_) async {
-            overlayPresent = find
-                .byType(NotificationOverlay)
-                .evaluate()
-                .isNotEmpty;
-            await showDialog<void>(
-              context: tester.element(find.byType(Scaffold)),
-              builder: (_) => UpdateDialog(
-                updateInfo: UpdateInfo(
-                  version: '99.0.0',
-                  downloadUrl: 'https://example.com/app.apk',
-                  releaseNotes: 'Changes',
-                  isPrerelease: false,
-                  tagName: 'v99.0.0',
-                ),
-                currentVersion: '0.9.0',
-                onViewReleaseNotes: () {},
-                onDownload: (_, _) async {
-                  downloads++;
-                  return '/tmp/app.apk';
-                },
-                onInstall: (_) async => false,
+  testWidgets(
+    'legacy download handoff replaces rather than stacks the center',
+    (tester) async {
+      var overlayPresent = false;
+      final service = _updateService();
+      addTearDown(service.dispose);
+      await tester.runAsync(
+        () => center.publish(
+          NativeNotification(
+            namespace: NotificationNamespace.host,
+            sourceId: 'app-update',
+            sourceName: 'Decaid',
+            id: '99.0.0',
+            message: 'Update available: 99.0.0',
+            actions: const [
+              NotificationAction(
+                id: 'download',
+                label: 'Download',
+                type: NotificationActionType.downloadUpdate,
               ),
-            );
-          },
+            ],
+          ),
+          binding: NotificationBinding(
+            onActivate: (_) async {
+              overlayPresent = find
+                  .byType(NotificationOverlay)
+                  .evaluate()
+                  .isNotEmpty;
+              await showDialog<void>(
+                context: tester.element(find.byType(Scaffold)),
+                builder: (_) => UpdateDialog(
+                  service: service,
+                  updateInfo: UpdateInfo(
+                    version: '99.0.0',
+                    downloadUrl: 'https://example.com/app.apk',
+                    releaseNotes: 'Changes',
+                    isPrerelease: false,
+                    tagName: 'v99.0.0',
+                  ),
+                  currentVersion: '0.9.0',
+                  onViewReleaseNotes: () {},
+                ),
+              );
+            },
+          ),
         ),
-      ),
-    );
-    await mount(tester);
-    await open(tester);
-    await tester.tap(find.text('Download'));
-    await tester.pumpAndSettle();
-    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
-    await tester.pumpAndSettle();
-    expect(find.byType(UpdateDialog), findsOneWidget);
-    expect(overlayPresent, isFalse);
-    expect(downloads, 0);
-    await tester.tap(find.text('Cancel'));
-    await tester.pumpAndSettle();
-    expect(center.value.single.id, '99.0.0');
-    expect(center.unreadCount, 0);
-    expect(downloads, 0);
-    await tester.pumpWidget(const SizedBox());
-  });
+      );
+      await mount(tester);
+      await open(tester);
+      await tester.tap(find.text('Download'));
+      await tester.pumpAndSettle();
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+      await tester.pumpAndSettle();
+      expect(find.byType(UpdateDialog), findsOneWidget);
+      expect(overlayPresent, isFalse);
+      expect(service.currentState.phase, AppUpdatePhase.available);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(center.value.single.id, '99.0.0');
+      expect(center.unreadCount, 0);
+      expect(service.currentState.phase, AppUpdatePhase.available);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   testWidgets(
-    'skin notification center returns to dashboard before update actions',
+    'skin notification center returns to dashboard before legacy actions',
     (tester) async {
       Future<void> pumpTransition() async {
         await tester.pump();
@@ -349,6 +361,8 @@ void main() {
       final logs = WebViewLogService(logDirectoryPath: '.');
       final de1 = MockDe1Controller(controller: DeviceController(const []));
       final settings = SettingsController(MockSettingsService());
+      final service = _updateService();
+      addTearDown(service.dispose);
       final display = DisplayController(
         de1Controller: de1,
         settingsController: settings,
@@ -400,6 +414,7 @@ void main() {
               await showDialog<void>(
                 context: navigator.currentContext!,
                 builder: (_) => UpdateDialog(
+                  service: service,
                   updateInfo: UpdateInfo(
                     version: '99.0.0',
                     downloadUrl: 'https://example.com/app.apk',
@@ -409,8 +424,6 @@ void main() {
                   ),
                   currentVersion: '0.9.0',
                   onViewReleaseNotes: () {},
-                  onDownload: (_, _) async => '/tmp/app.apk',
-                  onInstall: (_) async => false,
                 ),
               );
             },

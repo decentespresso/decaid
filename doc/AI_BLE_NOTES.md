@@ -87,6 +87,20 @@ clients must consume its terminal `done` or `error` event. Transport-level hex
 payload logging is suppressed for MMR writes because firmware image chunks share
 that endpoint; the MMR layer still logs its own payloads at fine level.
 
+Managed firmware map commands and image chunks explicitly disable transparent
+BLE timeout recovery on their dispatches: an accepted write with an uncertain
+acknowledgement must fail rather than be replayed. Both transport write APIs
+otherwise permit at most one reconnect-and-retry per call. Ordinary settings
+writes to the shared MMR endpoint retain that bounded recovery; the endpoint
+alone does not identify firmware traffic. Serial dispatch is unchanged.
+
+Raw writes in `unified_de1.raw.dart` use the default retry policy, including raw
+firmware-map requests and image writes. They may reconnect and replay once after
+a BLE timeout; the managed firmware no-replay guarantee does not cover them.
+Raw firmware dispatch safety needs a separately scoped issue that preserves
+ordinary settings recovery on the shared `writeToMMR` endpoint. See the
+[policy rationale and validation limits](plans/archive/1103-firmware-write-replay/README.md).
+
 The HTTP handlers select DE1's verified coalesced groups and Bengle's individually
 validated groups; the steam-purge/USB group stays sequential. Dart extension
 dispatch is static, so the `De1SettingsSnapshots` extension remains the sequential

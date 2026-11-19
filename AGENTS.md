@@ -2,6 +2,10 @@
 
 For unfamiliar or multi-subsystem tasks, read `doc/AI_REPO_MAP.md` first. For known files or exact symbols, open them directly. Read domain-specific docs only when the task needs them.
 
+For specification, PR evidence, independent review, and integration handoffs, follow [`doc/AGENT_WORKFLOW.md`](doc/AGENT_WORKFLOW.md). Its supplemental evidence fields are advisory while piloted; the verification and contribution rules below, and every other existing gate, remain required.
+
+For independent PR reviews and post-push delta reviews, use [`.agents/skills/decent-review/SKILL.md`](.agents/skills/decent-review/SKILL.md). Review conclusions must identify the reviewed head SHA and separate tested evidence from claims.
+
 ## Workflow
 
 ### Starting Work
@@ -65,6 +69,12 @@ All three steps are required, not optional.
   `asset_directory_does_not_exist` warnings and `bundled_plugin_permissions_test.dart` fails (~34 cases)
   with or without your change. Copy them in from the main checkout (they stay untracked and the tree stays
   clean) or state the baseline failure explicitly in the PR.
+- **A copied bundled bundle can be stale.** `assets/plugins/*.reaplugin` are unpacked bundles carrying their
+  own version in `manifest.json`, so copying from a checkout that stopped updating them yields older plugin
+  behaviour. `shot-upload` at `0.2.1` against tests expecting `0.2.4` fails two unlinked-serial cases in
+  `test/plugins/shot_upload_reconciliation_test.dart`, and the same stale copy in the main checkout fails
+  identically, so "fails on `main` too" is not proof of a baseline. Compare `manifest.json` versions against
+  a worktree whose suite passes before declaring a baseline failure.
 - **Debug builds need `android/app/debug.keystore`** (ignored by `android/.gitignore`). Copy it from the main
   checkout only if the worktree does not already have one, and never overwrite an existing keystore. Delete
   the file after verification only if you created that copy; leave any pre-existing keystore alone.

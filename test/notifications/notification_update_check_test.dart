@@ -41,7 +41,7 @@ void main() {
   late _Updater updater;
   late UpdateCheckService service;
   UpdateNotifications? updates;
-  var downloads = 0;
+  var views = 0;
 
   UpdateInfo update(String version) => UpdateInfo(
     version: version,
@@ -70,7 +70,7 @@ void main() {
       launch: (_) async => throw StateError('Checking must not open a browser'),
     );
     updates = null;
-    downloads = 0;
+    views = 0;
   });
 
   tearDown(() async {
@@ -98,24 +98,18 @@ void main() {
           id: '99.0.0',
           message: 'Update available: 99.0.0',
           actions: [
-            NotificationAction(
-              id: 'view',
-              label: 'View',
-              type: NotificationActionType.openExternalUrl,
-              url: release,
-            ),
-            if (namespace == NotificationNamespace.host)
-              NotificationAction(
-                id: 'download',
-                label: 'Download',
-                type: NotificationActionType.openExternalUrl,
-                url: release,
-              ),
             if (namespace == NotificationNamespace.host)
               const NotificationAction(
-                id: 'skip',
-                label: 'Skip this version',
-                type: NotificationActionType.skipUpdate,
+                id: 'view',
+                label: 'View',
+                type: NotificationActionType.viewUpdate,
+              )
+            else
+              NotificationAction(
+                id: 'view',
+                label: 'View',
+                type: NotificationActionType.openExternalUrl,
+                url: release,
               ),
           ],
         ),
@@ -124,7 +118,7 @@ void main() {
       updates = UpdateNotifications(
         center: center,
         service: service,
-        onDownload: (_) async => downloads++,
+        onView: (_) async => views++,
       );
       await updates!.settled;
     });
@@ -211,10 +205,10 @@ void main() {
         await settle(tester);
         expect(find.text('Check for updates'), findsNothing);
         expect(find.text('View'), findsOneWidget);
-        expect(find.text('Download'), findsOneWidget);
+        expect(find.text('Download'), findsNothing);
         expect(center.isConfirmed(center.value.single), isTrue);
         expect(center.unreadCount, 0);
-        expect(downloads, 0);
+        expect(views, 0);
         await tester.pumpWidget(const SizedBox());
       } finally {
         handle.dispose();
@@ -250,25 +244,25 @@ void main() {
   });
 
   testWidgets(
-    'explicit update skip is separate from reading and launches nothing',
+    'confirmed update View closes the center and opens the updater once',
     (tester) async {
       await mount(tester);
       expect(await settings.skippedVersion(), isNull);
       expect(find.text('Skip this version'), findsNothing);
       await clickCheck(tester);
       await settle(tester);
-      expect(find.text('Skip this version'), findsOneWidget);
+      expect(find.text('Skip this version'), findsNothing);
       expect(await settings.skippedVersion(), isNull);
       await tester.runAsync(() async {
-        await tester.tap(find.text('Skip this version'));
+        await tester.tap(find.text('View'));
         await Future<void>.delayed(Duration.zero);
       });
+      await tester.pumpAndSettle();
       await settle(tester);
-      expect(await settings.skippedVersion(), '99.0.0');
-      expect(center.value, isEmpty);
-      expect(downloads, 0);
-      expect(find.byType(NotificationOverlay), findsOneWidget);
-      expect(find.text('No notifications'), findsOneWidget);
+      expect(await settings.skippedVersion(), isNull);
+      expect(center.value.single.id, '99.0.0');
+      expect(views, 1);
+      expect(find.byType(NotificationOverlay), findsNothing);
       await tester.pumpWidget(const SizedBox());
     },
   );
@@ -290,7 +284,7 @@ void main() {
         expect(find.text('View'), findsOneWidget);
       }
       expect(await settings.skippedVersion(), isNull);
-      expect(downloads, 0);
+      expect(views, 0);
       await tester.pumpWidget(const SizedBox());
     });
   }
