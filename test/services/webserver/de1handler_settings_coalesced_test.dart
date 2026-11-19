@@ -122,6 +122,7 @@ void main() {
       MMRItem.cpuFirmwareBuild: 472,
       MMRItem.heaterV: 230,
       MMRItem.refillKitPresent: 0,
+      MMRItem.profileModeCaps: 0,
       MMRItem.calFlowEst: 1000,
     }.entries) {
       await respondToMmr(entry.key.address, entry.value);

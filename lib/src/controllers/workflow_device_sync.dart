@@ -39,11 +39,24 @@ class WorkflowDeviceSync {
 
   Profile? _lastPushedProfile;
   Profile? _desiredProfile;
+
+  /// The profile the connected machine PERMANENTLY refused — a
+  /// [ProfileModeUnsupportedException] (missing capability, or not a Bengle).
+  /// Unlike a transient BLE-write failure, retrying can never succeed for the
+  /// current connection, so the drain parks on it (no retry timer) and skips
+  /// re-attempting the same profile. Cleared when the workflow profile changes
+  /// ([_onChange]), the machine reconnects ([_onInitSettled]) or disconnects
+  /// ([_onDe1Change]) — any may resolve the refusal (a different profile, or a
+  /// reconnect to firmware that now advertises the capability, which the
+  /// reconnect push re-drives).
+  Profile? _refusedProfile;
+
   bool _uploading = false;
   Timer? _retryTimer;
   int _attempt = 0;
 
   bool _errorSurfaced = false;
+  bool _refusalSurfaced = false;
   bool _disposed = false;
 
   static const int _retryLogHeartbeat = 10;
@@ -60,6 +73,9 @@ class WorkflowDeviceSync {
     }
     _desiredProfile = next;
     _attempt = 0;
+    // A genuine profile change clears any parked capability refusal so the new
+    // profile gets a fresh attempt.
+    _refusedProfile = null;
     _cancelRetry();
     unawaited(_drain());
   }
@@ -69,6 +85,9 @@ class WorkflowDeviceSync {
     _lastPushedProfile = null;
     _desiredProfile = _workflow.currentWorkflow.profile;
     _attempt = 0;
+    // A reconnect may be to firmware that now advertises the capability, so
+    // clear any parked refusal and let the push re-drive.
+    _refusedProfile = null;
     _cancelRetry();
     unawaited(_drain());
   }
@@ -84,6 +103,12 @@ class WorkflowDeviceSync {
           _desiredProfile = null;
           return;
         }
+        // Parked on a permanent capability refusal. Do not re-attempt — only a
+        // workflow-profile change or a reconnect (both clear _refusedProfile
+        // and re-drive) can resolve it.
+        if (profile == _refusedProfile) {
+          return;
+        }
         try {
           await _de1.runDeviceWrite((device) => device.setProfile(profile));
           if (generation != _generation) return;
@@ -91,8 +116,24 @@ class WorkflowDeviceSync {
           _attempt = 0;
           if (_errorSurfaced) {
             _errorSurfaced = false;
+            _refusalSurfaced = false;
             onUploadErrorCleared?.call();
           }
+        } on ProfileModeUnsupportedException catch (e) {
+          if (generation != _generation) return;
+          // The machine's firmware cannot run the pump step types / transitions
+          // in this profile. The refusal is permanent for the connection (the
+          // gate throws before any BLE write, so nothing is wedged), so PARK —
+          // no retry timer — and remember the profile so a spurious re-drive
+          // doesn't re-attempt it. A workflow-profile change or a reconnect
+          // clears _refusedProfile and re-drives.
+          _refusedProfile = profile;
+          _lastPushedProfile = null;
+          _log.warning(
+            'setProfile refused (unsupported pump step types): ${e.message}',
+          );
+          _surfaceRefusal(e);
+          continue;
         } on DeviceNotConnectedException {
           _log.fine('DE1 not connected; skipping profile push');
           return;
@@ -109,8 +150,9 @@ class WorkflowDeviceSync {
           } else {
             _log.fine(message, e);
           }
-          if (!_errorSurfaced) {
+          if (!_errorSurfaced || _refusalSurfaced) {
             _errorSurfaced = true;
+            _refusalSurfaced = false;
             onUploadError?.call(
               ConnectionError(
                 kind: ConnectionErrorKind.profileUploadFailed,
@@ -135,6 +177,21 @@ class WorkflowDeviceSync {
     }
   }
 
+  void _surfaceRefusal(ProfileModeUnsupportedException refusal) {
+    _errorSurfaced = true;
+    _refusalSurfaced = true;
+    onUploadError?.call(
+      ConnectionError(
+        kind: ConnectionErrorKind.profileUploadFailed,
+        severity: ConnectionErrorSeverity.warning,
+        timestamp: DateTime.now().toUtc(),
+        deviceId: _de1.connectedDe1OrNull?.deviceId,
+        deviceName: _de1.connectedDe1OrNull?.name,
+        message: 'Profile not sent to the machine: ${refusal.message}',
+      ),
+    );
+  }
+
   Duration _scheduleRetry(int generation) {
     final delay = retryDelays[min(_attempt, retryDelays.length - 1)];
     _attempt++;
@@ -156,9 +213,11 @@ class WorkflowDeviceSync {
       _cancelRetry();
       _desiredProfile = null;
       _lastPushedProfile = null;
+      _refusedProfile = null;
       _attempt = 0;
       if (_errorSurfaced) {
         _errorSurfaced = false;
+        _refusalSurfaced = false;
         onUploadErrorCleared?.call();
       }
       return;
@@ -177,6 +236,7 @@ class WorkflowDeviceSync {
     _initSettledSub = null;
     if (_errorSurfaced) {
       _errorSurfaced = false;
+      _refusalSurfaced = false;
       onUploadErrorCleared?.call();
     }
   }
