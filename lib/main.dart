@@ -574,6 +574,7 @@ void main(List<String> args) async {
     rateLimit: githubRateLimit,
     credentials: githubCredentials,
   );
+  webUIService.legacySkinPathsProvider = webUIStorage.legacySkinPaths;
 
   DecentAccountService? decentAccountService;
   DecentProxyService? decentProxyService;

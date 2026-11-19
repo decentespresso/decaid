@@ -349,6 +349,15 @@ from the skin's identity and remembered across restarts. Persistent browser
 storage is keyed by origin, so `localStorage` and IndexedDB written by a skin
 are still there the next time the app starts.
 
+When a legacy folder and the canonical folder both declare the same skin ID,
+Decaid selects the canonical folder (the folder named exactly after that ID).
+The legacy folder is left untouched. If the canonical folder has no remembered
+port, Decaid transfers a remembered port from a same-ID legacy folder to it.
+The current skin files therefore remain on the old browser origin; browser
+storage is not copied or cleared. An already remembered canonical port takes
+precedence, and an occupied port still uses the temporary-origin fallback
+below.
+
 `sessionStorage` is not covered by that guarantee. It is scoped to a page
 session, so it is cleared when the page is unloaded — including the background
 unload described above — and it never survives an app restart.
@@ -3373,6 +3382,11 @@ ApplicationDocuments/
 ```
 
 > **Skin id restrictions:** A skin's id (from `skin-manifest.json`, `manifest.json`, or the install folder name) becomes a directory name under `web-ui/`, so it must be a single safe filesystem path component: no `/` or `\` separators, no `.` or `..`, no leading drive letter or NUL byte, and no Windows-reserved characters. Unsafe ids are rejected with a clear error and the skin is not installed.
+
+If more than one installed folder declares the same skin ID, the folder whose
+name equals that ID takes precedence, regardless of discovery order. A
+legacy-only installation still works. Decaid does not remove the other folders
+as part of discovery or origin preservation.
 
 ### Cross-Skin Asset Sharing
 

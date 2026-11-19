@@ -53,6 +53,20 @@ Gotchas:
 
 Keep these stores independent. A settings reset must not clear account credentials unless explicitly requested.
 
+## Legacy Skin Port Assignments
+
+`webUISkinPorts` stores serving-path-to-port assignments. Skin discovery prefers
+the canonical directory when duplicate manifest IDs exist, but retains the
+same-ID legacy paths in memory. `WebUIService` transfers an existing legacy
+assignment to an unassigned canonical path before allocating or binding its
+port; `main.dart` wires the storage lookup into the service. The legacy key is
+removed from the saved map so ports stay unique. Existing canonical assignments
+and unrelated skins are unchanged. Failed persistence leaves the in-memory
+assignment usable and the unchanged persisted legacy mapping available for a
+retry after restart. No folder, browser profile, preferences key or Drift schema
+is migrated or deleted. This preserves the origin, not direct customizations to
+files replaced by a skin update.
+
 ## Native Notification Snapshot
 
 `NotificationCenter` owns `private.notificationCenter.v1`, a versioned JSON
