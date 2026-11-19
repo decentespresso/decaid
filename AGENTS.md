@@ -6,6 +6,11 @@ For specification, PR evidence, independent review, and integration handoffs, fo
 
 For independent PR reviews and post-push delta reviews, use [`.agents/skills/decent-review/SKILL.md`](.agents/skills/decent-review/SKILL.md). Review conclusions must identify the reviewed head SHA and separate tested evidence from claims.
 
+For related-PR merge sequencing, shared-contract risks and disposable combined verification, use
+[`.agents/skills/decent-integration/SKILL.md`](.agents/skills/decent-integration/SKILL.md).
+The authoritative G5 merge-batch report template remains in `doc/AGENT_WORKFLOW.md` section 5;
+recommendations do not authorize merges.
+
 ## Workflow
 
 ### Starting Work
