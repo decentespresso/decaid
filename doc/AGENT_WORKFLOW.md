@@ -68,10 +68,10 @@ triage labels (`needs-triage`, `needs-info`, `needs-refinement`, `ready-for-agen
 
 - **Owner:** reviewer who did not implement the change.
 - **Entry:** evidence complete enough to inspect, recorded against a SHA.
-- **Exit:** reviewed SHA recorded; each acceptance criterion graded verified, weak, or not tested;
-  blocking findings carry impact, file/line, and a reproduction or failure mode; regression and
-  compatibility concerns are raised; recommendation is **approve**, **request changes**, or **needs
-  human validation**.
+- **Exit:** reviewed SHA recorded; each acceptance criterion graded verified, weak, not tested, or
+  blocked; blocking findings carry impact, file/line, and a reproduction or failure mode; regression
+  and compatibility concerns are raised; verdict is **approve recommendation**, **changes
+  required**, or **needs human validation**.
 - **Non-goals:** reimplementing the change, replacing reading with a full local test run, approving
   on a maintainer's behalf, merging.
 
@@ -174,14 +174,12 @@ Record the **exact head SHA** the evidence applies to. When the PR changes:
 
 An independent reviewer starts from the accepted issue, the relevant code and architecture, and the
 test contract, then inspects the changed behavior and its proof — not the implementing agent's
-summary. Report:
-
-- PR and **reviewed head SHA**; risk level and whether it should be escalated.
-- Which criteria are verified, which have weak evidence, which remain not tested.
-- Blocking findings with impact and file/line plus a concrete reproduction or failure mode;
-  nonblocking suggestions kept separate.
-- Cross-feature regression and compatibility concerns, required human/device checks, dependencies.
-- One recommendation: approve, request changes, or needs human validation.
+summary. The **requirements** for the review are the reviewed head SHA, risk and criteria assessment,
+blocking findings, regression/compatibility concerns, human or device validation gaps, dependencies,
+and one of the G4 verdicts above. The **single operational review report template** is in
+[`decent-review`](../.agents/skills/decent-review/SKILL.md) under "Record findings and a
+decision-ready verdict". The author-facing PR evidence matrix in section 3 is distinct from this
+independent reviewer assessment.
 
 After a new push, compare the reviewed SHA with the new head, inspect the delta, and confirm prior
 findings are closed. Re-review unchanged code only when new evidence or nearby changes invalidate the
