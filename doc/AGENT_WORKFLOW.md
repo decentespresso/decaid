@@ -185,8 +185,10 @@ summary. Report:
 
 After a new push, compare the reviewed SHA with the new head, inspect the delta, and confirm prior
 findings are closed. Re-review unchanged code only when new evidence or nearby changes invalidate the
-earlier assumptions. An earlier approval never covers a newer head. Phase 2 (#1204) formalizes the
-review procedure and pilots it.
+earlier assumptions. An earlier approval never covers a newer head. The
+[`decent-review` skill](../.agents/skills/decent-review/SKILL.md) gives the operational first-review,
+delta-review, reporting and pilot procedures for Phase 2 (#1204). Its reviewer recommendations do
+not constitute maintainer product acceptance or an automatic merge gate.
 
 ## 5. Integration and merge readiness
 
