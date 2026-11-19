@@ -4,6 +4,8 @@ For unfamiliar or multi-subsystem tasks, read `doc/AI_REPO_MAP.md` first. For kn
 
 For specification, PR evidence, independent review, and integration handoffs, follow [`doc/AGENT_WORKFLOW.md`](doc/AGENT_WORKFLOW.md). Its supplemental evidence fields are advisory while piloted; the verification and contribution rules below, and every other existing gate, remain required.
 
+For independent PR reviews and post-push delta reviews, use [`.agents/skills/decent-review/SKILL.md`](.agents/skills/decent-review/SKILL.md). Review conclusions must identify the reviewed head SHA and separate tested evidence from claims.
+
 ## Workflow
 
 ### Starting Work
