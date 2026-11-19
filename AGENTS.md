@@ -182,4 +182,5 @@ must not alter `preferredScaleId`, shot sequencing, or legacy singular routes.
 - Don't add API endpoints without updating the OpenAPI/AsyncAPI spec in the same commit.
 - Don't add new global state without a clear ownership boundary.
 - Don't `--amend` or force-push on `main`.
+- Don't launch headless Chrome by hand. Run probes through `scripts/headless-chrome.sh run -- <command>` using its owned `CHROME_PROFILE` (Playwright: `launchPersistentContext`), and retain explicit close in `finally`. Recipe: `.agents/skills/decent-app/verification.md` → "Driving a browser". Recover managed leftovers with `scripts/headless-chrome.sh sweep`.
 - Don't create `CONTEXT.md` or `doc/adr/` — `AGENTS.md` + `doc/` are the equivalents.
