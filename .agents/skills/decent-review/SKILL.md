@@ -41,13 +41,13 @@ For writing/fixing code, use `decent-dev`. For running-app REST/WebSocket checks
 
 Classify by **highest affected behavior** using `doc/AGENT_WORKFLOW.md`, not line count or the author's suggested tier. Treat changed authentication, updater/install, BLE/machine control, device lifecycle, persistence migration and major compatibility as potentially L3.
 
-Construct a criterion-by-criterion map:
+Construct a criterion-by-criterion map using **the review-report table below**. Independently establish the expected observable behavior from the issue before assessing the proof; include that expectation in the evidence/gap cell when it matters.
 
-| Criterion | Expected behavior | Evidence checked | Status |
-| --- | --- | --- | --- |
-| Actual criterion from issue | User-visible or machine-observable outcome | Exact test/scenario/artifact and SHA | verified / weak / not tested / blocked |
+| Issue acceptance criterion | Reviewer status | Evidence inspected / remaining gap |
+| --- | --- | --- |
+| Actual criterion from issue | verified / weak / not tested / blocked | Expected behavior; exact test, scenario, artifact and verified SHA, or the missing proof |
 
-`verified` means a matching result has been inspected and is credible within its stated environment. `weak` means partial or indirect proof; `not tested` means unavailable; `blocked` means known failing evidence or an unresolved blocker. Do not silently relabel a stated limitation as verified.
+The author's **PR evidence matrix** in `.github/pull_request_template.md` allows `verified / not tested / blocked`. The independent review adds `weak` for *partial or indirect evidence that does not justify the author's verified claim*; this is a reviewer assessment, not a request to change the PR template. `verified` requires credible inspected evidence within its stated environment; `not tested` means no usable verification; `blocked` means a known failure or unresolved blocker. Do not silently relabel a limitation as verified.
 
 ### 3. Inspect implementation and regression surfaces
 
@@ -62,6 +62,7 @@ Construct a criterion-by-criterion map:
 - Cross-check test names/results and CI links against the exact tested SHA. Note tests that did **not** run, skipped checks, platform-specific baseline failures and unstated environment assumptions.
 - For L2/L3 runtime behavior: inspect preconditions, user or API actions, intermediate progress, success/error paths, and observed outcome. Check screenshots/recordings actually show the claim, with platform/build and simulator-vs-physical context.
 - For physical-device and OS-specific claims, distinguish actual authorized runs from simulation and platform-independent tests. A desktop run cannot validate an Android permission prompt.
+- Before running local tests or reporting a baseline failure, check `AGENTS.md` → **Worktrees and local verification**: fresh worktrees lack untracked bundled skins/plugins, and copied plugin bundles may be stale. Restore the documented local build inputs and distinguish workspace setup failures from PR regressions. Report any baseline failures with the exact comparison environment and commit; do not waive genuine failures simply because they also occurred in a stale checkout.
 - Run focused tests, static checks or running-app smoke tests **only when tools and safe environments are available**; record commands/results. A review can be useful without rerunning the entire suite, but must say exactly what it did and did not independently execute.
 - Where the proof is insufficient, describe the minimum specific additional test/artifact needed. Do not request a blanket full-screen recording if a targeted deterministic test or API trace would suffice.
 
@@ -77,8 +78,11 @@ Deliver **one** concise report, keeping extended technical analysis in issue-spe
 - Risk: L<n> — <reason>; CI: <current-head status and link>
 - Issue / scope: <issue>; dependencies: <related PRs or none identified>
 - Criteria: <verified count>, <weak count>, <not tested count>, <blocked count>
-| Acceptance criterion | Status | Proof inspected / remaining gap |
-| ... | ... | ... |
+
+| Issue acceptance criterion | Reviewer status | Evidence inspected / remaining gap |
+| --- | --- | --- |
+| <criterion from issue> | verified / weak / not tested / blocked | <expected behavior, inspected proof and SHA, or gap> |
+
 - Blocking findings: <severity, file:line, impact, repro> or none
 - Nonblocking: <only useful improvements>
 - Remaining validation: <exact human/hardware/environment action, or none>
