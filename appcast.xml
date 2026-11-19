@@ -7,6 +7,34 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
         <title>Decaid</title>
         <item>
             <title>0.9.3</title>
+            <pubDate>Thu, 19 Nov 2026 07:49:20 +0000</pubDate>
+            <sparkle:channel>beta</sparkle:channel>
+            <sparkle:version>3244</sparkle:version>
+            <sparkle:shortVersionString>0.9.3</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## What's Changed
+* feat(profiles): bundle 21 default profiles ported from de1app by @allofmeng in https://github.com/decentespresso/decaid/pull/1154
+* fix(ble): prevent firmware write replay after timeouts by @tadelv in https://github.com/decentespresso/decaid/pull/1171
+* fix(onboarding): name Decaid backups in import copy by @tadelv in https://github.com/decentespresso/decaid/pull/1173
+* fix(launcher): prioritize machine discovery while disconnected by @tadelv in https://github.com/decentespresso/decaid/pull/1176
+* fix(ios): restore missing location purpose declaration by @tadelv in https://github.com/decentespresso/decaid/pull/1180
+* fix(security): restore default extension management compatibility by @tadelv in https://github.com/decentespresso/decaid/pull/1193
+* fix(skins): stabilize installed version update contract by @tadelv in https://github.com/decentespresso/decaid/pull/1185
+* refactor(startup): own idempotent readiness above onboarding by @tadelv in https://github.com/decentespresso/decaid/pull/1186
+* fix(android): resume APK installs after permission settings by @ODevStudio in https://github.com/decentespresso/decaid/pull/1174
+* fix(update): open the shared updater from notification View by @ODevStudio in https://github.com/decentespresso/decaid/pull/1181
+* fix: restore API browser and bundled settings compatibility by @tadelv in https://github.com/decentespresso/decaid/pull/1200
+* docs: agent workflow Phase 1 — verification standard and evidence-based PR handoff by @tadelv in https://github.com/decentespresso/decaid/pull/1206
+* fix(skins): use decentespresso/streamline-js as the Streamline source by @tadelv in https://github.com/decentespresso/decaid/pull/1209
+
+
+**Full Changelog**: https://github.com/decentespresso/decaid/compare/v0.9.3-beta.1...v0.9.3-beta.2
+
+]]></description>
+            <enclosure url="https://github.com/decentespresso/decaid/releases/download/v0.9.3-beta.2/decaid-macos-0.9.3-beta.2.zip" length="63818602" type="application/octet-stream" sparkle:edSignature="JP+40mzeiy2iLvXFyVLZZipaJElRD1PprmQWbrhTxWAL/SaZCf8PyBSeZpN/BwL+Vu5Z6iQa3Dit5hb70VaKCA=="/>
+        </item>
+        <item>
+            <title>0.9.3</title>
             <pubDate>Sun, 15 Nov 2026 18:42:23 +0000</pubDate>
             <sparkle:channel>beta</sparkle:channel>
             <sparkle:version>3204</sparkle:version>
@@ -823,6 +851,6 @@ See `doc/RELEASE.md` for install and verification instructions.
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: M6ZwSUNaPSLY6knTdZvh1Mj0k0VCuBaM4Qdlc9z8kiQHYiCKFrFJN5ICWL5mj6tA0son8tw9K4286WkCraG+Cw==
-length: 74181
+edSignature: UW9PKvaScYIIfjfiqn+rQHJFmZdRJfVWRpoj6St5PPMa+xDj0gVOZ8NZeur4JoJ8R6SeRipgs1Wxa2mqfcQ+AA==
+length: 76745
 -->
