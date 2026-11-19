@@ -521,6 +521,18 @@ For classic DE1 machines, snapshot `mixTemperature` is not a reliable
 measurement of dispensed hot-water outlet temperature while the machine is in
 `hotWater` state. `targetMixTemperature` remains the requested target.
 
+#### Derived hydraulic channels
+
+`MachineSnapshot` carries three channels the app computes from pressure and group flow rather than
+reads from the machine: `puckResistance` (R = P / F², bar·s²/mL²), `loadImpedance` (Z = P / F,
+bar·s/mL) and `hydraulicPower` (W = 0.1 · P · F, watts — 1 bar × 1 mL/s = 0.1 W, and espresso sits
+at roughly 0.5–4 W).
+
+All three are gated on flow ≥ 0.3 mL/s **and** pressure ≥ 0.3 bar. Below either threshold the key is
+omitted from the payload entirely rather than sent as `null`. A client must read an absent key as
+"not computable right now", never as zero. The channels appear wherever a `MachineSnapshot` does,
+`/ws/v1/machine/snapshot` included.
+
 #### Firmware updates
 
 The catalog endpoint is available offline and without a connected machine. It returns bundled artifact metadata, compatibility and version eligibility, the recommended artifact, tri-state `updateAvailable`, and the shared machine operation state. Bundled DE1 firmware builds 1352 and 1358 support the canonical models `DE1`, `DE1Plus`, `DE1Cafe`, `DE1Pro`, `DE1XL`, `DE1XXL`, and `DE1XXXL`; Bengle remains excluded. `updateAvailable: false` means that no applicable newer artifact was found, not necessarily that the machine is current. Clients must inspect per-artifact eligibility: `not_newer` is distinct from `model_incompatible`; eligibility status `unknown` is a separate indeterminate result.
