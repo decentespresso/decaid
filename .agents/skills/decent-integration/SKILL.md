@@ -90,14 +90,18 @@ If a conflict, missing executor, unavailable platform or unsafe setup prevents e
 
 Fill **only** the canonical section 5 G5 template in `doc/AGENT_WORKFLOW.md`; write its Layer 1
 decision brief first and link longer sanitized evidence rather than duplicating a competing template
-here. Apply the shared <=150-word, <=3-blocker, one-named-action plain technical writing contract.
-Include the compact ranked per-PR view before the full seven-column Layer 2 matrix. State `ready`,
-`hold`, or `needs human validation` and, when applicable, `0 of <N> ready`. Name one actor and one
-first action. Keep current-head CI, exact author/reviewer/combined SHAs, conflicts, G4/evidence gaps,
-negative paths, hardware limits and `unknown` facts visible in Layer 1 when they affect the decision;
-retain complete proof in Layer 2. These are recommendations, not merge authorization. Record
-exceptions/waivers with the specific item, authorized maintainer, rationale and residual risk; agents
-cannot waive hard gates. Maintainer authorization remains separate and pending until actually given.
+here. Apply the shared <=150-word, <=3-blocker plain technical writing contract. Include exactly one
+primary Next action with one named owner and one prioritized action, or explicit
+**None — no action required**; rank 1 must repeat that owner/action, while every other queue row is
+subsequent or dependent. A table that only summarizes statuses is a **Status overview**, not a
+ranked queue. Include the compact ranked per-PR view before the full seven-column Layer 2 matrix.
+State `ready`, `hold`, or `needs human validation` and, when applicable, `0 of <N> ready`. Keep
+current-head CI, exact author/reviewer/combined SHAs, conflicts, G4/evidence gaps, negative paths,
+hardware limits and `unknown` facts visible in Layer 1 when they affect the decision; retain complete
+proof in a closed Layer 2 `<details>` block or durable technical report link. These are
+recommendations, not merge authorization. Record exceptions/waivers with the specific item,
+authorized maintainer, rationale and residual risk; agents cannot waive hard gates. Maintainer
+authorization remains separate and pending until actually given.
 
 After each real merge or changed PR head:
 

@@ -111,20 +111,24 @@ facts to report, not authorization or proof of semantic compatibility.
 
 This contract applies to every G3 handoff, G4 first or delta review, and G5 batch report. Write
 Layer 1 first in plain, active technical English. Keep it to about 150 words or fewer, with at most
-three primary blockers and one prioritized named actor and action. Use this order: decision and
-recommendation authority, why, next action, confidence and critical limits, then a durable details
-link. Keep risk-critical security, hardware, privacy, rollback and compatibility limits visible even
-when they require an exception. Use explicit conditions and consistent status terms. Preserve exact
-engineering terminology, diagnostics, SHA values, API paths and negative paths. This style is
-inspired by ASD-STE100; it is not formal compliance. Do not use filler, empty headings, repeated
-summaries or unsupported timing claims. A compact per-PR queue may add actions after the one global
-next action; it must not obscure the first decision.
+three primary blockers. Include exactly one primary **Next action** field: name one owner and one
+prioritized action. If no action is required, write **None — no action required** explicitly instead of
+inventing work. When a ranked queue follows, rank 1 must repeat that owner/action; mark every other
+row as subsequent or dependent. A table that only summarizes PR statuses is a **Status overview**,
+not a ranked queue. Use this order: decision and recommendation authority, why, next action,
+confidence and critical limits, then a durable details link. Keep risk-critical security, hardware,
+privacy, rollback and compatibility limits visible even when they require an exception. Use explicit
+conditions and consistent status terms. Preserve exact engineering terminology, diagnostics, SHA
+values, API paths and negative paths. This style is inspired by ASD-STE100; it is not formal
+compliance. Do not use filler, empty headings, repeated summaries or unsupported timing claims.
 
-The approximately 150-word Layer 1 budget includes the compact ranked view or queue; Layer 2 is
-unlimited. Layer 2 retains complete proof and is not shortened by the Layer 1 limit. Link raw logs
-rather than duplicating them, but retain exact collection/start/finish facts, sources, fingerprints,
-checks and results, exit codes, failures, negative and rollback paths, environment, waivers,
-unmeasured metrics and runnable follow-up commands where applicable.
+The approximately 150-word Layer 1 budget includes any compact queue; Layer 2 is unlimited. Layer 2
+retains complete proof and is not shortened by the Layer 1 limit. Put full technical matrices, logs
+and diagnostic history in a closed GitHub `<details>` block with blank lines around its Markdown and
+no `open` attribute, or link a durable technical report. Link raw logs rather than duplicating them,
+but retain exact collection/start/finish facts, sources, fingerprints, checks and results, exit
+codes, failures, negative and rollback paths, environment, waivers, unmeasured metrics and runnable
+follow-up commands where applicable.
 
 ## 2. Risk levels and required proof
 
@@ -163,8 +167,9 @@ residual risk, recorded in the PR. Nobody may use this document to waive an exis
 
 The PR body is the **index** to evidence, not a log dump. Use the sections in
 [`.github/pull_request_template.md`](../.github/pull_request_template.md) and keep them short; link
-long output instead of pasting it. Write Layer 1 first. Keep complete proof in Layer 2 below the
-brief, in a durable comment, or in a linked artifact.
+long output instead of pasting it. Write Layer 1 first. Keep complete proof in a closed `<details>`
+block below the brief, or in a durable linked technical report or comment; do not leave full proof as
+unlinked expanded content below the brief.
 
 ### Canonical G3 handoff template
 
@@ -176,9 +181,12 @@ brief longer.
 ## G3 decision brief — <PR / change>
 - **Decision:** **<ready for review / blocked>** — recommendation only; not approval or merge authorization.
 - **Why:** <up to three highest-impact confirmed failures, missing proof, or important uncertainty; label each status>
-- **Next action:** <one named actor> — <one concrete action>
+- **Next action:** <one named actor> — <one concrete action>; or **None — no action required**
 - **Confidence / limits:** reviewed/tested SHA(s); OS/platform and simulated or physical environment; current-head CI; critical `not tested`, `failed`, `unknown`, security, or hardware limits.
 - **Details:** <durable link to Layer 2 evidence, acceptance matrix, commands, artifacts and exact CI/SHA links>
+
+<details>
+<summary>Layer 2 — G3 technical evidence</summary>
 
 ### G3 technical evidence
 - Scope and risk: <linked issue; L0–L3 and rationale>
@@ -188,6 +196,9 @@ brief longer.
 - Behavioral evidence: <precondition, action, observed result, progress/error/rollback paths where relevant>
 - Known gaps: <untested areas, environmental limits, assumptions, regressions, human/hardware requests>
 - Impact: <security, compatibility, API/spec, migration, documentation and deployment>
+
+</details>
+
 ```
 
 Layer 2 retains every acceptance row, exact SHA, command/result, CI state, environment, negative
@@ -196,7 +207,8 @@ describes a handoff state, not product acceptance.
 
 ### Acceptance matrix
 
-Copy this table into the PR body (the template already contains it) and fill every row:
+Copy this table into the PR body (the template already contains it), place the filled matrix inside
+closed Layer 2 details or a durable linked technical report, and fill every row:
 
 ```markdown
 | Issue acceptance criterion | Status (verified / not tested / blocked) | Test, scenario or artifact |
@@ -246,9 +258,12 @@ review must state its exact reviewed SHA and distinguish unknown CI or unavailab
 ## G4 <first review / delta review> — PR #<number>
 - **Decision:** **<ready / hold / needs human validation>** — **<approve recommendation / changes required / needs human validation>**; recommendation only, never merge authorization.
 - **Why:** <up to three highest-impact findings; distinguish `failed`, `not tested`, `unknown`, confirmed resolution, and nonblocking gaps>
-- **Next action:** <one named actor> — <one concrete action>
+- **Next action:** <one named actor> — <one concrete action>; or **None — no action required**
 - **Confidence / limits:** <first: reviewed SHA; delta: old reviewed SHA -> new head>; tested evidence SHA(s); current-head CI; environment; critical negative-path, security, hardware, or platform limits.
 - **Details:** <durable link to Layer 2 criterion matrix, findings, commands, artifacts, CI and SHA links>
+
+<details>
+<summary>Layer 2 — G4 technical evidence</summary>
 
 ### G4 technical evidence
 - Review variant and fingerprint: <first reviewed SHA, or old reviewed SHA -> new head; base and current-head CI>
@@ -261,6 +276,9 @@ review must state its exact reviewed SHA and distinguish unknown CI or unavailab
 - Integration concerns and compatibility/regression assessment
 - Independent execution: <reviewer commands/results, separated from author evidence>
 - Verdict: **approve recommendation**, **changes required**, or **needs human validation**
+
+</details>
+
 ```
 
 Layer 2 retains the full criterion matrix, exact reviewed/tested SHA distinction, current-head CI,
@@ -292,14 +310,20 @@ and ruleset recommendations belong to separate Deliverables B/C of #1205.
 ## G5 decision brief — <batch / PR numbers>
 - **Decision:** **<ready / hold / needs human validation>** — recommendation only; never merge authorization. If none can proceed, say `0 of <N> ready`.
 - **Why:** <up to three ranked blockers; name conflict, G4/evidence, dependency, failed check, or unknown explicitly>
-- **Next action:** <one named actor> — <one concrete first action, prioritizing the first dependency/blocker>
+- **Next action:** <one named actor> — <one concrete first action, prioritizing the first dependency/blocker>; or **None — no action required**
 - **Confidence / limits:** current main and current-head CI; author-tested, reviewer-reviewed, and combined SHAs; critical `not tested`, `failed`, `unknown`, security, hardware, or platform limits.
 - **Details:** <durable link to Layer 2 merge-batch evidence and exact source, CI, SHA and artifact links>
 
+<details>
+<summary>Layer 2 — G5 technical evidence</summary>
+
 ### Ranked per-PR view
+Use a ranked queue only when it carries decision priority. Rank 1 must repeat the global **Next action** owner/action verbatim; mark every other row as subsequent or dependent. If the table only summarizes statuses, title it **Status overview** instead.
+
 | Rank | PR | Status | Single reason | Next action |
 | --- | --- | --- | --- | --- |
-| <1..N> | <PR / head SHA> | <ready / hold / needs human validation> | <one confirmed reason or unknown> | <queued actor/action; global first action remains above> |
+| 1 | <PR / head SHA> | <ready / hold / needs human validation> | <one confirmed reason or unknown> | <exact global Next action owner/action> |
+| <2..N> | <PR / head SHA> | <ready / hold / needs human validation> | <one confirmed reason or unknown> | <subsequent/dependent actor/action> |
 
 ### G5 technical evidence
 - Collected at, analysis start/finish, repository, current main and previous analysis main
@@ -320,6 +344,9 @@ and ruleset recommendations belong to separate Deliverables B/C of #1205.
 - Maintainer merge authorization: <pending or actual recorded authorization; never inferred from this recommendation>
 - Pilot retrospective: <reviewer burden, maintainer follow-up minutes, extra rounds, missing-proof returns, false positives, observed post-merge regressions and follow-up window; not measured where unavailable>
 - Deferred gates: <what remains advisory and what further evidence/approval is needed; no CI/ruleset change under Deliverable A>
+
+</details>
+
 ```
 
 The Layer 1 brief is the default reading path. The candidate table, graph, conflicts, fingerprints,

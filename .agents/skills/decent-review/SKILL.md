@@ -74,14 +74,17 @@ failure mode. Separate confirmed problems from risks needing validation; keep st
 nonblocking.
 
 Use the **canonical G4 template in `doc/AGENT_WORKFLOW.md` section 4**. Write its Layer 1 decision
-brief first: recommendation status, up to three primary blockers, one named actor/action, exact
-reviewed/tested SHA and current-head CI, critical limits, and a durable Layer 2 link. Keep the full
-criterion matrix, `verified`/`weak`/`not tested`/`blocked` assessment, findings, negative paths,
-independent commands, hardware/security limits and resolved/remaining evidence in Layer 2. Do not
-create a competing report template in this skill.
+brief first: recommendation status, up to three primary blockers, exactly one named owner/action
+(or explicit **None — no action required**), exact reviewed/tested SHA and current-head CI, critical limits,
+and a durable Layer 2 link. Keep the full criterion matrix, `verified`/`weak`/`not tested`/`blocked`
+assessment, findings, negative paths, independent commands, hardware/security limits and
+resolved/remaining evidence in a closed Layer 2 `<details>` block or durable technical report link.
+A status-only table is a **Status overview**, not a ranked queue. Do not create a competing report
+template in this skill.
 
 A report with an approve recommendation and an unresolved risk must name who must accept it. Green
 CI and GitHub mergeability do not approve product behavior; a recommendation never authorizes merge.
+The primary Next action is singular; any additional actions are explicitly subsequent or dependent.
 
 ## Delta review after a new push
 
