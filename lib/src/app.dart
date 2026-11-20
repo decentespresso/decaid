@@ -237,6 +237,7 @@ class _MyAppState extends State<MyApp> {
           createLoginStep(
             accountService: widget.decentAccountService!,
             settingsController: widget.settingsController,
+            appLogUploadService: widget.appLogUploadService,
           ),
         if (widget.decentAccountService != null &&
             widget.accountConsentStore != null)
