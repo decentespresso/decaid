@@ -89,6 +89,43 @@ During the Phase 1 pilot, G4 and G5 are documented expectations, not automated c
 have labeled evidence gaps; mark a PR ready for review only when its available evidence is
 inspectable.
 
+### Decision status vocabulary
+
+Use these exact lower-case status terms in Layer 1 and Layer 2. They describe evidence or a
+recommendation; they never authorize a merge.
+
+- **ready** — the available evidence supports the stated recommendation; maintainer authorization is still pending.
+- **hold** — a blocker, unresolved review, dependency, conflict, or missing required evidence prevents the recommendation.
+- **needs human validation** — an authorized maintainer, platform, security, or hardware decision or observation is required.
+- **not tested** — the named check or scenario was not run or observed.
+- **failed** — the named check or scenario ran and did not meet its expected result.
+- **unknown** — the source does not establish the fact, or the evidence cannot be accessed.
+
+Use **ready for review** for an inspectable G3 handoff, or **blocked** when a known blocker prevents
+review. Use G4's verdict terms **approve recommendation**, **changes required**, and **needs human
+validation**; state the corresponding `ready`, `hold`, or `needs human validation` status in the
+decision brief. `green` CI and GitHub mergeability are
+facts to report, not authorization or proof of semantic compatibility.
+
+### Shared report-writing contract
+
+This contract applies to every G3 handoff, G4 first or delta review, and G5 batch report. Write
+Layer 1 first in plain, active technical English. Keep it to about 150 words or fewer, with at most
+three primary blockers and one prioritized named actor and action. Use this order: decision and
+recommendation authority, why, next action, confidence and critical limits, then a durable details
+link. Keep risk-critical security, hardware, privacy, rollback and compatibility limits visible even
+when they require an exception. Use explicit conditions and consistent status terms. Preserve exact
+engineering terminology, diagnostics, SHA values, API paths and negative paths. This style is
+inspired by ASD-STE100; it is not formal compliance. Do not use filler, empty headings, repeated
+summaries or unsupported timing claims. A compact per-PR queue may add actions after the one global
+next action; it must not obscure the first decision.
+
+The approximately 150-word Layer 1 budget includes the compact ranked view or queue; Layer 2 is
+unlimited. Layer 2 retains complete proof and is not shortened by the Layer 1 limit. Link raw logs
+rather than duplicating them, but retain exact collection/start/finish facts, sources, fingerprints,
+checks and results, exit codes, failures, negative and rollback paths, environment, waivers,
+unmeasured metrics and runnable follow-up commands where applicable.
+
 ## 2. Risk levels and required proof
 
 Classify by **affected behavior**, taking the highest level that applies, including indirect effects
@@ -126,23 +163,36 @@ residual risk, recorded in the PR. Nobody may use this document to waive an exis
 
 The PR body is the **index** to evidence, not a log dump. Use the sections in
 [`.github/pull_request_template.md`](../.github/pull_request_template.md) and keep them short; link
-long output instead of pasting it.
+long output instead of pasting it. Write Layer 1 first. Keep complete proof in Layer 2 below the
+brief, in a durable comment, or in a linked artifact.
 
-Required handoff content:
+### Canonical G3 handoff template
 
-1. **Scope and risk** — linked issue, one-line summary, L0–L3 level with rationale.
-2. **Acceptance matrix** — one row per issue criterion; an assertion without an observed or automated
-   result is not verified.
-3. **Verification fingerprint** — exact commit SHA tested (not a branch name), OS/platform,
-   simulated versus physical, build flags, and whether the evidence covers all target platforms.
-4. **Checks** — exact commands and results, plus run links; separate pre-existing baseline failures
-   from newly introduced ones.
-5. **Behavioral evidence** — precondition, action, observed result, including progress, error, and
-   rollback states where relevant. For visual behavior the artifacts must show the intermediate
-   states the claim depends on; a single final screenshot is usually not enough.
-6. **Known gaps** — unexercised areas, environmental limits, unverified assumptions, suspected
-   regressions, and specific requests for human or hardware validation.
-7. **Impact** — security, compatibility, public API/spec, migration, documentation, deployment.
+Use this one template for every G3 handoff. Apply the shared report-writing contract above. A
+risk-critical security, hardware, privacy, or rollback limit stays visible even when this makes the
+brief longer.
+
+```markdown
+## G3 decision brief — <PR / change>
+- **Decision:** **<ready for review / blocked>** — recommendation only; not approval or merge authorization.
+- **Why:** <up to three highest-impact confirmed failures, missing proof, or important uncertainty; label each status>
+- **Next action:** <one named actor> — <one concrete action>
+- **Confidence / limits:** reviewed/tested SHA(s); OS/platform and simulated or physical environment; current-head CI; critical `not tested`, `failed`, `unknown`, security, or hardware limits.
+- **Details:** <durable link to Layer 2 evidence, acceptance matrix, commands, artifacts and exact CI/SHA links>
+
+### G3 technical evidence
+- Scope and risk: <linked issue; L0–L3 and rationale>
+- Acceptance matrix: <one row per criterion; use `verified`, `not tested`, or `blocked` with observed proof or gap>
+- Verification fingerprint: <exact tested SHA, OS/platform, flags, simulated/physical status, target-platform coverage>
+- Checks: <exact commands, results, exit codes and links; separate baseline failures>
+- Behavioral evidence: <precondition, action, observed result, progress/error/rollback paths where relevant>
+- Known gaps: <untested areas, environmental limits, assumptions, regressions, human/hardware requests>
+- Impact: <security, compatibility, API/spec, migration, documentation and deployment>
+```
+
+Layer 2 retains every acceptance row, exact SHA, command/result, CI state, environment, negative
+path, artifact, waiver, and untested area needed for independent reproduction. `ready for review`
+describes a handoff state, not product acceptance.
 
 ### Acceptance matrix
 
@@ -157,18 +207,16 @@ Copy this table into the PR body (the template already contains it) and fill eve
 
 Rules that keep the matrix honest:
 
-- `verified` requires the result, not the intention. Quote the command and its outcome, or link the
-  capture that shows it.
-- Missing evidence is never silently passing: use `not tested` or `blocked` and say what is needed.
+- `verified` requires an observed result, not intention. Quote the command/result or link the capture.
+- Missing evidence is never silently passing: use `not tested` or `blocked` and name what is needed.
 - A maintainer may accept residual risk in writing and record it on the row; an agent may not.
 
 ### Verified SHA and stale evidence
 
 Record the **exact head SHA** the evidence applies to. When the PR changes:
 
-- Re-run the checks and scenarios the new commits affect and record the new SHA.
-- If reused evidence is still valid, scope it explicitly to the unaffected code path and say so.
-- Never reuse an old timestamp or SHA to imply tests ran against the new head.
+- Re-run checks and scenarios affected by the new commits and record the new SHA.
+- Scope reused evidence to an unaffected path; never reuse an old timestamp or SHA as new proof.
 
 ## 4. Reviewer and re-review handoff
 
@@ -176,10 +224,9 @@ An independent reviewer starts from the accepted issue, the relevant code and ar
 test contract, then inspects the changed behavior and its proof — not the implementing agent's
 summary. The **requirements** for the review are the reviewed head SHA, risk and criteria assessment,
 blocking findings, regression/compatibility concerns, human or device validation gaps, dependencies,
-and one of the G4 verdicts above. The **single operational review report template** is in
-[`decent-review`](../.agents/skills/decent-review/SKILL.md) under "Record findings and a
-decision-ready verdict". The author-facing PR evidence matrix in section 3 is distinct from this
-independent reviewer assessment.
+and one G4 verdict. Use the canonical template below; `decent-review` supplies the procedure and
+points here rather than repeating a report template. The author-facing PR evidence matrix in section
+3 is distinct from this independent reviewer assessment.
 
 After a new push, compare the reviewed SHA with the new head, inspect the delta, and confirm prior
 findings are closed. Re-review unchanged code only when new evidence or nearby changes invalidate the
@@ -187,6 +234,40 @@ earlier assumptions. An earlier approval never covers a newer head. The
 [`decent-review` skill](../.agents/skills/decent-review/SKILL.md) gives the operational first-review,
 delta-review, reporting and pilot procedures for Phase 2 (#1204). Its reviewer recommendations do
 not constitute maintainer product acceptance or an automatic merge gate.
+
+### Canonical G4 first/delta review template
+
+Use this one variant-aware template for both a first review and a post-push delta review. Apply the
+shared report-writing contract above. A delta must state the old reviewed SHA and new head in Layer 1,
+which prior findings closed or remain, what evidence is reused and why, and current-head CI. A first
+review must state its exact reviewed SHA and distinguish unknown CI or unavailable fixed-head proof.
+
+```markdown
+## G4 <first review / delta review> — PR #<number>
+- **Decision:** **<ready / hold / needs human validation>** — **<approve recommendation / changes required / needs human validation>**; recommendation only, never merge authorization.
+- **Why:** <up to three highest-impact findings; distinguish `failed`, `not tested`, `unknown`, confirmed resolution, and nonblocking gaps>
+- **Next action:** <one named actor> — <one concrete action>
+- **Confidence / limits:** <first: reviewed SHA; delta: old reviewed SHA -> new head>; tested evidence SHA(s); current-head CI; environment; critical negative-path, security, hardware, or platform limits.
+- **Details:** <durable link to Layer 2 criterion matrix, findings, commands, artifacts, CI and SHA links>
+
+### G4 technical evidence
+- Review variant and fingerprint: <first reviewed SHA, or old reviewed SHA -> new head; base and current-head CI>
+- Issue/scope, dependencies and L0–L3 risk rationale
+- Prior findings: <first: none; delta: each closed or remaining finding and proof>
+- Reused evidence: <exact unaffected path, source SHA and reason; never imply new execution>
+- Acceptance matrix: <criterion | `verified`, `weak`, `not tested`, or `blocked` | expected behavior, exact proof/SHA, or gap>
+- Blocking findings: <severity, file/line, impact, cause, reproduction/failure mode, or none>
+- Nonblocking findings and remaining validation: <exact human/platform/hardware action, or none>
+- Integration concerns and compatibility/regression assessment
+- Independent execution: <reviewer commands/results, separated from author evidence>
+- Verdict: **approve recommendation**, **changes required**, or **needs human validation**
+```
+
+Layer 2 retains the full criterion matrix, exact reviewed/tested SHA distinction, current-head CI,
+negative paths, file/line findings, reproduction, hardware/security limits, independent execution,
+and unresolved or resolved findings. After a push, compare old reviewed SHA to new head and write a
+delta brief; do not copy an earlier verdict unchanged. An earlier approval never covers a newer head.
+The reviewer's recommendation is not product acceptance or an automatic merge gate.
 
 ## 5. Integration and merge readiness
 
@@ -208,17 +289,27 @@ and ruleset recommendations belong to separate Deliverables B/C of #1205.
 ### Merge-batch report
 
 ```markdown
-## G5 merge-batch analysis — <batch / PR numbers>
-- Collected at: <UTC>; analysis start/finish: <UTC>; repository: <owner/repo>
-- Current main: <full SHA>; previous analysis main: <SHA or none>
-- Environment/tools: <OS, SDK, simulated flags, available executor and limitations>
-- Sources: <live metadata, complete diffs, issues/comments, CI, reviews/threads, artifact links>
+## G5 decision brief — <batch / PR numbers>
+- **Decision:** **<ready / hold / needs human validation>** — recommendation only; never merge authorization. If none can proceed, say `0 of <N> ready`.
+- **Why:** <up to three ranked blockers; name conflict, G4/evidence, dependency, failed check, or unknown explicitly>
+- **Next action:** <one named actor> — <one concrete first action, prioritizing the first dependency/blocker>
+- **Confidence / limits:** current main and current-head CI; author-tested, reviewer-reviewed, and combined SHAs; critical `not tested`, `failed`, `unknown`, security, hardware, or platform limits.
+- **Details:** <durable link to Layer 2 merge-batch evidence and exact source, CI, SHA and artifact links>
+
+### Ranked per-PR view
+| Rank | PR | Status | Single reason | Next action |
+| --- | --- | --- | --- | --- |
+| <1..N> | <PR / head SHA> | <ready / hold / needs human validation> | <one confirmed reason or unknown> | <queued actor/action; global first action remains above> |
+
+### G5 technical evidence
+- Collected at, analysis start/finish, repository, current main and previous analysis main
+- Environment/tools and live sources: metadata, complete diffs, issues/comments, CI, reviews/threads, artifact links; identify inaccessible sources
 
 | PR / head SHA / base SHA / merge-base SHA | Risk and rationale | G4, current-head CI and unresolved findings | Author-tested / reviewer-reviewed SHAs; scoped older evidence | Prerequisite / blocked-on | Suggested sequence and rationale | Recommendation: ready / hold / needs human validation; exact reason |
 | --- | --- | --- | --- | --- | --- | --- |
-| <PR fingerprint> | <L0–L3> | <status and links; unknowns> | <distinct SHAs or unknown> | <explicit/inferred edges and mechanism> | <order or undecided> | <recommendation, not authorization> |
+| <PR fingerprint> | <L0–L3> | <status and links; unknowns> | <distinct author/reviewer/combined SHAs, or unknown; combined SHA/tree separately> | <explicit/inferred edges and mechanism> | <order or undecided> | <recommendation, not authorization> |
 
-- Dependency graph: <directed edges, evidence, uncertain edges/cycles and required decisions>
+- Dependency graph: <directed edges, mechanism evidence, uncertain edges/cycles and required decisions>; shared-file overlap is not dependency proof
 - Shared contracts / overlaps: <files and semantic risks; API/schema/client, auth, plugin/skin updates, BLE/machine, persistence/migrations, onboarding; textual conflicts separately>
 - Checks per PR and combined: <preconditions, exact commands/scenarios, expected and actual results, exit codes, negative/error/rollback paths, evidence links; not-tested labels>
 - Disposable combination: <path/branch, pinned inputs and order, intermediate/final commit and tree SHAs, clean/conflicted state; or concrete blocker plus exact runnable commands>
@@ -230,6 +321,11 @@ and ruleset recommendations belong to separate Deliverables B/C of #1205.
 - Pilot retrospective: <reviewer burden, maintainer follow-up minutes, extra rounds, missing-proof returns, false positives, observed post-merge regressions and follow-up window; not measured where unavailable>
 - Deferred gates: <what remains advisory and what further evidence/approval is needed; no CI/ruleset change under Deliverable A>
 ```
+
+The Layer 1 brief is the default reading path. The candidate table, graph, conflicts, fingerprints,
+receipts, negative paths, waivers and retrospective remain in Layer 2 for independent verification.
+Shared-file overlap is evidence, not an automatic blocker. GitHub mergeability and green CI never
+replace G4, combined evidence, human validation, or maintainer authorization.
 
 ## 6. Artifact privacy and retention
 
@@ -247,6 +343,10 @@ and ruleset recommendations belong to separate Deliverables B/C of #1205.
   not tested or supply a different valid proof.
 
 ## 7. Worked examples
+
+See [`doc/AGENT_REPORT_EXAMPLES.md`](AGENT_REPORT_EXAMPLES.md) for source-backed historical G3/G4/G5
+before/after examples and the comprehension exercise record. Those examples illustrate the canonical
+formats; they are not additional templates or authority.
 
 ### L3: skin or app update journey
 
