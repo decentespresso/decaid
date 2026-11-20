@@ -1,0 +1,13 @@
+{
+  "source_url": "https://github.com/decentespresso/decaid/pull/859",
+  "collected_at_utc": "2026-11-20T13:32:17+00:00",
+  "source_head_sha": "4816cf02a42b6c9b0f2aea897054044afb8d360e",
+  "source_state": "closed",
+  "draft": true,
+  "author_association": "CONTRIBUTOR",
+  "sanitation": "No sanitation applied: this fixture body is byte-identical to the live public GitHub API body; public GitHub, API, Actions, issue, comparison, and documentation links are retained. source_body_sha256 and sanitized_body_sha256 are retained as provenance digests; historical source state can differ from the live snapshot.",
+  "body": "## Summary\n\nValidate independent Skale sessions using the host's primary and auxiliary scale selections and generic binding quota. Each binding owns its weight, battery, settings, connection and callback state; disconnecting or reconnecting one leaves its siblings usable.\n\nThe driver does not assign connection roles, create a role/persistence model or issue machine-control requests. Physical button behavior is staged separately with held #845/#853 so it does not block generic multi-binding validation.\n\n## Linked Issue\n\nRelated #833, #851 and runtime-v2 tracker #890. Consumes #843 host quota and #846 single-device driver; auxiliary core #862 and sensor-ID helper #858 are already merged. This PR remains a draft.\n\n## Verification\n\n- Focused Skale and host auxiliary integration suites: 16 passed. Coverage includes primary plus two auxiliary sessions, isolated weights/tare/reconnect, and no physical-button machine actions.\n- Full `flutter test --no-pub --concurrency=2`: 4,365 passed, 1 skipped, 0 failed.\n- `flutter analyze --no-pub`: no issues. Formatting and `git diff --check` pass.\n- The task attempted simulated runtime smoke; macOS builds are unavailable because `xcodebuild` is missing. No physical hardware validation.\n\n## Impact\n\nMultiple Skale bindings share the host runtime while retaining independent protocol state. Host API tare, timers and display control remain available. Physical button actions are deferred pending the separate guarded-action review.\n\n## Contributor Responsibility\n\nAI-assisted development is allowed. The submitter remains responsible for the submitted work.\n\n- [ ] I have reviewed and understand all changes in this PR and take responsibility for their correctness, security, behavior, licensing, and provenance, including any AI-assisted or AI-generated work. <!-- contributor-responsibility -->\n",
+  "author_type": "User",
+  "source_body_sha256": "678071923bbdbc283d0cab6c8dc22225f6aadf05c888d3d79cbed229a3ec6aa5",
+  "sanitized_body_sha256": "678071923bbdbc283d0cab6c8dc22225f6aadf05c888d3d79cbed229a3ec6aa5"
+}

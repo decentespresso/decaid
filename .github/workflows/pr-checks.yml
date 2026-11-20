@@ -387,3 +387,30 @@ jobs:
           python3 tools/analyze_weight_flow_test.py
           python3 tool/ci/summarize_flutter_tests_test.py
           python3 scripts/test_release_dye2.py
+          python3 tool/ci/check_pr_evidence_test.py
+
+  pr-evidence-advisory:
+    name: PR evidence advisory
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Report PR evidence findings
+        continue-on-error: true
+        env:
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+        run: |
+          set +e
+          report="$RUNNER_TEMP/pr-evidence-report.txt"
+          python3 tool/ci/check_pr_evidence.py >"$report" 2>&1
+          status=$?
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -eq 2 ]; then
+            echo "PR evidence advisory input/setup error (exit 2)." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$status" -ne 0 ]; then
+            echo "PR evidence advisory unexpected validator error (exit $status)." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$status"

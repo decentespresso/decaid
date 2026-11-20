@@ -1,0 +1,13 @@
+{
+  "source_url": "https://github.com/decentespresso/decaid/pull/1209",
+  "collected_at_utc": "2026-11-20T13:32:17+00:00",
+  "source_head_sha": "d3019f8083510e4ce44ad2153b4d285c8a3286c1",
+  "source_state": "closed",
+  "draft": false,
+  "author_association": "MEMBER",
+  "sanitation": "No sanitation applied: this fixture body is byte-identical to the live public GitHub API body; public GitHub, API, Actions, issue, comparison, and documentation links are retained. source_body_sha256 and sanitized_body_sha256 are retained as provenance digests; historical source state can differ from the live snapshot.",
+  "body": "## Summary\n- Update the Streamline entry in `skin_sources.json` from `allofmeng/streamline_project` to `decentespresso/streamline-js`.\n- Preserve `github_release` type and leave all other skin sources unchanged.\n\n## Verification\n- Validated the updated `skin_sources.json` parses as JSON.\n- Confirmed `decentespresso/streamline-js` provides a published latest GitHub release (`v0.2.28`) with a `.zip` asset, matching `bundle_skins.sh`'s expectations.\n\n## Smoke test on CI/build\n- Run skin bundling and verify the downloaded Streamline archive installs as `streamline.js` and the installed skin remains discoverable. Because the repository name also determines the archive filename (`streamline-js.zip` rather than `streamline_project.zip`), check existing skin/update behavior in an upgraded installation.",
+  "author_type": "User",
+  "source_body_sha256": "9d147652fc83758c0e31ff393428ce1426bf6ed89f6bfa5d4ec6f38ff58d63d0",
+  "sanitized_body_sha256": "9d147652fc83758c0e31ff393428ce1426bf6ed89f6bfa5d4ec6f38ff58d63d0"
+}
