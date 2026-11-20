@@ -15,7 +15,7 @@ This skill implements G4 (independent review) of [Decaid Agent Workflow](../../.
 - Checking a PR against its linked issue, including whether regression tests and screenshots/recordings genuinely substantiate the claimed behavior.
 - Preparing a reviewed-SHA handoff for a maintainer or integration reviewer.
 
-For writing/fixing code, use `decent-dev`. For running-app REST/WebSocket checks, use `decent-app`. For multi-PR merge sequencing and combined verification, follow the G5 principles in `doc/AGENT_WORKFLOW.md` until the Phase 3 integration skill exists.
+For writing/fixing code, use `decent-dev`. For running-app REST/WebSocket checks, use `decent-app`. For multi-PR merge sequencing and combined verification, follow [`decent-integration`](../decent-integration/SKILL.md) and the canonical G5 report in `doc/AGENT_WORKFLOW.md`.
 
 ## Independent reviewer rules
 
@@ -41,7 +41,7 @@ For writing/fixing code, use `decent-dev`. For running-app REST/WebSocket checks
 
 Classify by **highest affected behavior** using `doc/AGENT_WORKFLOW.md`, not line count or the author's suggested tier. Treat changed authentication, updater/install, BLE/machine control, device lifecycle, persistence migration and major compatibility as potentially L3.
 
-Construct a criterion-by-criterion map using **the review-report table below**. Independently establish the expected observable behavior from the issue before assessing the proof; include that expectation in the evidence/gap cell when it matters.
+Construct a criterion-by-criterion map using the canonical G4 assessment in [`doc/AGENT_WORKFLOW.md` section 4](../../../doc/AGENT_WORKFLOW.md#canonical-g4-firstdelta-review-template). Independently establish the expected observable behavior from the issue before assessing the proof; include that expectation in the evidence/gap cell when it matters.
 
 | Issue acceptance criterion | Reviewer status | Evidence inspected / remaining gap |
 | --- | --- | --- |
@@ -68,30 +68,20 @@ The author's **PR evidence matrix** in `.github/pull_request_template.md` allows
 
 ### 5. Record findings and a decision-ready verdict
 
-Prioritize actual correctness, safety, data loss and regression risk. For each blocking finding give severity (`P0`/`P1`/`P2`), precise file and line where possible, cause, observable consequence, and a concrete reproduction or failing scenario. Separate confirmed problems from plausible risks needing validation; keep style/nice-to-have observations nonblocking.
+Prioritize correctness, safety, data loss and regression risk. For each blocking finding give severity
+(`P0`/`P1`/`P2`), precise file and line where possible, cause, consequence, and a reproduction or
+failure mode. Separate confirmed problems from risks needing validation; keep style observations
+nonblocking.
 
-Deliver **one** concise report, keeping extended technical analysis in issue-specific comments when necessary:
+Use the **canonical G4 template in `doc/AGENT_WORKFLOW.md` section 4**. Write its Layer 1 decision
+brief first: recommendation status, up to three primary blockers, one named actor/action, exact
+reviewed/tested SHA and current-head CI, critical limits, and a durable Layer 2 link. Keep the full
+criterion matrix, `verified`/`weak`/`not tested`/`blocked` assessment, findings, negative paths,
+independent commands, hardware/security limits and resolved/remaining evidence in Layer 2. Do not
+create a competing report template in this skill.
 
-```markdown
-## Independent review — PR #<number>
-- Reviewed head: <full SHA>; tested evidence SHA(s): <SHA(s) or unknown>
-- Risk: L<n> — <reason>; CI: <current-head status and link>
-- Issue / scope: <issue>; dependencies: <related PRs or none identified>
-- Criteria: <verified count>, <weak count>, <not tested count>, <blocked count>
-
-| Issue acceptance criterion | Reviewer status | Evidence inspected / remaining gap |
-| --- | --- | --- |
-| <criterion from issue> | verified / weak / not tested / blocked | <expected behavior, inspected proof and SHA, or gap> |
-
-- Blocking findings: <severity, file:line, impact, repro> or none
-- Nonblocking: <only useful improvements>
-- Remaining validation: <exact human/hardware/environment action, or none>
-- Integration concerns: <interfaces/merge-order risks, or none found>
-- Independent execution: <commands/results run by this reviewer; distinguish author's CI>
-- Verdict: **approve recommendation** / **changes required** / **needs human validation**
-```
-
-A report with an approval recommendation but a specific unresolved risk should state who must accept that risk. Never claim that a green CI status approves the product behavior.
+A report with an approve recommendation and an unresolved risk must name who must accept it. Green
+CI and GitHub mergeability do not approve product behavior; a recommendation never authorizes merge.
 
 ## Delta review after a new push
 
