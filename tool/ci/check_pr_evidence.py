@@ -38,6 +38,54 @@ def _lines(body):
     return body.replace("\r\n", "\n").replace("\r", "\n").splitlines()
 
 
+def _evidence_text(body, *, preserve_responsibility=False):
+    lines = []
+    fence = None
+    comment = None
+    inline_code = re.compile(r"(?<!`)(`+)(?!`).*?(?<!`)\1(?!`)")
+    for line in _lines(body):
+        if fence:
+            closing = re.fullmatch(r"\s*(`+|~+)\s*", line)
+            if closing and closing.group(1)[0] == fence[0] and len(closing.group(1)) >= len(fence):
+                fence = None
+            lines.append("")
+            continue
+        opening = re.match(r"^\s*(`{3,}|~{3,})(.*)$", line)
+        if comment is None and opening and not (opening.group(1)[0] == "`" and "`" in opening.group(2)):
+            fence = opening.group(1)
+            lines.append("")
+            continue
+        visible = []
+        offset = 0
+        while offset < len(line):
+            if comment is not None:
+                end = line.find("-->", offset)
+                if end < 0:
+                    comment.append(line[offset:] + "\n")
+                    break
+                comment.append(line[offset : end + 3])
+                marker = "".join(comment)
+                if preserve_responsibility and re.fullmatch(r"<!--\s*contributor-responsibility\s*-->", marker, re.IGNORECASE):
+                    visible.append(marker)
+                comment = None
+                offset = end + 3
+                continue
+            code = inline_code.search(line, offset)
+            start = line.find("<!--", offset)
+            if code and (start < 0 or code.start() < start):
+                visible.append(line[offset : code.end()])
+                offset = code.end()
+            elif start < 0:
+                visible.append(line[offset:])
+                break
+            else:
+                visible.append(line[offset:start])
+                comment = ["<!--"]
+                offset = start + 4
+        lines.append("".join(visible))
+    return "\n".join(lines)
+
+
 def _clean(value):
     value = re.sub(r"[`*_]", "", value).strip()
     value = re.sub(r"\s+", " ", value)
@@ -82,7 +130,7 @@ def _field_line(body, labels):
 
 
 def _section_text(body, labels):
-    lines = _lines(re.sub(r"<!--[\s\S]*?-->", "", body))
+    lines = _lines(body)
     label_pattern = _label_pattern(labels)
     heading_pattern = re.compile(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$")
     next_field = re.compile(
@@ -234,7 +282,6 @@ def _author_evidence_text(body):
 
 
 def _author_sha(body):
-    body = re.sub(r"<!--[\s\S]*?-->", "", body)
     body = re.sub(r"(!?)\[([^]]*)\]\([^)]*\)", lambda match: "" if match.group(1) else match.group(2), body)
     body = re.sub(r"https?://\S+", "", body)
     body = _author_evidence_text(body)
@@ -284,7 +331,6 @@ def _has_environment(body):
 
 
 def _has_commands(body):
-    body = re.sub(r"<!--[\s\S]*?-->", "", body)
     body = re.sub(r"(!?)\[([^]]*)\]\([^)]*\)", lambda match: "" if match.group(1) else match.group(2), body)
     body = re.sub(r"https?://\S+", "", body)
     values = []
@@ -335,8 +381,7 @@ def _has_limitations(body):
     value = _section_text(body, ("not tested / limitations / human validation needed", "limitations", "known gaps"))
     if value is not None:
         return not re.search(r"write none if none|known gaps?\s*\)?$", value, re.IGNORECASE) and _substantive(value, allow_none=True)
-    prose = re.sub(r"<!--[\s\S]*?-->", "", body)
-    prose = re.sub(r"\[[^]]*\]\([^)]*\)|https?://\S+", "", prose)
+    prose = re.sub(r"\[[^]]*\]\([^)]*\)|https?://\S+", "", body)
     prose = " ".join(line.strip() for line in _lines(prose) if "|" not in line)
     return bool(re.search(
         r"\b(?:not (?:rerun|run|exercised|claimed)|remain(?:s)? (?:unverified|untested|unresolved)|"
@@ -375,6 +420,8 @@ def inspect_body(body, head_sha=None, *, draft=False, external=False, associatio
         raise InputError("body must be text")
     if not _valid_sha(head_sha):
         raise InputError("head SHA must be a 40-character hexadecimal string")
+    responsibility_body = _evidence_text(body, preserve_responsibility=True)
+    body = _evidence_text(body)
     findings = []
     checks = (
         ("issue_reference", lambda value: _has_issue_or_exemption(value, association=association, author_type=author_type), "link an accepted issue or state a permitted maintainer/automation exemption"),
@@ -387,7 +434,8 @@ def inspect_body(body, head_sha=None, *, draft=False, external=False, associatio
         ("responsibility_marker", _has_responsibility_marker, "retain the existing checked contributor-responsibility marker"),
     )
     for code, check, message in checks:
-        if not check(body):
+        evidence = responsibility_body if code == "responsibility_marker" else body
+        if not check(evidence):
             findings.append(_finding(code, message))
 
     author_sha = _author_sha(body)
