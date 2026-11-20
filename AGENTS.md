@@ -11,8 +11,9 @@ For related-PR merge sequencing, shared-contract risks and disposable combined v
 The authoritative G5 merge-batch report template remains in `doc/AGENT_WORKFLOW.md` section 5;
 recommendations do not authorize merges. For all G3 handoffs, G4 first/delta reviews and G5
 batches, write the Layer 1 decision brief first using the shared plain-language, <=150-word,
-<=3-blocker, one-named-action contract and canonical templates in workflow sections 3–5; retain
-complete proof in Layer 2. Historical examples are linked from the workflow and are not templates.
+<=3-blocker, one-named-action contract (or **None — no action required**) and canonical templates in
+workflow sections 3–5; retain complete proof in Layer 2. Historical examples are linked from the
+workflow and are not templates.
 
 ## Workflow
 

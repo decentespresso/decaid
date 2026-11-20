@@ -12,6 +12,9 @@ live merge recommendation.
 
 ### Before excerpt
 
+<details>
+<summary>Historical G5 before excerpt and diagnostic history</summary>
+
 > `# G5 merge-batch analysis — #795 / #802 / #803 / #804`
 >
 > `- Repository: decentespresso/decaid; Related #1205, Deliverable A pilot only.`
@@ -24,20 +27,25 @@ live merge recommendation.
 
 The original record put the complete table and diagnostic analysis in the first reading path.
 
+</details>
+
 ### After Layer 1 brief (historical)
 
 **Decision:** **hold — 0/4 ready**; recommendation, not authorization. **Why:** (1) #802–#804 lack accepted scope and current-head G4; #802 client naming unresolved. (2) #795 lacks current-head G4 and has four unresolved **outdated** threads. (3) Reproduced #803/#804 conflicts block assembly; #804 lacks cross-mode limiter tests. **Next action:** Maintainer — record scope and client-naming decision before conflicts. **Limits:** historical main `efb717bd1e11f6a31ca7a31fd2b585bc3ded50be`; four current-head CI sets passed; no combined behavior test; author-tested SHAs **unknown**; physical zero-range behavior and firmware/simulator mismatch unverified. **Details:** [retained full proof](https://github.com/decentespresso/decaid/pull/1214#issuecomment-7012478060).
 
+<details>
+<summary>Layer 2 — historical G5 queue and facts</summary>
+
 ### Ranked queue
 
-**Ranking is a decision ranking, not historical assembly order.**
+**Ranking is a decision ranking, not historical assembly order. Rank 1 repeats the global Next action; all other rows are subsequent or dependent.**
 
 | Rank | PR | Status | Reason | Action |
 | --- | --- | --- | --- | --- |
-| 1 | #802 | hold | scope/client naming unresolved | Maintainer: record scope/rollout decision |
-| 2 | #795 | hold | no current-head G4; four unresolved outdated threads | Reviewer: review current limiter contract; retain/close threads |
-| 3 | #803 | hold | reproduced assembly conflict | Implementer: resolve after #802 scope |
-| 4 | #804 | hold | incomplete parser integration | Implementer: prepare parser/test fix |
+| 1 | #802 | hold | scope/client naming unresolved | Maintainer — record scope and client-naming decision before conflicts. |
+| 2 | #795 | hold | no current-head G4; four unresolved outdated threads | Subsequent: Reviewer — review current limiter contract; retain/close threads |
+| 3 | #803 | hold | reproduced assembly conflict | Dependent: Implementer — resolve after #802 scope |
+| 4 | #804 | hold | incomplete parser integration | Dependent: Implementer — prepare parser/test fix |
 
 ### Layer 2 facts retained
 
@@ -50,11 +58,16 @@ The original record put the complete table and diagnostic analysis in the first 
 - Main + #795 + #802 assembled through `a81b37224bbf659628de6437281a485540235239` / tree `ed62b489f666a0691f6792999d1002d49e23ace5`; adding #803 failed with the two conflicts above. The alternative #795 + #802 + #804 subset failed in `lib/src/models/data/profile.dart`. No final combined SHA/tree existed.
 - No Flutter tests, analysis, API smoke, simulator, or physical device run was claimed. Reviewer burden, maintainer follow-up, false positives, and regressions were **not measured**.
 
+</details>
+
 ## Historical G4 first review: PR #1198
 
 **Source records:** [PR body](https://github.com/decentespresso/decaid/pull/1198), [first review](https://github.com/decentespresso/decaid/pull/1198#pullrequestreview-5963726132), [later review](https://github.com/decentespresso/decaid/pull/1198#pullrequestreview-5973024291).
 
 ### Before excerpt
+
+<details>
+<summary>Historical G4 first-review excerpt and diagnostic history</summary>
 
 > **Slow reheating after standby can lose the countdown permanently.**
 >
@@ -66,10 +79,15 @@ These are exact sentences from the first review, not the later author PR body. T
 head `3ba3e90faa04b032876a95b91aff081dffc9fa18`; a fixed/new head and fixed-head CI or hardware
 proof were unavailable. CI status at that review is **unknown**, not failed or unrun.
 
+</details>
+
 ### After Layer 1 brief (historical)
 
 **Decision:** **hold** — **changes required**; recommendation, not merge authorization.
 **Why:** (1) The first review found a confirmed slow-reheat recovery defect: a 0.03 K/s ramp could remain `insufficient_data` after standby. (2) The fix and regression proof were unavailable at this historical review. **Next action:** Author — fix slow-recovery state handling and add a regression test covering an established session, stationary-noise negative path, and cold-start protection. **Limits:** reviewed SHA `3ba3e90faa04b032876a95b91aff081dffc9fa18`; reviewed-head CI and tested SHA **unknown**; fixed-head hardware proof unavailable. **Details:** [full first-review finding](https://github.com/decentespresso/decaid/pull/1198#pullrequestreview-5963726132).
+
+<details>
+<summary>Layer 2 — historical G4 first-review facts</summary>
 
 ### Layer 2 facts retained
 
@@ -78,20 +96,30 @@ proof were unavailable. CI status at that review is **unknown**, not failed or u
 - The required negative path was stationary standby noise producing no countdown; the required positive path was a resumed slow ramp below target regaining one.
 - The first review's state was CHANGES_REQUESTED at `3ba3e90f...`; it did not claim a fixed-head CI result or hardware rerun.
 
+</details>
+
 ## Historical G4 delta review: PR #1198
 
 **Source:** [delta review](https://github.com/decentespresso/decaid/pull/1198#pullrequestreview-5973024291).
 
 ### Before excerpt
 
+<details>
+<summary>Historical G4 delta-review excerpt and diagnostic history</summary>
+
 > `Previous review / delta: 3ba3e90faa04b032876a95b91aff081dffc9fa18 → f03a6fdda0e87e2aa54500bb68f7b8ebc5be2a94`
 >
 > `Prior blocking finding: resolved.`
+
+</details>
 
 ### After Layer 1 brief (historical)
 
 **Decision:** **ready** — **approve recommendation**; recommendation, not merge authorization.
 **Why:** (1) The prior slow-reheat blocker was resolved at reviewed head `f03a6fdda0e87e2aa54500bb68f7b8ebc5be2a94`. (2) Current-head [CI run `44441106595`](https://github.com/decentespresso/decaid/actions/runs/44441106595) passed; its separate Node plugin suite was absent from passed CI (#1168). The physical slow-reheat rerun and independent Node evidence remain explicitly **nonblocking** gaps for this narrow follow-up. **Next action:** Maintainer — make the normal merge decision; optional Node output or hardware capture may strengthen the record but is not a new blocker. **Limits:** delta `3ba3e90faa04b032876a95b91aff081dffc9fa18 -> f03a6fdda0e87e2aa54500bb68f7b8ebc5be2a94`; author-tested Node SHA is unknown; earlier DE1 Pro 1357 observations apply to the old SHA; no independent Node/Flutter or hardware execution. **Details:** [complete delta review](https://github.com/decentespresso/decaid/pull/1198#pullrequestreview-5973024291).
+
+<details>
+<summary>Layer 2 — historical G4 delta facts</summary>
 
 ### Layer 2 facts retained
 
@@ -100,11 +128,16 @@ proof were unavailable. CI status at that review is **unknown**, not failed or u
 - Criterion statuses were: standby wake verified in reported environment; standby during countdown and fast release verified in reported environment; 0.03 K/s recovery weak because hardware was not retested and no independent Node artifact existed; cooling reset/noise negative paths weak on simulation/test evidence; ETA/contract verified by inspection.
 - The author reported 37 Node tests passing, but the reviewer did not independently execute them. No new blocking defects were found. The verdict was an **approve recommendation**, not authorization.
 
+</details>
+
 ## Historical G3 evidence handoff: PR #1206
 
 **Source records:** [PR body](https://github.com/decentespresso/decaid/pull/1206), [independent review](https://github.com/decentespresso/decaid/pull/1206#pullrequestreview-5970348576).
 
 ### Before excerpt
+
+<details>
+<summary>Historical G3 handoff excerpt and diagnostic history</summary>
 
 > `- **Commands and results:**`
 >
@@ -113,9 +146,14 @@ proof were unavailable. CI status at that review is **unknown**, not failed or u
 The original handoff kept the technical evidence in the PR body but did not put an action-first
 brief ahead of it.
 
+</details>
+
 ### After Layer 1 brief (historical)
 
 **Decision:** **ready for review** — G3 handoff recommendation, not approval or merge authorization. **Why:** The historical L0 documentation change reported a complete evidence index, policy-preservation checks, full Flutter analysis/tests, and five script checks (two shell and three privacy) at tested SHA `0ad0bf2f97081138debea51802cc22f1888238e3`; no runtime behavior changed. The **author handoff reports** a prior independent **SHIP**. Linked public review `5970348576` is **COMMENTED**, reports no blocking findings and successful hosted PR Checks, including Analyze/test and Linux build smoke, at that SHA; neither source grants approval. **Next action:** Maintainer — inspect the immutable five-file diff against #1203 and the responsibility marker under normal review checks. **Limits:** no device or running app; hosted issue-association policy branches were not exercised locally and the handoff did not report hosted results. Linux/AppImage/storage smoke and the later runtime-visible pilot were **not tested locally**. **Details:** [retained PR evidence](https://github.com/decentespresso/decaid/pull/1206).
+
+<details>
+<summary>Layer 2 — historical G3 facts</summary>
 
 ### Layer 2 facts retained
 
@@ -124,6 +162,11 @@ brief ahead of it.
 - It reported 26/26 relative links resolving, `git diff --check` clean, and five local policy controls: filled ACCEPT, URL form ACCEPT, unchecked checkbox REJECT, missing marker REJECT, and no issue reference REJECT.
 - The exact contributor responsibility marker and issue-first rule were retained. The linked public review `5970348576` is `COMMENTED`, found no blocking findings, reported PR Checks success including Analyze/test and Linux build smoke at `0ad0bf2f97081138debea51802cc22f1888238e3`, recorded a nonblocking wording suggestion, and said no merge action was taken; it did not record **SHIP**.
 - Running-app/API, screenshots, physical devices and visual journeys were not applicable to the documentation-only change; hosted issue-association policy branches were not exercised locally, and the handoff did not report hosted results. The later runtime-visible pilot was not claimed.
+
+</details>
+
+<details>
+<summary>Historical acceptance criteria and maintainer feedback audit</summary>
 
 ## Acceptance-criteria map
 
@@ -135,23 +178,26 @@ The authoritative issue criteria are mapped here without changing their wording:
 4. **Users can distinguish `ready`, `hold`, `needs human validation`, `not tested`, `failed` and `unknown`; neither green CI nor GitHub mergeability becomes authorization to merge.** — **satisfied** by the workflow vocabulary and every canonical template.
 5. **A second agent using only repository instructions (no conversation history, no installed personal preference skill) produces the same action-first structure.** — **satisfied for observed structure, with limits**: the parent-owned blind output produced the five fields, four-row ranked queue and collapsed seven-column Layer 2 record. Its queue order remains historical rather than perfectly aligned with the global Maintainer scope action. This source-only exercise does not prove universal comprehension or human-maintainer readability.
 6. **No code behavior, CI/ruleset enforcement, evidence requirements, author responsibility, privacy, or merge authority is changed; documentation links and report consistency checked.** — **satisfied** by the scoped documentation change and unchanged policy/template/CI checks.
-7. **Compare old and new output for decision comprehension: given the report, identify whether to merge, the first blocker, the next owner/action and what was not verified, without reading Layer 2. Capture reviewer/maintainer feedback and revise if key caveats were hidden.** — **comparison and feedback recorded, with limits**: isolated agent-proxy comparisons recorded caveats and drove revisions. The maintainer subsequently read the whole document and gave positive subjective readability feedback, quoted below. This was not a controlled human Layer 1-only four-question test.
+7. **Compare old and new output for decision comprehension: given the report, identify whether to merge, the first blocker, the next owner/action and what was not verified, without reading Layer 2. Capture reviewer/maintainer feedback and revise if key caveats were hidden.** — **comparison and feedback recorded, with limits**: isolated agent-proxy comparisons recorded caveats and drove revisions. The maintainer subsequently read the whole document and gave positive subjective readability feedback, summarized below. This was not a controlled human Layer 1-only four-question test.
 
 ## Actual maintainer readability feedback
 
-The maintainer/user read the whole document, not an isolated Layer 1 brief. The parent relayed this
-verbatim response during the feedback closeout after candidate `cd4f32a2` was reviewed:
-
-> i read the whole AGENT_REPORT_EXAMPLES.md and I believe the last section was the real example? I like the new condensed approach a lot, much more readable to me than before
-
-The parent clarified that the last section was actual unedited blind-agent output; the earlier examples
-were rewritten historical reports, not live merge recommendations. The user's source question required
-that clarification; it is not evidence that they independently identified every report's provenance.
+The maintainer/user read the complete document, not an isolated Layer 1 brief, and reported that the
+condensed approach was much more readable. They also asked which section was the actual example; the
+parent clarified that the last section was actual unedited blind-agent output and the earlier examples
+were rewritten historical reports, not live merge recommendations. This records provenance and positive
+subjective feedback, but it is not evidence that the user independently identified every report's
+provenance or performed a controlled Layer 1 comprehension test.
 
 This is real, positive, subjective human readability feedback. It is separate from the isolated
 agent-proxy comparisons below. The user did not perform the four-question Layer 1-only comprehension
 exercise. No controlled human result, universal comprehension, measured savings, formal approval or
 merge authorization is claimed. The blind output's nonblocking queue/global-priority caveat remains.
+
+</details>
+
+<details>
+<summary>Pass 1 historical comprehension audit</summary>
 
 ## Actual read-only comprehension exercise — Pass 1 (initial)
 
@@ -185,6 +231,9 @@ The following are the complete four answers for each report, retained from the a
 | G3 | No merge authorization supplied. Handoff reports readiness **and an earlier independent SHIP**. | None reported. | Maintainer retains publication, product-risk and merge decisions; later usability pilots remain future work. A fresh independent review is not explicitly requested. | Hosted CI/issue association; Linux/AppImage/storage smoke; running app, physical/visual/mobile journeys; later runtime-visible template usability. Local regex controls are narrower than hosted policy. |
 </details>
 
+<details>
+<summary>Pass 1 comparison and observed limitations</summary>
+
 ### Stage A comparison and observed limitations
 
 The reader reported that G5 lost dependency/partial-head and simulator-versus-firmware caveats; G4 first
@@ -192,6 +241,8 @@ lost negative-path detail and confused a known reviewed SHA with a missing fixed
 draft left a source-described nonblocking gap unclear, so the reader interpreted it as an apparent
 condition; and G3 understated the recorded proof and invented a fresh review action. These are
 comprehension observations, not correctness or timing measurements.
+
+</details>
 
 <details>
 <summary>Stage B actual Layer 1 output and limitation</summary>
@@ -212,8 +263,19 @@ unqualified success. The canonical workflow now makes both structures explicit; 
 exercise must check the final briefs.
 </details>
 
+<details>
+<summary>Pass 1 comparison follow-up and feedback limitation</summary>
+
 At Pass 1 time, maintainer readability feedback was pending. The later full-document response is
 recorded separately above; this agent-proxy exercise did not establish human comprehension or timing savings.
+
+</details>
+
+
+</details>
+
+<details>
+<summary>Pass 2 historical comprehension audit</summary>
 
 ## Pass 2 — fresh-reader read-only exercise
 
@@ -224,6 +286,9 @@ repository instructions and supplied source reports, with no conversation histor
 personal-preference skill. It did not accept the candidate, assess live state, verify receipts, or
 provide human-maintainer feedback. The output below is retained before this final bounded clarification
 pass.
+
+<details>
+<summary>Pass 2 actual matrices, comparison, and output</summary>
 
 ### A. Actual Layer 1-only answers
 
@@ -278,6 +343,14 @@ action-first structure was observed; criterion 3's whole-output brevity adherenc
 At Pass 2 time, maintainer readability feedback was pending. The later full-document response is
 recorded separately above; this exercise did not establish measured savings or issue completion.
 
+</details>
+
+
+</details>
+
+<details>
+<summary>Pass 3 historical comprehension audit</summary>
+
 ## Pass 3 — parent-owned blind read-only exercise (final bounded pass)
 
 Source: immutable `.lane/issue-1217/comprehension/reader-67f3ff91-blind-complete.md`, SHA-256
@@ -298,17 +371,18 @@ live GitHub, shell/tests, edits or human feedback. The output had the five field
 record. It preserved `0 of 4 ready`, the global Maintainer scope action, CI/report fingerprints, and
 untested combined/physical limits. The queue remains in historical order `795 / 802 / 803 / 804`,
 while the global first action is Maintainer scope; rank 1's Reviewer delta action is therefore not
-perfectly aligned with the global priority. This is source-only format evidence, not runtime or
-correctness proof, human-readability feedback, or perfect-comprehension proof. It does not support a
-universal-pass claim. The complete raw output remains immutable and its hash and extraction boundaries
-make the count reproducible.
+perfectly aligned with the global priority. Under the revised rule, this is an **observed limitation
+of the historical output**, not a reason to rewrite the actual reader result. This is source-only
+format evidence, not runtime or correctness proof, human-readability feedback, or perfect-comprehension
+proof. It does not support a universal-pass claim. The complete raw output remains immutable and its
+hash and extraction boundaries make the count reproducible.
 
 ### Acceptance-criteria update from Pass 3
 
 - Criterion 3 — **partial**: the lead/parent count is 133 structural words including the heading and
-  ranked queue, with at most three primary reasons and one global action. The historical queue order
-  and global-action mismatch leaves priority clarity imperfect; the count is not a comprehension or
-  usability measurement.
+  ranked queue, with at most three primary reasons and one global action. Under the revised rule, the
+  historical queue/global-action mismatch is an observed limitation of that output; the count is not a
+  comprehension or usability measurement.
 - Criterion 5 — **satisfied for observed structure, with limits**: the parent-owned blind output used
   the required five fields and four-row ranked queue and retained the seven-column Layer 2 record. The
   queue-priority ambiguity remains, and this source-only exercise does not prove universal comprehension
@@ -331,6 +405,8 @@ make the count reproducible.
 | 2 | #802 / `87ad4054` | hold | Scope unresolved | Maintainer: scope decision |
 | 3 | #803 / `4ee67701` | hold | Transport conflicts | Owner: reviewed resolution |
 | 4 | #804 / `9ae02211` | hold | Parser conflict | Owner: restore cross-mode tests |
+
+</details>
 
 </details>
 
