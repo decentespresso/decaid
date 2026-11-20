@@ -146,6 +146,16 @@ as the spinner's cause. Upstream flutter_inappwebview #2626 documents a default
 profile-directory permission failure; #2840 describes a process crash after
 creation, not this still-running app. Neither identifies this report's trigger.
 
+Issue #1207: after a GitHub token is added, every update check logs
+`GitHub request failed: HTTP 301`. GitHub answers a renamed repository's API
+path (`tadelv/reaprime`, `allofmeng/streamline_project`) with a 301 to
+`/repositories/<id>/...`. Anonymous requests follow it automatically;
+token-bearing requests disable automatic redirects so the `Authorization`
+header cannot reach another host. `githubGet` follows up to five 301/302/307/308
+hops by hand while the target stays on `https://api.github.com:443`, and returns
+the redirect response unchanged for any other target. Anonymous checks hide
+stale repository names, so they surface only once a token is configured.
+
 `SkinWebViewStartup` bounds Windows initial loading to 30 seconds, logs the
 last reached stage, and offers browser/dashboard recovery without destroying
 the pending view. A late load clears the error. Its `SkinView` logger emits
