@@ -56,6 +56,84 @@ class CheckPrEvidenceTest(unittest.TestCase):
         codes = {finding["code"] for finding in report["findings"]}
         self.assertEqual(codes, set())
 
+    def test_fenced_risk_examples_do_not_override_real_declarations(self):
+        for fence in ("```", "~~~", "`````", "~~~~"):
+            with self.subTest(fence=fence):
+                body = VALID_BODY + f"\n{fence}markdown\nRisk level: L0 / L1 / L2 / L3\n{fence}\n"
+                self.assertEqual(check_pr_evidence.inspect_body(body)["findings"], [])
+
+    def test_fenced_examples_cannot_supply_any_required_evidence(self):
+        expected = {"issue_reference", "risk_rationale", "criteria_evidence", "author_tested_sha", "environment", "commands_results", "limitations", "responsibility_marker"}
+        for fence in ("```", "~~~", "`````", "~~~~"):
+            with self.subTest(fence=fence):
+                report = check_pr_evidence.inspect_body(f"{fence}markdown\n{VALID_BODY}\n{fence}\n")
+                self.assertEqual({item["code"] for item in report["findings"]}, expected)
+                self.assertIsNone(report["author_tested_sha"])
+
+    def test_html_comments_cannot_supply_evidence(self):
+        for body in ("<!-- Related #1205 -->", "<!--\nRelated #1205\nRisk level: L1 — isolated tooling\n-->"):
+            with self.subTest(body=body):
+                self.assert_codes(body, {"issue_reference", "risk_rationale"})
+        report = check_pr_evidence.inspect_body("<!--\n" + VALID_BODY + "\n-->")
+        self.assertEqual(len(report["findings"]), 8)
+        self.assertIsNone(report["author_tested_sha"])
+
+    def test_real_issue_and_risk_survive_commented_examples(self):
+        body = "<!--\nRelated #9999\nRisk level: L0 / L1 / L2 / L3\n-->\n" + VALID_BODY
+        self.assertEqual(check_pr_evidence.inspect_body(body)["findings"], [])
+
+    def test_real_responsibility_marker_survives_comment_filtering(self):
+        body = VALID_BODY + "\n<!-- unrelated multiline\ncomment -->\n"
+        self.assertNotIn("responsibility_marker", {item["code"] for item in check_pr_evidence.inspect_body(body)["findings"]})
+        marker = "- [x] I have reviewed the changes <!-- contributor-responsibility -->"
+        for fence in ("```", "~~~"):
+            with self.subTest(fence=fence):
+                self.assert_codes(f"{fence}markdown\n{marker}\n{fence}", {"responsibility_marker"})
+
+    def test_details_preserve_real_matrix_inline_commands_and_marker(self):
+        body = "<details>\n<summary>Verification</summary>\n\n" + VALID_BODY + "\n</details>\n"
+        self.assertEqual(check_pr_evidence.inspect_body(body)["findings"], [])
+
+    def test_only_unfenced_author_fingerprint_is_recognized(self):
+        real = "0123456789abcdef0123456789abcdef01234567"
+        example = "a" * 40
+        for fence in ("```", "~~~", "````"):
+            with self.subTest(fence=fence):
+                body = f"{fence}markdown\nAuthor-tested SHA: {example}\n{fence}\n" + VALID_BODY
+                report = check_pr_evidence.inspect_body(body, head_sha=real)
+                self.assertEqual(report["author_tested_sha"], real)
+                self.assertEqual(report["findings"], [])
+
+    def test_unclosed_fences_hide_the_remaining_example(self):
+        expected = {"risk_rationale", "criteria_evidence", "author_tested_sha", "environment", "commands_results", "limitations", "responsibility_marker"}
+        for fence in ("```", "~~~", "`````"):
+            with self.subTest(fence=fence):
+                report = check_pr_evidence.inspect_body(f"Related #1205\n{fence}markdown\n{VALID_BODY}")
+                self.assertEqual({item["code"] for item in report["findings"]}, expected)
+                self.assertIsNone(report["author_tested_sha"])
+
+    def test_fence_closers_require_matching_character_and_minimum_length(self):
+        for opening, shorter, wrong, closing in (("````", "```", "~~~~", "`````"), ("~~~~", "~~~", "````", "~~~~~")):
+            with self.subTest(opening=opening):
+                body = f"{opening}markdown\n{shorter}\nRisk level: L2 — example\n{wrong}\nRisk level: L3 — example\n{opening}not-a-closing-label\nRisk level: L0 — example\n{closing}\n" + VALID_BODY
+                self.assertEqual(check_pr_evidence.inspect_body(body)["findings"], [])
+
+    def test_comment_and_fence_delimiters_do_not_leak_across_contexts(self):
+        for prefix in ("<!--\n```markdown\n-->\n", "```html\n<!--\n```\n"):
+            with self.subTest(prefix=prefix):
+                self.assertEqual(check_pr_evidence.inspect_body(prefix + VALID_BODY)["findings"], [])
+
+    def test_inline_command_comment_literals_do_not_hide_real_evidence(self):
+        body = "Commands and results: `python -c 'print(\"<!--\")'` — passed\n" + VALID_BODY
+        self.assertEqual(check_pr_evidence.inspect_body(body)["findings"], [])
+
+    def test_fenced_scope_examples_do_not_scope_real_stale_evidence(self):
+        body = VALID_BODY + "\n```markdown\nAuthor evidence is reused for unaffected documentation paths.\n```\n"
+        report = check_pr_evidence.inspect_body(body, head_sha="b" * 40)
+        stale = [item for item in report["findings"] if item["code"] == "stale_evidence"]
+        self.assertEqual(len(stale), 1)
+        self.assertFalse(stale[0]["scoped_reuse"])
+
     def test_each_required_field_is_checked(self):
         cases = {
             "issue": ("Related #1205", "issue_reference"),
