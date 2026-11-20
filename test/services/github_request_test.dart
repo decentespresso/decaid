@@ -230,6 +230,65 @@ void main() {
     expect(seen.single.followRedirects, isFalse);
   });
 
+  for (final status in [301, 302, 307, 308]) {
+    test(
+      'credential-bearing $status redirects within the API origin are followed',
+      () async {
+        final credentials = GithubCredentialProvider(
+          store: _TestStore('secret'),
+        );
+        final seen = <http.BaseRequest>[];
+        final response = await githubGet(
+          'https://api.github.com/repos/acme/renamed/releases',
+          rateLimit: GithubRateLimit(),
+          client: MockClient((request) async {
+            seen.add(request);
+            if (request.url.path == '/repos/acme/renamed/releases') {
+              return http.Response(
+                '',
+                status,
+                headers: {'location': '/repositories/42/releases'},
+              );
+            }
+            return http.Response('[]', 200);
+          }),
+          credentials: credentials,
+        );
+        expect(response.body, '[]');
+        expect(seen.map((r) => r.url.toString()), [
+          'https://api.github.com/repos/acme/renamed/releases',
+          'https://api.github.com/repositories/42/releases',
+        ]);
+        for (final request in seen) {
+          expect(request.headers['authorization'], 'Bearer secret');
+          expect(request.followRedirects, isFalse);
+        }
+      },
+    );
+  }
+
+  test('credential-bearing redirect chains are bounded', () async {
+    final credentials = GithubCredentialProvider(store: _TestStore('secret'));
+    var requests = 0;
+    await expectLater(
+      githubGet(
+        'https://api.github.com/repos/acme/loop',
+        rateLimit: GithubRateLimit(),
+        client: MockClient((_) async {
+          requests++;
+          return http.Response(
+            '',
+            301,
+            headers: {'location': 'https://api.github.com/repos/acme/loop'},
+          );
+        }),
+        credentials: credentials,
+      ),
+      throwsA(isA<GithubRequestException>()),
+    );
+    expect(requests, lessThanOrEqualTo(6));
+  });
+
   test(
     'user credential failures are actionable and never include response body',
     () async {

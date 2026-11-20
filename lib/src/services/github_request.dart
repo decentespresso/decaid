@@ -97,16 +97,14 @@ Future<http.Response> githubGet(
       resetAt: resetAt,
     );
   }
-  final uri = Uri.parse(url);
-  final request = http.Request('GET', uri)
-    ..headers.addAll(
-      githubRequestHeaders(uri, headers: headers, authorization: authorization),
-    )
-    ..followRedirects = !(authorization.isUser && _isGithubApiOrigin(uri));
   final ownedClient = client == null ? http.Client() : null;
   try {
-    final streamed = await (client ?? ownedClient!).send(request);
-    final response = await http.Response.fromStream(streamed);
+    final response = await _sendFollowingApiRedirects(
+      client ?? ownedClient!,
+      Uri.parse(url),
+      headers: headers,
+      authorization: authorization,
+    );
     if (response.statusCode == 200 ||
         (allowNotModified && response.statusCode == 304)) {
       if (authorization.containsSecret(response.body)) {
@@ -157,5 +155,39 @@ Future<http.Response> githubGet(
     rethrow;
   } finally {
     ownedClient?.close();
+  }
+}
+
+const _maxApiRedirects = 5;
+const _redirectStatuses = {301, 302, 307, 308};
+
+Future<http.Response> _sendFollowingApiRedirects(
+  http.Client client,
+  Uri uri, {
+  required Map<String, String> headers,
+  required GithubCredentialSnapshot authorization,
+}) async {
+  for (var hop = 0; ; hop++) {
+    final manual = authorization.isUser && _isGithubApiOrigin(uri);
+    final request = http.Request('GET', uri)
+      ..headers.addAll(
+        githubRequestHeaders(
+          uri,
+          headers: headers,
+          authorization: authorization,
+        ),
+      )
+      ..followRedirects = !manual;
+    final response = await http.Response.fromStream(await client.send(request));
+    final location = response.headers['location'];
+    if (!manual ||
+        hop >= _maxApiRedirects ||
+        !_redirectStatuses.contains(response.statusCode) ||
+        location == null) {
+      return response;
+    }
+    final next = uri.resolve(location);
+    if (!_isGithubApiOrigin(next)) return response;
+    uri = next;
   }
 }
