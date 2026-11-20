@@ -205,6 +205,10 @@ Layer 2 retains every acceptance row, exact SHA, command/result, CI state, envir
 path, artifact, waiver, and untested area needed for independent reproduction. `ready for review`
 describes a handoff state, not product acceptance.
 
+### Advisory evidence-completeness validator
+
+`python3 tool/ci/check_pr_evidence.py --body <pr-body.md>` performs a report-only, standard-library check for obvious evidence-field omissions and author-tested SHA drift. It accepts heading/order and collapsed-detail variants, treats links as uncertainty rather than proof, and never checks behavior, hardware, video, or artifact truth. Findings always exit 0; malformed input/setup errors use a separate nonzero exit. The focused unittest is included in the existing tools job, and a separate pull-request advisory job writes its fixed report to the job summary with no dependency edge or required status. See [`doc/PR_EVIDENCE_VALIDATOR.md`](PR_EVIDENCE_VALIDATOR.md) for field semantics and fixture observations.
+
 ### Acceptance matrix
 
 Copy this table into the PR body (the template already contains it), place the filled matrix inside

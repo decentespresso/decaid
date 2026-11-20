@@ -1,0 +1,131 @@
+{
+  "classification": "Lead manually reclassified all nine unchanged bodies against presence/consistency before comparing corrected parser output. Layout or exact labels do not determine presence. No statement is verified for truthfulness.",
+  "expected_findings": {
+    "pr-1210-l0.json": [],
+    "pr-1213-l1.json": [],
+    "pr-1220-layered.json": [],
+    "pr-1198-l2.json": [
+      "risk_rationale",
+      "criteria_evidence",
+      "author_tested_sha"
+    ],
+    "pr-1182-l3-a.json": [
+      "risk_rationale",
+      "criteria_evidence"
+    ],
+    "pr-1188-l3-b.json": [
+      "risk_rationale",
+      "criteria_evidence",
+      "author_tested_sha"
+    ],
+    "pr-1209-pre-template.json": [
+      "issue_reference",
+      "risk_rationale",
+      "criteria_evidence",
+      "author_tested_sha",
+      "environment",
+      "limitations",
+      "responsibility_marker"
+    ],
+    "pr-859-external-draft.json": [
+      "risk_rationale",
+      "criteria_evidence",
+      "author_tested_sha",
+      "responsibility_marker"
+    ],
+    "pr-880-draft.json": [
+      "risk_rationale",
+      "criteria_evidence",
+      "author_tested_sha",
+      "environment",
+      "commands_results",
+      "responsibility_marker"
+    ]
+  },
+  "source_spans": {
+    "pr-1210-l0.json": {
+      "issue_reference": "Related #1204",
+      "risk_rationale": "L0 — documentation/agent instructions only",
+      "criteria_evidence": "Reviewer can start from PR and linked issue",
+      "author_tested_sha": "2088423b488619274c564cefc25f359124ed8f15",
+      "environment": "GitHub repository content API / documentation review",
+      "commands_results": "Retrieved and inspected all five changed Markdown files",
+      "limitations": "Hosted CI for the updated head and live three-PR pilot remain unverified",
+      "responsibility_marker": "- [x] I have reviewed"
+    },
+    "pr-1213-l1.json": {
+      "issue_reference": "Fixes #1002",
+      "risk_rationale": "test-only change to one existing test",
+      "criteria_evidence": "Timeout/cancellation test independent of filesystem scheduling",
+      "author_tested_sha": "7620976afc2e0ec65e5cd896979550825b1a9f5f",
+      "environment": "macOS, local Flutter 3.47.9",
+      "commands_results": "`flutter test` -> `+7186 ~1: All tests passed!`",
+      "limitations": "A future regression in the timeout or cancellation path now hangs",
+      "responsibility_marker": "- [x] I have reviewed"
+    },
+    "pr-1220-layered.json": {
+      "issue_reference": "Related #1217",
+      "risk_rationale": "L0 — documentation and skills only",
+      "criteria_evidence": "G4 first/delta and G3 handoffs retain exact evidence facts",
+      "author_tested_sha": "90b441b36a8cfc6c077e28bbb23f8c78967a858f",
+      "environment": "macOS; clean isolated documentation checkout",
+      "commands_results": "Five exact-candidate gates finished, valid, exit 0",
+      "limitations": "No browser interaction, runtime/device test",
+      "responsibility_marker": "- [x] I have reviewed"
+    },
+    "pr-1198-l2.json": {
+      "issue_reference": "## Linked Issue\n\nN/A",
+      "environment": "real DE1 Pro (firmware 1357)",
+      "commands_results": "The slow-resume fix was verified by these tests only",
+      "limitations": "was not rerun on hardware",
+      "responsibility_marker": "- [x] I have reviewed"
+    },
+    "pr-1182-l3-a.json": {
+      "issue_reference": "Fixes #1161",
+      "author_tested_sha": "Built and deployed **`b3fc135aa46aabc1b972aa33444656316a7bd107`**",
+      "environment": "Samsung SM-X210 / Android 16",
+      "commands_results": "**6,304 passed, 3 skipped, 21 failed**",
+      "limitations": "**These 21 failures remain unresolved",
+      "responsibility_marker": "- [x] I have reviewed"
+    },
+    "pr-1188-l3-b.json": {
+      "issue_reference": "Related #1078",
+      "environment": "Samsung SM-X210 / Android 16",
+      "commands_results": "`flutter test --no-pub --concurrency=4`",
+      "limitations": "HDS attachments remain unverified",
+      "responsibility_marker": "- [x] I have reviewed"
+    },
+    "pr-1209-pre-template.json": {
+      "commands_results": "Validated the updated `skin_sources.json` parses as JSON."
+    },
+    "pr-859-external-draft.json": {
+      "issue_reference": "Related #833",
+      "environment": "macOS builds are unavailable",
+      "commands_results": "4,365 passed, 1 skipped, 0 failed",
+      "limitations": "No physical hardware validation"
+    },
+    "pr-880-draft.json": {
+      "issue_reference": "does **not** close #871",
+      "limitations": "## Remaining wiring in this draft"
+    }
+  },
+  "manual_classification": {
+    "pr-1210-l0.json": "L0 has all eight fields; qualitative repository-content inspection is a declared check/result, not a claim of local execution.",
+    "pr-1213-l1.json": "All fields present; this is a flat verification section rather than the later layered layout.",
+    "pr-1220-layered.json": "All fields present across closed details; independent/reviewer IDs do not replace the separately labelled author SHA.",
+    "pr-1198-l2.json": "MEMBER metadata permits Linked Issue N/A. Exact node commands, test-verification statement and timed hardware observations supply checks/results; no explicit risk/criterion table/full author SHA.",
+    "pr-1182-l3-a.json": "Nested Automated and Exact-Head Android Smoke supply failed/successful results, platform and full built/deployed author head. Unresolved failures and Not claimed prose declare limits. No explicit risk tier or criterion/status matrix.",
+    "pr-1188-l3-b.json": "Verification and Impact jointly declare platform/checks/limits. Only short author commit IDs are given, not an exact full author-tested SHA. No explicit tier or criterion matrix.",
+    "pr-1209-pre-template.json": "Verification declares completed JSON parsing validation and confirmation of a published release ZIP against bundler expectations. Those action/result claims count like qualitative inspection in #1210, without an exact shell invocation. No issue/exemption, tier, matrix, full author SHA, OS/platform, explicit limitations or marker. Future smoke instructions remain distinct from observed checks.",
+    "pr-859-external-draft.json": "External draft declares issue, macOS unavailable environment, exact Flutter commands/results and no-hardware limits. Unchecked acknowledgement remains absent; no tier, matrix or full author SHA.",
+    "pr-880-draft.json": "Issue references and remaining wiring/dependencies declare scope and limits. The full reviewed upstream SHA/red upstream unit job is not author-tested evidence or an author command/result. No author environment/tier/matrix/marker."
+  },
+  "false_positive_definition": "A false positive is an omission finding for a field supported by the quoted source span and PR context, regardless of heading/label syntax. A missed completeness finding is a manually absent field not reported. Compare actual findings against these expectations; stale-evidence warnings are assessed separately.",
+  "limits": [
+    "Nine live public body snapshots are a convenience sample, not a population rate or measured time saving.",
+    "Presence does not verify behavior, execution, linked content, video, hardware, accepted-issue status or artifact accessibility.",
+    "Legacy/draft/external findings remain nonblocking. Full author fingerprints require 40 hexadecimal characters; metadata head alone is not author evidence.",
+    "Prior zero-FP counts used label-restricted expectations and were invalid; retained red logs demonstrate the omissions.",
+    "The later 46-present/26-absent classification also wrongly excluded #1209 qualitative check/results; the panel-settled correction is 47 present/25 absent, not evidence of global accuracy or collection-order independence."
+  ]
+}
