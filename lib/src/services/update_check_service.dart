@@ -59,8 +59,8 @@ class UpdateCheckService {
   }) : _updater =
            updater ??
            AndroidUpdater(
-             owner: 'tadelv',
-             repo: 'reaprime',
+             owner: 'decentespresso',
+             repo: 'decaid',
              rateLimit: rateLimit,
              credentials: credentials,
            ),

@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/plugins/plugin_source_service.dart';
@@ -1229,5 +1231,31 @@ void main() {
       expect(webUIStorage.updateCalls, 1);
       svc.dispose();
     });
+  });
+
+  test('default updater checks the decentespresso/decaid releases', () async {
+    final seen = <Uri>[];
+    await http.runWithClient(
+      () async {
+        final settings = MockSettingsService();
+        final svc = UpdateCheckService(
+          settingsService: settings,
+          webUIStorage: WebUIStorage(SettingsController(settings)),
+          platformIsAndroid: true,
+          platformIsMacOS: false,
+          externallyManaged: false,
+        );
+        await svc.checkForUpdate();
+        svc.dispose();
+      },
+      () => MockClient((request) async {
+        seen.add(request.url);
+        return http.Response('[]', 200);
+      }),
+    );
+    expect(
+      seen.first.toString(),
+      'https://api.github.com/repos/decentespresso/decaid/releases',
+    );
   });
 }
