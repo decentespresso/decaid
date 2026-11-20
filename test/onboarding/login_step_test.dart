@@ -3,9 +3,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:reaprime/src/onboarding_feature/steps/login_step.dart';
+import 'package:reaprime/src/services/account/account_consent_store.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
+import 'package:reaprime/src/services/app_log_upload_service.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../helpers/mock_settings_service.dart';
 
@@ -177,5 +180,74 @@ void main() {
 
     expect(requests, 1);
     expect(find.text('user@example.com'), findsOneWidget);
+  });
+
+  group('support log sharing opt-in', () {
+    late _CredentialStore store;
+    late DecentAccountService accountService;
+    late AppLogUploadService uploadService;
+
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      store = _CredentialStore();
+      accountService = _accountService(
+        MockClient((_) async => http.Response('cryptpw', 200)),
+        store: store,
+      );
+      uploadService = AppLogUploadService(
+        accountService: accountService,
+        consentStore: AccountConsentStore(credentialStore: store),
+        preferences: await SharedPreferences.getInstance(),
+        logFilePath: 'unused-log.txt',
+        machineIdentity: () => null,
+        initialDelay: const Duration(days: 1),
+      );
+    });
+
+    Future<void> signIn(WidgetTester tester, {required bool share}) async {
+      var completed = false;
+      await tester.pumpWidget(
+        ShadApp(
+          home: LoginStepWidget(
+            accountService: accountService,
+            appLogUploadService: uploadService,
+            onComplete: () => completed = true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Share app logs with Decent Support'), findsOneWidget);
+      if (share) {
+        final toggle = find.byKey(const Key('onboarding-app-log-upload'));
+        await tester.ensureVisible(toggle);
+        await tester.tap(toggle);
+        await tester.pump();
+      }
+      await tester.enterText(find.byType(ShadInput).at(0), 'user@example.com');
+      await tester.enterText(find.byType(ShadInput).at(1), 'secret');
+      await tester.ensureVisible(find.text('Login'));
+      await tester.tap(find.text('Login'));
+      for (var i = 0; i < 20 && !completed; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump();
+      }
+      expect(completed, isTrue);
+    }
+
+    testWidgets('turning it on enables sharing after sign-in', (tester) async {
+      await signIn(tester, share: true);
+
+      expect(uploadService.enabled, isTrue);
+      uploadService.dispose();
+    });
+
+    testWidgets('sharing stays off by default', (tester) async {
+      await signIn(tester, share: false);
+
+      expect(uploadService.enabled, isFalse);
+      uploadService.dispose();
+    });
   });
 }

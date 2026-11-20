@@ -110,6 +110,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 
 import 'package:reaprime/src/services/telemetry/telemetry_service.dart';
+import 'package:reaprime/src/services/warmup_logger.dart';
 import 'package:reaprime/src/services/telemetry/boot_timing.dart';
 import 'package:reaprime/src/services/telemetry/log_buffer.dart';
 import 'package:reaprime/src/services/telemetry/anonymization.dart';
@@ -913,12 +914,15 @@ void main(List<String> args) async {
 
   updateCheckService.scheduleInitialize();
 
+  final warmupLogger = WarmupLogger(machines: de1Controller.de1);
+
   WidgetsBinding.instance.addObserver(
     AppLifecycleObserver(
       displayController: displayController,
       pluginLoaderService: pluginService,
       connectionManager: connectionManager,
       appLogUploadService: appLogUploadService,
+      warmupLogger: warmupLogger,
       updateCheckService: updateCheckService,
       settingsController: settingsController,
     ),
@@ -970,6 +974,7 @@ class AppLifecycleObserver with WidgetsBindingObserver {
   final PluginLoaderService? pluginLoaderService;
   final ConnectionManager? connectionManager;
   final AppLogUploadService? appLogUploadService;
+  final WarmupLogger? warmupLogger;
   final UpdateCheckService? updateCheckService;
   final SettingsController? settingsController;
 
@@ -981,6 +986,7 @@ class AppLifecycleObserver with WidgetsBindingObserver {
     this.pluginLoaderService,
     this.connectionManager,
     this.appLogUploadService,
+    this.warmupLogger,
     this.updateCheckService,
     this.settingsController,
   }) {
@@ -1043,6 +1049,7 @@ class AppLifecycleObserver with WidgetsBindingObserver {
     } catch (error, stackTrace) {
       _log.severe('Plugin loader disposal failed', error, stackTrace);
     }
+    await warmupLogger?.dispose();
     appLogUploadService?.dispose();
   }
 
