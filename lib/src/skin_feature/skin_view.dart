@@ -32,6 +32,7 @@ import 'package:reaprime/src/skin_feature/skin_user_scripts.dart';
 import 'package:reaprime/src/skin_feature/skin_webview_composition.dart';
 import 'package:reaprime/src/skin_feature/skin_webview_diagnostics.dart';
 import 'package:reaprime/src/skin_feature/skin_webview_startup.dart';
+import 'package:reaprime/src/services/telemetry/frame_profiler.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -309,6 +310,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     _activeViews++;
+    FrameProfiler.mark('skin:mount');
     WidgetsBinding.instance.addObserver(this);
     simulatedWebViewDevice.addListener(_resetWebView);
     if (Platform.isAndroid || Platform.isIOS) {
@@ -385,6 +387,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
       _isCheckingCompatibility = false;
       return;
     }
+
     _log.info('Checking WebView compatibility...');
 
     if (!Platform.isWindows) {
@@ -394,6 +397,12 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
       } catch (e, st) {
         _log.warning('clearAllCache failed, continuing', e, st);
       }
+    }
+
+    if (const String.fromEnvironment('perfSkipWebViewCompat').isNotEmpty) {
+      _log.warning('perf build: WebView compatibility check skipped');
+      setState(() => _isCheckingCompatibility = false);
+      return;
     }
 
     final result = await widget.checkCompatibility();
@@ -813,12 +822,17 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
         unawaited(_changeWebViewTimers(controller, 'onWebViewCreated'));
       },
       onLoadStart: (controller, url) {
+        _log.info(
+          'onLoadStart: url=$url currentView=${isCurrentView()} '
+          'skinUrl=$_skinUrl',
+        );
         if (!isCurrentView()) return;
         if (supportsSkinCamera) _camera.invalidate();
         _log.info('Page started loading: $url');
         _mainFrameUri = url;
         BootTiming.mark('webview');
         BootTiming.complete();
+        FrameProfiler.mark('skin:loading');
         setState(() {
           _isLoading = true;
           _errorMessage = null;
@@ -827,6 +841,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
       onLoadStop: (controller, url) async {
         if (!isCurrentView()) return;
         _log.info('Page finished loading: $url');
+        FrameProfiler.mark('skin:ready');
         setState(() {
           _isLoading = false;
         });

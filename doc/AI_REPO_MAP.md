@@ -26,6 +26,7 @@ Use this for unfamiliar or multi-subsystem tasks. For known files or exact symbo
 | Device discovery or connection | `doc/DeviceManagement.md` | `lib/src/controllers/connection_manager.dart` |
 | Build, platform, CLI flags | `doc/AI_BUILD_NOTES.md` | `Makefile`, `pubspec.yaml` |
 | Crashes, error tracing | `doc/AI_DEBUG_NOTES.md` | `lib/src/services/crashlytics_error_filter.dart` |
+| Frame timing, stutter, startup cost | `doc/AI_PERF_NOTES.md`, `scripts/perf-capture.sh` | `lib/src/services/telemetry/frame_profiler.dart` |
 | Onboarding or settings UI | — | `lib/src/onboarding_feature/`, `lib/src/settings/`, `lib/src/launcher/` |
 | App startup readiness | `doc/DeviceManagement.md` | `lib/src/services/app_startup_coordinator.dart`, `lib/src/app.dart`, `lib/main.dart` |
 | Release process | `doc/RELEASE.md` | `.github/workflows/release.yml` |
