@@ -285,7 +285,10 @@ exclude it; `GET /api/v1/settings` does not return it.
 
 App log sharing consent is stored by `AccountConsentStore` under
 `appLogUpload`. The `appLogUpload.` SharedPreferences prefix contains only
-presentation state and the cursor. The cursor stores the last uploaded log
+presentation state, the cursor, and `appLogUpload.enabledAt` (opt-in time in
+epoch milliseconds). Sharing turns itself off 7 days after `enabledAt`; opting
+out removes it, and a consent stored without it starts the window at the next
+check. The cursor stores the last uploaded log
 timestamp plus its line ordinal as one JSON value. Keep the timestamp and
 ordinal atomic so capped uploads cannot skip later lines with the same timestamp.
 Opting out clears the cursor, so a later opt-in starts with only the previous 24

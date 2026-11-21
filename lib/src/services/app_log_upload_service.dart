@@ -26,6 +26,7 @@ enum AppLogUploadResult {
   notLinked,
   noMachine,
   noLogs,
+  expired,
   rejected,
   failed,
 }
@@ -41,6 +42,7 @@ final class AppLogUploadService extends ChangeNotifier {
     this.uploadInterval = const Duration(hours: 1),
     this.backlogDelay = const Duration(minutes: 1),
     this.requestTimeout = const Duration(seconds: 30),
+    this.sharingWindow = const Duration(days: 7),
     this.softLimitBytes = 700000,
     this.hardLimitBytes = 950000,
     @visibleForTesting this.beforeLogSnapshotValidation,
@@ -49,6 +51,8 @@ final class AppLogUploadService extends ChangeNotifier {
   static const _consentKey = 'appLogUpload';
   static const _cursorKey = 'appLogUpload.cursor';
   static const _lastResultKey = 'appLogUpload.lastResult';
+  static const _enabledAtKey = 'appLogUpload.enabledAt';
+  static const _expiredMessage = 'Sharing ended after 7 days';
   static const _requestLimitBytes = 1000000;
   static const _maxRotatedFiles = 10;
   static const _truncatedLineSuffix = ' [oversized log line truncated]\n';
@@ -71,6 +75,7 @@ final class AppLogUploadService extends ChangeNotifier {
   final Duration uploadInterval;
   final Duration backlogDelay;
   final Duration requestTimeout;
+  final Duration sharingWindow;
   final int softLimitBytes;
   final int hardLimitBytes;
   final Future<void> Function()? beforeLogSnapshotValidation;
@@ -108,13 +113,14 @@ final class AppLogUploadService extends ChangeNotifier {
       } catch (error, stackTrace) {
         _log.warning('Failed to read linked account', error, stackTrace);
       }
-      if (linked) {
-        _schedule(initialDelay);
-      } else {
+      if (!linked) {
         await setEnabled(false);
+      } else if (!await _expireIfWindowEnded()) {
+        _schedule(initialDelay);
       }
-    } else if (_prefs.containsKey(_cursorKey)) {
+    } else {
       await _prefs.remove(_cursorKey);
+      await _prefs.remove(_enabledAtKey);
     }
     _notify();
   }
@@ -132,6 +138,7 @@ final class AppLogUploadService extends ChangeNotifier {
     if (value && _enabled) return;
     if (value) {
       await _consentStore.write(_consentKey, AccountConsentDecision.allowed);
+      await _prefs.setInt(_enabledAtKey, clock.now().millisecondsSinceEpoch);
     }
     _consentGeneration++;
     _enabled = value;
@@ -146,7 +153,23 @@ final class AppLogUploadService extends ChangeNotifier {
     if (!value) {
       await _consentStore.write(_consentKey, AccountConsentDecision.denied);
       await _prefs.remove(_cursorKey);
+      await _prefs.remove(_enabledAtKey);
     }
+  }
+
+  Future<bool> _expireIfWindowEnded() async {
+    final now = clock.now();
+    final enabledAt = _prefs.getInt(_enabledAtKey);
+    if (enabledAt == null) {
+      await _prefs.setInt(_enabledAtKey, now.millisecondsSinceEpoch);
+      return false;
+    }
+    final endsAt = DateTime.fromMillisecondsSinceEpoch(enabledAt)
+        .add(sharingWindow);
+    if (now.isBefore(endsAt)) return false;
+    await setEnabled(false);
+    await _setLastResult(_expiredMessage);
+    return true;
   }
 
   Future<AppLogUploadResult> uploadNow() async {
@@ -191,6 +214,7 @@ final class AppLogUploadService extends ChangeNotifier {
     bool uploadAllowed() => _enabled && consentGeneration == _consentGeneration;
     _morePending = false;
     if (!uploadAllowed()) return AppLogUploadResult.disabled;
+    if (await _expireIfWindowEnded()) return AppLogUploadResult.expired;
     if (!await _accountService.hasLinkedAccount()) {
       await setEnabled(false);
       await _setLastResult('Link a Decent account before uploading logs');

@@ -147,7 +147,10 @@ void main() {
     expect(find.text('Share app logs with Decent Support'), findsOneWidget);
     expect(
       find.text(
-        'Shares the previous 24 hours, then new logs hourly, with this machine serial',
+        'Sends app logs from the previous 24 hours, then hourly, to help us '
+        'fix problems and improve our machines. Includes your machine\'s '
+        'serial number, model, voltage setting, and warm-up times. Sharing '
+        'stops automatically after 7 days.',
       ),
       findsOneWidget,
     );
