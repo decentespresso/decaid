@@ -7,6 +7,49 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
         <title>Decaid</title>
         <item>
             <title>0.9.3</title>
+            <pubDate>Mon, 23 Nov 2026 13:17:21 +0000</pubDate>
+            <sparkle:version>3265</sparkle:version>
+            <sparkle:shortVersionString>0.9.3</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## What's Changed
+* test(firmware): virtualize handler timeout coverage by @tadelv in https://github.com/decentespresso/decaid/pull/1151
+* test(perf): cut repeated setup and real waits in three slow suites by @tadelv in https://github.com/decentespresso/decaid/pull/1157
+* feat(github): let users supply a device GitHub PAT for metadata and feedback by @tadelv in https://github.com/decentespresso/decaid/pull/1158
+* fix(webserver): allow tokenless loopback update checks when automatic updates are on by @tadelv in https://github.com/decentespresso/decaid/pull/1165
+* fix(webserver): return per-item update results instead of a blanket 500 by @tadelv in https://github.com/decentespresso/decaid/pull/1167
+* feat(profiles): bundle 21 default profiles ported from de1app by @allofmeng in https://github.com/decentespresso/decaid/pull/1154
+* fix(ble): prevent firmware write replay after timeouts by @tadelv in https://github.com/decentespresso/decaid/pull/1171
+* fix(onboarding): name Decaid backups in import copy by @tadelv in https://github.com/decentespresso/decaid/pull/1173
+* fix(launcher): prioritize machine discovery while disconnected by @tadelv in https://github.com/decentespresso/decaid/pull/1176
+* fix(ios): restore missing location purpose declaration by @tadelv in https://github.com/decentespresso/decaid/pull/1180
+* fix(security): restore default extension management compatibility by @tadelv in https://github.com/decentespresso/decaid/pull/1193
+* fix(skins): stabilize installed version update contract by @tadelv in https://github.com/decentespresso/decaid/pull/1185
+* refactor(startup): own idempotent readiness above onboarding by @tadelv in https://github.com/decentespresso/decaid/pull/1186
+* fix(android): resume APK installs after permission settings by @ODevStudio in https://github.com/decentespresso/decaid/pull/1174
+* fix(update): open the shared updater from notification View by @ODevStudio in https://github.com/decentespresso/decaid/pull/1181
+* fix: restore API browser and bundled settings compatibility by @tadelv in https://github.com/decentespresso/decaid/pull/1200
+* docs: agent workflow Phase 1 — verification standard and evidence-based PR handoff by @tadelv in https://github.com/decentespresso/decaid/pull/1206
+* fix(skins): use decentespresso/streamline-js as the Streamline source by @tadelv in https://github.com/decentespresso/decaid/pull/1209
+* docs(agents): Phase 2 independent PR review skill by @tadelv in https://github.com/decentespresso/decaid/pull/1210
+* fix(plugins): report standby as not heating within 30 seconds by @allofmeng in https://github.com/decentespresso/decaid/pull/1198
+* fix(settings): clarify PAT scopes and add read-only token test by @ODevStudio in https://github.com/decentespresso/decaid/pull/1182
+* fix(scale): remember serial-less USB HDS preferences by @ODevStudio in https://github.com/decentespresso/decaid/pull/1188
+* fix: prevent duplicate raw notifications and DE1 listener leaks by @ODevStudio in https://github.com/decentespresso/decaid/pull/1169
+* test(data-export): make the stalled import timeout test filesystem-independent by @tadelv in https://github.com/decentespresso/decaid/pull/1213
+* docs: add advisory G5 integration skill and merge-batch process by @tadelv in https://github.com/decentespresso/decaid/pull/1214
+* docs: make G3/G4/G5 reports decision-first by @tadelv in https://github.com/decentespresso/decaid/pull/1220
+* feat: add advisory PR evidence validator by @tadelv in https://github.com/decentespresso/decaid/pull/1221
+* chore(scripts): manage headless Chrome processes for browser probes by @tadelv in https://github.com/decentespresso/decaid/pull/1212
+* fix(update): follow GitHub API redirects for token-bearing requests by @allofmeng in https://github.com/decentespresso/decaid/pull/1219
+
+
+**Full Changelog**: https://github.com/decentespresso/decaid/compare/v0.9.2...v0.9.3
+
+]]></description>
+            <enclosure url="https://github.com/decentespresso/decaid/releases/download/v0.9.3/decaid-macos-0.9.3.zip" length="63872910" type="application/octet-stream" sparkle:edSignature="+ZwdQpUprYyCo+vcIpqnweLEw8KxBH5KcSJMmDvKfxCe4CpHzSNtkYFFwe95FEow8imFAwGqEbqxqaehfuLFBw=="/>
+        </item>
+        <item>
+            <title>0.9.3</title>
             <pubDate>Thu, 19 Nov 2026 07:49:20 +0000</pubDate>
             <sparkle:channel>beta</sparkle:channel>
             <sparkle:version>3244</sparkle:version>
@@ -851,6 +894,6 @@ See `doc/RELEASE.md` for install and verification instructions.
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: UW9PKvaScYIIfjfiqn+rQHJFmZdRJfVWRpoj6St5PPMa+xDj0gVOZ8NZeur4JoJ8R6SeRipgs1Wxa2mqfcQ+AA==
-length: 76745
+edSignature: /uuQAuEnVKr0KOFsU0Ps82P3+e83UVWL7RKPC4r5WYzuh9Cgeko+EgUKNdEJ0mkitFjLBPqKpwEY7ZMWb4nxAQ==
+length: 81327
 -->
