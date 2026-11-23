@@ -8,6 +8,8 @@ import android.net.Uri
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Process
+import android.os.UserManager
 import android.provider.Settings
 import android.util.Log
 import android.webkit.WebView
@@ -34,6 +36,7 @@ class MainActivity: FlutterFragmentActivity() {
 
     companion object {
         private const val MULTICAST_LOCK_TAG = "reaprime-multicast"
+        private const val PER_USER_RANGE = 100000
 
         private var multicastLock: WifiManager.MulticastLock? = null
     }
@@ -85,20 +88,32 @@ class MainActivity: FlutterFragmentActivity() {
 
     /**
      * Detects if app is running in a cloned environment (Parallel Space, Island, etc.)
-     * Normal path: /data/user/0/com.example.app/files
+     * Normal path: /data/user/<current user>/com.example.app/files
      * Cloned path: /data/data/com.ludashi.dualspace/virtual/data/user/0/com.example.app/files
-     * OEM clone: /data/user/999/com.example.app/files
+     * OEM clone: /data/user/999/com.example.app/files (a profile, not a full user)
+     *
+     * The data path is compared with the user the app is actually running as.
+     * Devices in headless system user mode (for example Amazon's Alexa Tablet)
+     * keep user 0 for the system and run every person, including the owner, as
+     * user 10 or higher, so user 0 cannot be assumed.
      */
     private fun isRunningInClonedEnvironment(): Boolean {
-        val normalPath = "/data/user/0/$packageName"
+        val userId = Process.myUid() / PER_USER_RANGE
+        val normalPath = "/data/user/$userId/$packageName"
         val actualPath = filesDir.absolutePath
-        val isCloned = !actualPath.startsWith(normalPath)
-        
-        if (isCloned) {
+        if (!actualPath.startsWith(normalPath)) {
             Log.w(TAG, "Clone detected - expected: $normalPath, actual: $actualPath")
+            return true
         }
-        
-        return isCloned
+        if (userId == 0) {
+            return false
+        }
+        val isProfile = Build.VERSION.SDK_INT < Build.VERSION_CODES.R ||
+            getSystemService(UserManager::class.java).isProfile
+        if (isProfile) {
+            Log.w(TAG, "Clone detected - running in profile or non-primary user $userId")
+        }
+        return isProfile
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
