@@ -970,6 +970,16 @@ Plugin manifests may declare `notifications` for the generic native notification
 contract documented in `Plugins.md`. It adds no REST or WebSocket route and does
 not grant arbitrary native navigation or execution.
 
+A plugin manifest may declare `credentialScope` with the name of an ordinary
+HTTP(S) server URL setting. Changing its normalized URL clears the plugin's secure
+settings before the next load. Replacement credentials may be supplied in the same
+patch; masked `isSet` state cannot preserve an old password across servers. Equivalent
+trailing slashes, host case and default ports preserve the existing credential.
+Returning to an earlier server requires entering its credentials again. Legacy
+credentials without a saved binding migrate only to the manifest's default server;
+a custom server requires entering credentials again. Failed plugin updates restore
+the previous settings and credential binding together.
+
 ### Display
 
 | Method | Path | Description | Handler |
