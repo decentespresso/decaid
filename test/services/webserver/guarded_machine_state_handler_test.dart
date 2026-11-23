@@ -7,6 +7,7 @@ import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
 import 'package:reaprime/src/models/data/shot_state_event.dart';
+import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
 import 'package:reaprime/src/settings/gateway_mode.dart';
@@ -33,6 +34,18 @@ void main() {
     await devices.initialize();
     controller = De1Controller(controller: devices);
     machine = TestDe1(deviceId: 'machine-1');
+    machine.emitShotSettings(
+      De1ShotSettings(
+        steamSetting: 0,
+        targetSteamTemp: 150,
+        targetSteamDuration: 30,
+        targetHotWaterTemp: 75,
+        targetHotWaterVolume: 50,
+        targetHotWaterDuration: 30,
+        targetShotVolume: 36,
+        groupTemp: 94,
+      ),
+    );
     controller.adoptDevice(machine);
     await controller.initSettled.firstWhere((generation) => generation != null);
 
