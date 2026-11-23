@@ -91,12 +91,10 @@ class PluginLoaderService {
     NotificationCenter? notifications,
     DecentProxyService? decentProxyService,
     this._credentialStore,
-    Future<bool> Function(String pluginId, String? scope)?
-    credentialScopeWriter,
+    this._credentialScopeWriter,
     PluginDeviceService? deviceService,
     Stream<void>? decentAccountChanges,
-  }) : _credentialScopeWriter = credentialScopeWriter,
-       pluginManager = PluginManager(
+  }) : pluginManager = PluginManager(
          kvStore: kvStore,
          notifications: notifications,
          decentProxyService: decentProxyService,

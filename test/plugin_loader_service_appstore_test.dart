@@ -424,6 +424,7 @@ function createPlugin() {
       'URL credential scope clears username and password on change',
       () async {
         const id = 'scoped-credentials.reaplugin';
+        await initializeService();
         await service.addPlugin(
           makePluginSource(
             id,
@@ -466,6 +467,7 @@ function createPlugin() {
 
     test('normalized URL changes preserve credentials', () async {
       const id = 'same-scope.reaplugin';
+      await initializeService();
       await service.addPlugin(
         makePluginSource(
           id,
@@ -500,6 +502,7 @@ function createPlugin() {
       'invalid scoped URL fails before changing persisted credentials',
       () async {
         const id = 'invalid-scope.reaplugin';
+        await initializeService();
         await service.addPlugin(
           makePluginSource(
             id,
@@ -545,6 +548,7 @@ function createPlugin() {
       'masked credentials cannot cross scopes but explicit replacements can',
       () async {
         const id = 'scope-replacement.reaplugin';
+        await initializeService();
         await service.addPlugin(
           makePluginSource(
             id,
@@ -591,6 +595,7 @@ function createPlugin() {
 
     test('scope persistence failure leaves rotation fail-closed', () async {
       const id = 'scope-write-failure.reaplugin';
+      await initializeService();
       await service.addPlugin(
         makePluginSource(
           id,
@@ -660,6 +665,7 @@ function createPlugin() {
         'custom scope clears old credentials with binding=$hasBinding',
         () async {
           const id = 'scope-mismatch.reaplugin';
+          await initializeService();
           await service.addPlugin(
             makePluginSource(
               id,
@@ -710,6 +716,7 @@ function createPlugin() {
       'unbound legacy credentials migrate only to the default scope',
       () async {
         const id = 'default-legacy-scope.reaplugin';
+        await initializeService();
         await service.addPlugin(
           makePluginSource(
             id,
@@ -1552,6 +1559,7 @@ function createPlugin(host) {
           'Username': {'type': 'string'},
           'Password': {'type': 'string', 'secure': true},
         };
+        await initializeService();
         await service.addPlugin(
           makePluginSource(
             id,

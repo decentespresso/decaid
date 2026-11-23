@@ -2140,29 +2140,26 @@ void main() {
     expect(response['body'], isNot(contains('secret-value')));
   });
 
-  test(
-    'credential verification never returns a candidate secret from a remote error',
-    () async {
-      final manager = await _loadPlugin(
-        '''
+  test('credential verification never returns a candidate secret from a remote error', () async {
+    final manager = await _loadPlugin(
+      '''
       globalThis.fetch = async () => {
         throw new Error('transport echoed candidate-password Basic Y2FuZGlkYXRlLXVzZXI6Y2FuZGlkYXRlLXBhc3N3b3Jk');
       };
     ''',
-        settings: {'ServerUrl': 'https://verify.example'},
-      );
+      settings: {'ServerUrl': 'https://verify.example'},
+    );
 
-      final response = await _callApi(manager, 'verifyCredentials', {
-        'username': 'candidate-user',
-        'password': 'candidate-password',
-      });
-      expect(response['body'], isNot(contains('candidate-password')));
-      expect(
-        response['body'],
-        isNot(contains('Y2FuZGlkYXRlLXVzZXI6Y2FuZGlkYXRlLXBhc3N3b3Jk')),
-      );
-    },
-  );
+    final response = await _callApi(manager, 'verifyCredentials', {
+      'username': 'candidate-user',
+      'password': 'candidate-password',
+    });
+    expect(response['body'], isNot(contains('candidate-password')));
+    expect(
+      response['body'],
+      isNot(contains('Y2FuZGlkYXRlLXVzZXI6Y2FuZGlkYXRlLXBhc3N3b3Jk')),
+    );
+  });
 
   test('upload errors do not expose an untrusted response body', () async {
     final manager = await _loadPlugin('''
@@ -2194,43 +2191,45 @@ void main() {
     expect(response['body'], isNot(contains('remote echoed shot-secret')));
   });
 
-  test('scopes persisted upload mappings by server across A-B-A reloads', () async {
-    final kvStore = FakeKeyValueStoreService();
-    final shot = _shot();
-    final managerA = await _loadPlugin(
-      _uploadFetchSource(shot),
-      settings: {'ServerUrl': 'https://server-a.example'},
-      kvStore: kvStore,
-    );
-    _startAutoUpload(managerA);
-    await _waitForJs(managerA, 'globalThis.__uploadStamp');
-    await managerA.unloadPlugin(_manifest.id);
+  test(
+    'scopes persisted upload mappings by server across A-B-A reloads',
+    () async {
+      final kvStore = FakeKeyValueStoreService();
+      final shot = _shot();
+      final managerA = await _loadPlugin(
+        _uploadFetchSource(shot),
+        settings: {'ServerUrl': 'https://server-a.example'},
+        kvStore: kvStore,
+      );
+      _startAutoUpload(managerA);
+      await _waitForJs(managerA, 'globalThis.__uploadStamp');
+      await managerA.unloadPlugin(_manifest.id);
 
-    final persistedAfterA =
-        jsonDecode(
-              await kvStore.get(namespace: _manifest.id, key: 'serverState')
-                  as String,
-            )
-            as Map<String, dynamic>;
-    expect(persistedAfterA['https://server-a.example'], isNotNull);
+      final persistedAfterA = jsonDecode(
+        await kvStore.get(namespace: _manifest.id, key: 'serverState')
+            as String,
+      ) as Map<String, dynamic>;
+      expect(persistedAfterA['https://server-a.example'], isNotNull);
 
-    final managerB = await _loadPlugin(
-      'globalThis.fetch = async () => { throw new Error("unexpected B request"); };',
-      settings: {'ServerUrl': 'https://server-b.example'},
-      kvStore: kvStore,
-    );
-    await managerB.unloadPlugin(_manifest.id);
+      final managerB = await _loadPlugin(
+        'globalThis.fetch = async () => { throw new Error("unexpected B request"); };',
+        settings: {'ServerUrl': 'https://server-b.example'},
+        kvStore: kvStore,
+      );
+      await managerB.unloadPlugin(_manifest.id);
 
-    final managerAAgain = await _loadPlugin(
-      'globalThis.fetch = async () => { throw new Error("unexpected A request"); };',
-      settings: {'ServerUrl': 'https://server-a.example'},
-      kvStore: kvStore,
-    );
-    final response = await _callApi(managerAAgain, 'lastUpload', {});
-    final body = jsonDecode(response['body'] as String) as Map<String, dynamic>;
-    expect(body['visId'], 'visualizer-1');
-    expect(body['serverUrl'], 'https://server-a.example');
-  });
+      final managerAAgain = await _loadPlugin(
+        'globalThis.fetch = async () => { throw new Error("unexpected A request"); };',
+        settings: {'ServerUrl': 'https://server-a.example'},
+        kvStore: kvStore,
+      );
+      final response = await _callApi(managerAAgain, 'lastUpload', {});
+      final body =
+          jsonDecode(response['body'] as String) as Map<String, dynamic>;
+      expect(body['visId'], 'visualizer-1');
+      expect(body['serverUrl'], 'https://server-a.example');
+    },
+  );
 
   test('plugin source and manifest versions match', () {
     final sourceVersion = RegExp(r'version:\s*"([^"]+)"')
