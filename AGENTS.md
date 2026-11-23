@@ -162,6 +162,7 @@ New issues automatically receive `needs-triage` as an inbox label, regardless of
 - API usage and runtime scenarios: `.agents/skills/decent-app/SKILL.md` (drive a running instance through REST/WebSocket). A code change that needs runtime verification uses both skills: `decent-dev` for the development loop, `decent-app` for the runtime procedure.
 - Dev-loop gotchas: `.agents/skills/decent-dev/SKILL.md` (gate, formatting policy, worktrees, tablet).
 - API specs: `assets/api/rest_v1.yml`, `assets/api/websocket_v1.yml`.
+- Product direction, or a milestone's stated intent, or one initiative whose route is still unclear: `.agents/skills/decent-direction/SKILL.md` (maintainer-authored milestone descriptions and optional decision maps; maintainers decide, agents recommend).
 - Archived design docs: `doc/plans/archive/` (the *why* behind shipped features).
 - Knowledge graph: `code-review-graph` MCP tools. Use `rg` or direct file reads for exact names, paths, and one-hop lookups. Use the graph for multi-hop impact analysis, callers-of-callers, affected flows, architectural exploration, and test reachability.
 
