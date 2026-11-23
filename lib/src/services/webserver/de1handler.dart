@@ -1019,6 +1019,9 @@ class De1Handler {
             _settingsController.gatewayMode == GatewayMode.full) {
           return _guardedActionRejected('full_gateway');
         }
+        final stoppingActiveShot =
+            requestState == MachineState.idle &&
+            _controller.currentShotState.state != ShotState.idle;
         final accepted = await _controller.requestGuardedMachineState(
           action,
           sourceStillValid: () => _sourceStillValid(action.sourceScale),
@@ -1026,6 +1029,9 @@ class De1Handler {
               _settingsController.gatewayMode != GatewayMode.full,
         );
         if (!accepted) return _guardedActionRejected('stale_precondition');
+        if (stoppingActiveShot) {
+          _controller.recordStopIntent(ShotDecisionReason.apiStop);
+        }
         return jsonOk(null);
       }
       final blockOnNoScale = _settingsController.blockOnNoScale;

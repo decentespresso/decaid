@@ -6,6 +6,7 @@ import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
+import 'package:reaprime/src/models/data/shot_state_event.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
 import 'package:reaprime/src/settings/gateway_mode.dart';
@@ -134,6 +135,39 @@ void main() {
         MachineState.espresso,
         MachineState.idle,
       ]);
+    },
+  );
+
+  test(
+    'attributes an accepted guarded stop of an active shot to the API',
+    () async {
+      machine.emitStateAndSubstate(
+        MachineState.espresso,
+        MachineSubstate.pouring,
+      );
+      controller.publishShotEvent(
+        ShotStateEvent(
+          event: 'state',
+          timestamp: DateTime.now(),
+          shotId: 'shot-1',
+          state: ShotState.pouring,
+          machineState: MachineState.espresso,
+          machineSubstate: MachineSubstate.pouring,
+          profileFrame: 0,
+          scaleConnected: true,
+          scaleLost: false,
+          machineHasAutonomousSAW: false,
+        ),
+      );
+
+      final stop = await request(
+        'idle',
+        guard(expectedState: 'espresso', requireInactiveGhc: false),
+      );
+
+      expect(stop.statusCode, 200);
+      expect(machine.requestedStates, [MachineState.idle]);
+      expect(controller.consumeStopIntent(), ShotDecisionReason.apiStop);
     },
   );
 
