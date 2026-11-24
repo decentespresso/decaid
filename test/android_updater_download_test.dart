@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/android_updater.dart';
 import 'package:reaprime/src/services/github_credentials.dart';
@@ -151,7 +152,10 @@ void main() {
           capturedRequest.headers['accept'],
           'application/vnd.github.v3+json',
         );
-        expect(capturedRequest.headers['user-agent'], 'Decaid');
+        expect(
+          capturedRequest.headers['user-agent'],
+          'Decaid/${BuildInfo.version}',
+        );
         expect(update?.version, '0.7.15');
         expect(update?.downloadUrl, 'https://example.com/0.7.15.apk');
       },
@@ -708,6 +712,84 @@ void main() {
       }
       expect(tmp.listSync().map((entry) => entry.uri), [File(path).uri]);
     });
+
+    test(
+      'sends the versioned user agent without automatic redirects',
+      () async {
+        late http.BaseRequest captured;
+        final updater = AndroidUpdater(
+          owner: 'tadelv',
+          repo: 'reaprime',
+          httpClient: MockClient.streaming((request, body) async {
+            captured = request;
+            return http.StreamedResponse(
+              Stream.fromIterable([
+                [1, 2, 3],
+              ]),
+              200,
+              contentLength: 3,
+            );
+          }),
+        );
+
+        await updater.downloadUpdate(info(), cacheDir: tmp);
+
+        expect(captured.headers['user-agent'], 'Decaid/${BuildInfo.version}');
+        expect(captured.followRedirects, isFalse);
+        expect(captured.headers.containsKey('authorization'), isFalse);
+      },
+    );
+
+    test(
+      'follows a mirror redirect to the artifact with the same user agent',
+      () async {
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        final host = 'http://${server.address.address}:${server.port}';
+        final paths = <String>[];
+        final userAgents = <String?>[];
+        final client = http.Client();
+        addTearDown(() async {
+          client.close();
+          await server.close(force: true);
+        });
+        server.listen((request) {
+          paths.add(request.uri.path);
+          userAgents.add(request.headers.value(HttpHeaders.userAgentHeader));
+          if (request.uri.path == '/app.apk') {
+            request.response.statusCode = HttpStatus.temporaryRedirect;
+            request.response.headers.set(
+              HttpHeaders.locationHeader,
+              '$host/cdn/app.apk',
+            );
+          } else {
+            request.response.add([4, 5, 6]);
+          }
+          request.response.close();
+        });
+        final updater = AndroidUpdater(
+          owner: 'tadelv',
+          repo: 'reaprime',
+          httpClient: client,
+        );
+        final update = UpdateInfo(
+          version: '1.2.3',
+          downloadUrl: '$host/app.apk',
+          releaseNotes: '',
+          isPrerelease: false,
+          tagName: 'v1.2.3',
+        );
+
+        final path = await updater.downloadUpdate(update, cacheDir: tmp);
+
+        expect(path, '${tmp.path}/update_1.2.3.apk');
+        expect(await File(path).readAsBytes(), [4, 5, 6]);
+        expect(paths, ['/app.apk', '/cdn/app.apk']);
+        expect(userAgents, [
+          'Decaid/${BuildInfo.version}',
+          'Decaid/${BuildInfo.version}',
+        ]);
+      },
+    );
 
     test('removes partial data after a response stream error', () async {
       final failure = const HttpException('connection cancelled');

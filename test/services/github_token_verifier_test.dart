@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/services/github_credentials.dart';
 import 'package:reaprime/src/services/github_token_verifier.dart';
 
@@ -43,7 +44,10 @@ void main() {
       expect(requests.single.body, isEmpty);
       expect(requests.single.followRedirects, isFalse);
       expect(requests.single.headers['authorization'], 'Bearer $secret');
-      expect(requests.single.headers['user-agent'], 'Decaid');
+      expect(
+        requests.single.headers['user-agent'],
+        'Decaid/${BuildInfo.version}',
+      );
       expect(result.authenticated, isTrue);
       expect(result.message, contains('Authenticated as decaid-user'));
       expect(result.message, contains('have not been tested'));

@@ -1,6 +1,7 @@
 import 'package:http/http.dart' as http;
 import 'package:reaprime/src/services/github_credentials.dart';
 import 'package:reaprime/src/services/github_rate_limit.dart';
+import 'package:reaprime/src/services/release_request.dart';
 import 'package:reaprime/src/util/remote_error.dart';
 
 class GithubRequestException extends RemoteServiceException {
@@ -61,7 +62,7 @@ Map<String, String> githubRequestHeaders(
 }) {
   final requestHeaders = <String, String>{
     'Accept': 'application/vnd.github.v3+json',
-    'User-Agent': 'Decaid',
+    'User-Agent': releaseUserAgent(),
     ...headers,
   };
   if (_isGithubApiOrigin(uri) && authorization?.authorizationHeader != null) {

@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/plugins/plugin_package.dart';
 import 'package:reaprime/src/plugins/plugin_source.dart';
@@ -255,6 +256,36 @@ function createPlugin() {
         "Couldn't update the plugin. The plugin manifest is invalid. Check the package and try again.",
       );
       expect(loader.getPluginManifest(id)!.version, '1.0.0');
+    });
+
+    test('release ZIP downloads send the versioned user agent', () async {
+      final seen = <http.Request>[];
+      await http.runWithClient(
+        () => service.installFromGitHubRelease('acme/plugin'),
+        () => MockClient((request) async {
+          seen.add(request);
+          final url = request.url.toString();
+          if (url.contains('/releases/latest')) {
+            return http.Response(releaseJson('v1.0.0', ['plugin.zip']), 200);
+          }
+          if (url.startsWith('https://example.test/assets/')) {
+            return http.Response.bytes(pluginArchive(), 200);
+          }
+          return http.Response('not found: $url', 404);
+        }),
+      );
+
+      final asset = seen.singleWhere(
+        (request) =>
+            request.url.toString() == 'https://example.test/assets/plugin.zip',
+      );
+      expect(asset.headers['user-agent'], 'Decaid/${BuildInfo.version}');
+      expect(asset.followRedirects, isFalse);
+      expect(asset.headers.containsKey('authorization'), isFalse);
+      expect(
+        seen.map((request) => request.headers['user-agent']),
+        everyElement('Decaid/${BuildInfo.version}'),
+      );
     });
 
     test('installs from a GitHub release and records provenance', () async {
