@@ -663,14 +663,22 @@ that happens to be connected when a record is read.
 when the shot enters local storage; the extraction `timestamp` is the fallback
 for legacy records that predate the field. Both fields are system-managed: a
 `PUT /api/v1/shots/:id` body containing either is rejected with 400, so
-clients cannot spoof revision metadata. `updatedAt` advances only when shot
-*content* changes: `PUT /api/v1/shots/:id` bumps it iff the merged record
-differs outside the bookkeeping keys. The bookkeeping keys are
+clients cannot spoof revision metadata. The extraction `timestamp` itself is
+recorded data, not an annotation, and is not editable either: a `PUT` body with
+a top-level `timestamp` key is rejected with 400 even when the value is `null`
+or equals the stored one, because a rewrite would reorder every time-sorted
+list and detach the shot from its measurements' clock. A `timestamp` key nested
+inside `annotations.extras` is ordinary annotation data. `updatedAt` advances
+only when shot *content* changes: `PUT /api/v1/shots/:id` bumps it iff the
+merged record differs outside the bookkeeping keys. The bookkeeping keys are
 `uploaded_to_decent`, `decent_upload_rejected`, and `visualizerId` inside
 `annotations.extras` (the reserved scratch space for plugin sync state).
 Writes confined to those keys persist without touching `updatedAt`, so
 consumers can reconcile edits by comparing `updatedAt` against their own sync
-marker without feedback loops.
+marker without feedback loops. Rejection of a non-editable field is atomic for
+the whole request: a body mixing one with valid annotation edits changes no
+annotation, leaves the stored record and `updatedAt` untouched, and emits no
+`shotUpdated` event.
 
 **Clearing the note.** `annotations.espressoNotes: null` (and `annotations: null`,
 which clears every post-shot annotation) persists the cleared note as an empty

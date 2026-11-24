@@ -901,6 +901,117 @@ void main() {
         expect(after['updatedAt'], before['updatedAt']);
       },
     );
+
+    test('PUT rejects every top-level timestamp variant and leaves the shot '
+        'untouched', () async {
+      await persistAnnotatedShot();
+      final before = await decode(await sendGet('/api/v1/shots/annotated'));
+
+      final variants = <String, Object?>{
+        'changed': '2020-01-01T00:00:00',
+        'unchanged': before['timestamp'],
+        'null': null,
+        'malformed': 'not-a-timestamp',
+        'numeric': 1767230000,
+      };
+
+      for (final variant in variants.entries) {
+        final reason = 'timestamp variant=${variant.key}';
+        final response = await sendPut('annotated', {
+          'timestamp': variant.value,
+        });
+        expect(response.statusCode, 400, reason: reason);
+
+        final error = (await decode(response))['error'] as String;
+        expect(error, contains('timestamp'), reason: reason);
+        expect(error, contains('not editable'), reason: reason);
+
+        final after = await decode(await sendGet('/api/v1/shots/annotated'));
+        expect(after, before, reason: reason);
+      }
+    });
+
+    test('PUT rejects a timestamp mixed with valid edits atomically', () async {
+      await persistAnnotatedShot();
+      final events = <Map<String, dynamic>>[];
+      persistence.onShotUpdated = (shot, patch) =>
+          events.add({'id': shot.id, 'shot': shot.toJson(), 'patch': patch});
+      final before = await decode(await sendGet('/api/v1/shots/annotated'));
+
+      final response = await sendPut('annotated', {
+        'timestamp': '2020-01-01T00:00:00',
+        'annotations': {'enjoyment': 8.5, 'espressoNotes': 'must not land'},
+        'shotNotes': 'must not land either',
+        'workflow': {
+          'context': {'grinderSetting': '99.0'},
+        },
+        'stopReason': 'apiStop',
+      });
+
+      expect(response.statusCode, 400);
+      expect((await decode(response))['error'], contains('timestamp'));
+      expect(events, isEmpty);
+
+      final after = await decode(await sendGet('/api/v1/shots/annotated'));
+      expect(after, before);
+      expect(after['updatedAt'], before['updatedAt']);
+      expect(after['annotations'], before['annotations']);
+
+      final stored = await persistence.storageService.getShot('annotated');
+      expect(stored!.toJson(), before);
+    });
+
+    test(
+      'annotation, workflow and legacy alias edits still apply together',
+      () async {
+        await persistAnnotatedShot();
+
+        final (putJson, getJson) = await putAndGet('annotated', {
+          'annotations': {
+            'enjoyment': 7.5,
+            'extras': {'favorite': true},
+          },
+          'shotNotes': 'positive control notes',
+          'workflow': {
+            'context': {'grinderSetting': '14.0'},
+          },
+          'stopReason': 'apiStop',
+        });
+
+        for (final json in [putJson, getJson]) {
+          expect(json['annotations']['enjoyment'], 7.5);
+          expect(json['annotations']['extras']['favorite'], true);
+          expect(
+            json['annotations']['espressoNotes'],
+            'positive control notes',
+          );
+          expect(json['shotNotes'], 'positive control notes');
+          expect(json['workflow']['context']['grinderSetting'], '14.0');
+          expect(json['stopReason'], 'apiStop');
+          expect(json['timestamp'], isNotNull);
+        }
+
+        final after = await decode(await sendGet('/api/v1/shots/annotated'));
+        expect(after['timestamp'], isNotNull);
+      },
+    );
+
+    test(
+      'a timestamp key nested in extras is an ordinary annotation',
+      () async {
+        await persistAnnotatedShot();
+
+        final (putJson, getJson) = await putAndGet('annotated', {
+          'annotations': {
+            'extras': {'timestamp': 1767230000},
+          },
+        });
+
+        for (final json in [putJson, getJson]) {
+          expect(json['annotations']['extras']['timestamp'], 1767230000);
+        }
+      },
+    );
   });
 }
 
