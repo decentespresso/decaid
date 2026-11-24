@@ -1,12 +1,17 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
+
+import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/connection_error.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/scan_state_guardian.dart';
 import 'package:reaprime/src/device_discovery_feature/scan_flow_view.dart';
+import 'package:reaprime/src/models/adapter_state.dart';
 import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
+import 'package:reaprime/src/models/scan_report.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
@@ -29,6 +34,42 @@ class _TrackingDeviceController extends DeviceController {
     stopScanCalls++;
     super.stopScan();
   }
+}
+
+const skipLabel = 'Skip device setup';
+const skipHelp = 'You can connect your machine later from the dashboard.';
+
+class _UnsupportedPeripheral implements Device {
+  @override
+  String get deviceId => 'peripheral-1';
+
+  @override
+  String get name => 'Kitchen Lamp';
+
+  @override
+  DeviceType get type => DeviceType.sensor;
+
+  @override
+  DeviceImplementation get implementation => DeviceImplementation.debugPort;
+
+  @override
+  TransportType get transportType => TransportType.ble;
+
+  @override
+  Stream<ConnectionState> get connectionState => const Stream.empty();
+
+  @override
+  Future<void> onConnect() async {}
+
+  @override
+  Future<void> disconnect() async {}
+}
+
+Future<void> flushDiscovery(WidgetTester tester) async {
+  await tester.runAsync(
+    () => Future<void>.delayed(const Duration(milliseconds: 5)),
+  );
+  await tester.pump(const Duration(milliseconds: 20));
 }
 
 void main() {
@@ -64,18 +105,33 @@ void main() {
     VoidCallback? initialConnectionIntent,
     VoidCallback? onExit,
     VoidCallback? onConnected,
-    String exitLabel = 'Dashboard',
+    String exitLabel = 'Continue to Dashboard',
+    String? exitHelp,
+    bool directConnect = false,
+    double textScale = 1.0,
   }) {
+    final view = ScanFlowView(
+      connectionManager: mockCm,
+      deviceController: deviceController,
+      settingsController: settingsController,
+      scanStateGuardian: scanStateGuardian,
+      directConnect: directConnect,
+      initialConnectionIntent: initialConnectionIntent,
+      onConnected: onConnected ?? () {},
+      onExit: onExit ?? () {},
+      exitLabel: exitLabel,
+      exitHelp: exitHelp,
+    );
+    if (textScale == 1.0) return ShadApp(home: view);
     return ShadApp(
-      home: ScanFlowView(
-        connectionManager: mockCm,
-        deviceController: deviceController,
-        settingsController: settingsController,
-        scanStateGuardian: scanStateGuardian,
-        initialConnectionIntent: initialConnectionIntent,
-        onConnected: onConnected ?? () {},
-        onExit: onExit ?? () {},
-        exitLabel: exitLabel,
+      home: Builder(
+        builder: (context) {
+          final media = MediaQuery.of(context);
+          return MediaQuery(
+            data: media.copyWith(textScaler: TextScaler.linear(textScale)),
+            child: view,
+          );
+        },
       ),
     );
   }
@@ -138,7 +194,7 @@ void main() {
       );
       await tester.pumpWidget(buildView(onConnected: () => connections++));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Dashboard'));
+      await tester.tap(find.text('Continue to Dashboard'));
       mockCm.emitStatus(const ConnectionStatus(phase: ConnectionPhase.ready));
       await tester.pump();
       expect(connections, 0);
@@ -623,10 +679,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Retry'), findsOneWidget);
-      expect(find.text('Dashboard'), findsOneWidget);
+      expect(find.text('Continue to Dashboard'), findsOneWidget);
       expect(find.text('View found devices'), findsNothing);
 
-      await tester.tap(find.text('Dashboard'));
+      await tester.tap(find.text('Continue to Dashboard'));
       await tester.pump();
       expect(exited, isTrue);
     });
@@ -844,6 +900,886 @@ void main() {
       await tester.pump();
 
       expect(mockCm.scanAndConnectCallCount, greaterThan(callsBefore));
+    });
+  });
+
+  group('live discovery during scanning', () {
+    testWidgets('shows the role and name of a recognized machine', (
+      tester,
+    ) async {
+      discovery.addDevice(FakeDe1(deviceId: 'm1', name: 'DE1-Cafe'));
+      await tester.pumpWidget(buildView());
+      await tester.pump();
+      await flushDiscovery(tester);
+
+      expect(find.text('Machine'), findsOneWidget);
+      expect(find.text('DE1-Cafe'), findsOneWidget);
+      expect(find.text('Found 1 device. Still scanning...'), findsOneWidget);
+      expect(find.byType(ShadProgress), findsOneWidget);
+    });
+
+    testWidgets('shows machine and scale roles when both are found', (
+      tester,
+    ) async {
+      discovery.addDevice(FakeDe1(deviceId: 'm1', name: 'DE1-Cafe'));
+      discovery.addDevice(TestScale(deviceId: 's1', name: 'Decent Scale Cafe'));
+      await tester.pumpWidget(buildView());
+      await tester.pump();
+      await flushDiscovery(tester);
+
+      expect(find.text('Machine'), findsOneWidget);
+      expect(find.text('Scale'), findsOneWidget);
+      expect(find.text('DE1-Cafe'), findsOneWidget);
+      expect(find.text('Decent Scale Cafe'), findsOneWidget);
+    });
+
+    testWidgets('keeps searching copy when nothing is recognized', (
+      tester,
+    ) async {
+      await tester.pumpWidget(buildView());
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(
+        find.text('Scanning for your Decent machine and scale...'),
+        findsOneWidget,
+      );
+      expect(find.text('Machine'), findsNothing);
+      expect(find.text('Scale'), findsNothing);
+    });
+
+    testWidgets('deduplicates repeats of the same device id', (tester) async {
+      final machine = FakeDe1(deviceId: 'm1', name: 'DE1-Cafe');
+      discovery.addDevice(machine);
+      discovery.addDevice(machine);
+      await tester.pumpWidget(buildView());
+      await tester.pump();
+      await flushDiscovery(tester);
+
+      expect(find.text('DE1-Cafe'), findsOneWidget);
+    });
+
+    testWidgets('counts each unique recognized device once in the copy', (
+      tester,
+    ) async {
+      final machine = FakeDe1(deviceId: 'm1', name: 'DE1-Cafe');
+      discovery.addDevice(machine);
+      discovery.addDevice(machine);
+      discovery.addDevice(TestScale(deviceId: 's1', name: 'Decent Scale'));
+      await tester.pumpWidget(buildView());
+      await tester.pump();
+      await flushDiscovery(tester);
+
+      expect(find.text('Found 2 devices. Still scanning...'), findsOneWidget);
+      expect(find.text('DE1-Cafe'), findsOneWidget);
+      expect(find.text('Decent Scale'), findsOneWidget);
+    });
+
+    testWidgets('keeps searching when only unsupported peripherals appear', (
+      tester,
+    ) async {
+      discovery.addDevice(_UnsupportedPeripheral());
+      await tester.pumpWidget(buildView());
+      await tester.pump();
+      await flushDiscovery(tester);
+
+      expect(find.text('Kitchen Lamp'), findsNothing);
+      expect(find.text('Machine'), findsNothing);
+      expect(find.text('Scale'), findsNothing);
+      expect(
+        find.text('Scanning for your Decent machine and scale...'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('keeps distinct devices that share a display name', (
+      tester,
+    ) async {
+      discovery.addDevice(FakeDe1(deviceId: 'm1', name: 'DE1'));
+      discovery.addDevice(FakeDe1(deviceId: 'm2', name: 'DE1'));
+      await tester.pumpWidget(buildView());
+      await tester.pump();
+      await flushDiscovery(tester);
+
+      expect(find.text('DE1'), findsNWidgets(2));
+    });
+
+    testWidgets('reflects a renamed device that keeps its id', (tester) async {
+      discovery.addDevice(FakeDe1(deviceId: 'm1', name: 'DE1-Old'));
+      await tester.pumpWidget(buildView());
+      await tester.pump();
+      await flushDiscovery(tester);
+      expect(find.text('DE1-Old'), findsOneWidget);
+
+      discovery.removeDevice('m1');
+      discovery.addDevice(FakeDe1(deviceId: 'm1', name: 'DE1-New'));
+      await flushDiscovery(tester);
+
+      expect(find.text('DE1-Old'), findsNothing);
+      expect(find.text('DE1-New'), findsOneWidget);
+    });
+
+    testWidgets('keeps devices with empty ids distinct', (tester) async {
+      discovery.addDevice(FakeDe1(deviceId: '', name: 'DE1-Alpha'));
+      discovery.addDevice(FakeDe1(deviceId: '', name: 'DE1-Beta'));
+      await tester.pumpWidget(buildView());
+      await tester.pump();
+      await flushDiscovery(tester);
+
+      expect(find.text('DE1-Alpha'), findsOneWidget);
+      expect(find.text('DE1-Beta'), findsOneWidget);
+    });
+
+    testWidgets('falls back to role names for missing display names', (
+      tester,
+    ) async {
+      discovery.addDevice(FakeDe1(deviceId: 'm1', name: ''));
+      discovery.addDevice(TestScale(deviceId: 's1', name: '   '));
+      await tester.pumpWidget(buildView());
+      await tester.pump();
+      await flushDiscovery(tester);
+
+      expect(find.text('Decent machine'), findsOneWidget);
+      expect(find.text('Decent scale'), findsOneWidget);
+    });
+
+    testWidgets('trims padded display names', (tester) async {
+      discovery.addDevice(FakeDe1(deviceId: 'm1', name: '  DE1-Cafe  '));
+      await tester.pumpWidget(buildView());
+      await tester.pump();
+      await flushDiscovery(tester);
+
+      expect(find.text('DE1-Cafe'), findsOneWidget);
+    });
+
+    testWidgets('renders long display names without failing', (tester) async {
+      final longName = 'DE1 ${'X' * 120}';
+      discovery.addDevice(FakeDe1(deviceId: 'm1', name: longName));
+      await tester.pumpWidget(buildView());
+      await tester.pump();
+      await flushDiscovery(tester);
+
+      expect(find.text(longName), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('tracks additions and removals from the device stream', (
+      tester,
+    ) async {
+      discovery.addDevice(FakeDe1(deviceId: 'm1', name: 'DE1-Cafe'));
+      await tester.pumpWidget(buildView());
+      await tester.pump();
+      await flushDiscovery(tester);
+      expect(find.text('DE1-Cafe'), findsOneWidget);
+
+      discovery.removeDevice('m1');
+      await flushDiscovery(tester);
+      expect(find.text('DE1-Cafe'), findsNothing);
+      expect(find.text('Machine'), findsNothing);
+
+      discovery.addDevice(TestScale(deviceId: 's1', name: 'Decent Scale'));
+      await flushDiscovery(tester);
+      expect(find.text('Decent Scale'), findsOneWidget);
+      expect(find.text('Scale'), findsOneWidget);
+    });
+
+    testWidgets('hides the live list outside the scanning phase', (
+      tester,
+    ) async {
+      final machine = FakeDe1(deviceId: 'm1', name: 'DE1-Cafe');
+      discovery.addDevice(machine);
+      await tester.pumpWidget(
+        buildView(initialConnectionIntent: () => mockCm.scanAndConnect()),
+      );
+      await tester.pump();
+      await flushDiscovery(tester);
+      expect(find.text('DE1-Cafe'), findsOneWidget);
+
+      mockCm.emitStatus(
+        ConnectionStatus(
+          phase: ConnectionPhase.idle,
+          pendingAmbiguity: AmbiguityReason.machinePicker,
+          foundMachines: [machine],
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Machine'), findsNothing);
+      expect(find.text('Machines'), findsOneWidget);
+      expect(find.text('DE1-Cafe'), findsOneWidget);
+    });
+
+    testWidgets('makes no connection calls while scanning', (tester) async {
+      final first = FakeDe1(deviceId: 'm1', name: 'DE1-One');
+      final second = FakeDe1(deviceId: 'm2', name: 'DE1-Two');
+      discovery.addDevice(first);
+      discovery.addDevice(second);
+      discovery.addDevice(TestScale(deviceId: 's1', name: 'Decent Scale'));
+      await settingsController.setPreferredMachineId('m1');
+      await tester.pumpWidget(
+        buildView(initialConnectionIntent: () => mockCm.scanAndConnect()),
+      );
+      await tester.pump();
+      await flushDiscovery(tester);
+      final scansBefore = mockCm.scanAndConnectCallCount;
+
+      await tester.tap(find.text('DE1-One'));
+      await tester.pump();
+      await tester.tap(find.text('Machine'));
+      await tester.pump();
+      await tester.tap(find.text('Decent Scale'));
+      await tester.pump();
+
+      expect(mockCm.selectMachineCallCount, 0);
+      expect(mockCm.selectScaleCallCount, 0);
+      expect(mockCm.connectMachineCallCount, 0);
+      expect(mockCm.scanAndConnectCallCount, scansBefore);
+    });
+
+    testWidgets('announces discovery rows by role and name', (tester) async {
+      final handle = tester.ensureSemantics();
+      try {
+        discovery.addDevice(FakeDe1(deviceId: 'm1', name: 'DE1-Cafe'));
+        discovery.addDevice(TestScale(deviceId: 's1', name: 'Decent Scale'));
+        await tester.pumpWidget(buildView());
+        await tester.pump();
+        await flushDiscovery(tester);
+
+        expect(find.bySemanticsLabel('Machine DE1-Cafe'), findsOneWidget);
+        expect(find.bySemanticsLabel('Scale Decent Scale'), findsOneWidget);
+        expect(find.bySemanticsLabel('Scanning for devices'), findsOneWidget);
+      } finally {
+        handle.dispose();
+      }
+    });
+
+    testWidgets('keeps a single live-region announcement while scanning', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      try {
+        discovery.addDevice(FakeDe1(deviceId: 'm1', name: 'DE1-One'));
+        discovery.addDevice(FakeDe1(deviceId: 'm2', name: 'DE1-Two'));
+        discovery.addDevice(TestScale(deviceId: 's1', name: 'Decent Scale'));
+        await tester.pumpWidget(buildView());
+        await tester.pump();
+        await flushDiscovery(tester);
+
+        final liveRegions = find.byWidgetPredicate(
+          (widget) =>
+              widget is Semantics && widget.properties.liveRegion == true,
+        );
+        expect(liveRegions, findsOneWidget);
+      } finally {
+        handle.dispose();
+      }
+    });
+  });
+
+  group('live discovery layout', () {
+    testWidgets('does not overflow a small tablet viewport', (tester) async {
+      tester.view.physicalSize = const Size(1024, 600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      for (var i = 0; i < 6; i++) {
+        discovery.addDevice(
+          FakeDe1(deviceId: 'm$i', name: 'DE1 machine number $i'),
+        );
+      }
+      for (var i = 0; i < 3; i++) {
+        discovery.addDevice(
+          TestScale(deviceId: 's$i', name: 'Decent scale number $i'),
+        );
+      }
+      await tester.pumpWidget(
+        buildView(exitLabel: skipLabel, exitHelp: skipHelp, textScale: 1.5),
+      );
+      await tester.pump();
+      await flushDiscovery(tester);
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Machine'), findsOneWidget);
+      expect(find.text(skipLabel), findsOneWidget);
+      expect(find.text(skipHelp), findsOneWidget);
+    });
+
+    testWidgets('does not overflow a small phone viewport at large text', (
+      tester,
+    ) async {
+      var exits = 0;
+      tester.view.physicalSize = const Size(360, 640);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      for (var i = 0; i < 6; i++) {
+        discovery.addDevice(
+          FakeDe1(deviceId: 'm$i', name: 'DE1 machine number $i'),
+        );
+      }
+      for (var i = 0; i < 3; i++) {
+        discovery.addDevice(
+          TestScale(deviceId: 's$i', name: 'Decent scale number $i'),
+        );
+      }
+      await tester.pumpWidget(
+        buildView(
+          exitLabel: skipLabel,
+          exitHelp: skipHelp,
+          textScale: 2.0,
+          onExit: () => exits++,
+        ),
+      );
+      await tester.pump();
+      await flushDiscovery(tester);
+
+      expect(tester.takeException(), isNull);
+      expect(find.text(skipLabel), findsOneWidget);
+      expect(find.text(skipHelp), findsOneWidget);
+
+      await tester.tap(find.text(skipLabel));
+      await tester.pump();
+
+      expect(exits, 1);
+      expect(mockCm.cancelActiveScanCallCount, 1);
+    });
+  });
+
+  group('exit label and help seam', () {
+    testWidgets('launcher configuration keeps Cancel without onboarding help', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        buildView(
+          exitLabel: 'Cancel',
+          initialConnectionIntent: () => mockCm.scanAndConnect(),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Cancel'), findsOneWidget);
+      expect(find.text(skipLabel), findsNothing);
+      expect(find.textContaining('connect your machine later'), findsNothing);
+    });
+
+    testWidgets('onboarding configuration shows skip label and help copy', (
+      tester,
+    ) async {
+      var exits = 0;
+      await tester.pumpWidget(
+        buildView(
+          exitLabel: skipLabel,
+          exitHelp: skipHelp,
+          onExit: () => exits++,
+          initialConnectionIntent: () => mockCm.scanAndConnect(),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text(skipLabel), findsOneWidget);
+      expect(find.text(skipHelp), findsOneWidget);
+
+      await tester.tap(find.text(skipLabel));
+      await tester.pump();
+
+      expect(exits, 1);
+      expect(mockCm.cancelActiveScanCallCount, 1);
+      expect(deviceController.stopScanCalls, 1);
+    });
+
+    testWidgets('connecting view keeps the skip label and help copy', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        buildView(
+          exitLabel: skipLabel,
+          exitHelp: skipHelp,
+          initialConnectionIntent: () => mockCm.scanAndConnect(),
+        ),
+      );
+      await tester.pump();
+      mockCm.emitStatus(
+        const ConnectionStatus(phase: ConnectionPhase.connectingMachine),
+      );
+      await tester.pump();
+
+      expect(find.text('Connecting to your machine...'), findsOneWidget);
+      expect(find.text(skipLabel), findsOneWidget);
+      expect(find.text(skipHelp), findsOneWidget);
+    });
+
+    testWidgets('default label remains a dashboard continue action', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        buildView(initialConnectionIntent: () => mockCm.scanAndConnect()),
+      );
+      await tester.pump();
+
+      expect(find.text('Continue to Dashboard'), findsOneWidget);
+      expect(find.textContaining('connect your machine later'), findsNothing);
+    });
+
+    testWidgets('progress uses the theme primary treatment', (tester) async {
+      await tester.pumpWidget(
+        buildView(
+          exitLabel: skipLabel,
+          exitHelp: skipHelp,
+          initialConnectionIntent: () => mockCm.scanAndConnect(),
+        ),
+      );
+      await tester.pump();
+
+      final progress = tester.widget<ShadProgress>(find.byType(ShadProgress));
+      expect(progress.color, isNull);
+      final exitButton = tester.widget<ShadButton>(
+        find.widgetWithText(ShadButton, skipLabel),
+      );
+      expect(
+        exitButton.variant,
+        anyOf(ShadButtonVariant.secondary, ShadButtonVariant.outline),
+      );
+    });
+
+    testWidgets('picker connection action stays visually primary', (
+      tester,
+    ) async {
+      mockCm.emitStatus(
+        ConnectionStatus(
+          phase: ConnectionPhase.idle,
+          pendingAmbiguity: AmbiguityReason.machinePicker,
+          foundMachines: [FakeDe1(deviceId: 'm1', name: 'DE1 #1')],
+        ),
+      );
+      await tester.pumpWidget(
+        buildView(
+          exitLabel: skipLabel,
+          exitHelp: skipHelp,
+          initialConnectionIntent: () => mockCm.scanAndConnect(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('DE1 #1'));
+      await tester.pump();
+
+      final connectButton = tester.widget<ShadButton>(
+        find.widgetWithText(ShadButton, 'Connect'),
+      );
+      expect(connectButton.variant, ShadButtonVariant.primary);
+      expect(find.text(skipLabel), findsOneWidget);
+      expect(find.text(skipHelp), findsNothing);
+    });
+  });
+
+  group('skip availability in every state', () {
+    ConnectionError connectError() => ConnectionError(
+      kind: ConnectionErrorKind.machineConnectFailed,
+      severity: ConnectionErrorSeverity.error,
+      timestamp: DateTime.utc(2026),
+      message: 'Machine My DE1 failed to connect.',
+    );
+
+    testWidgets('picker keeps skip available while connecting', (tester) async {
+      var exits = 0;
+      mockCm.emitStatus(
+        ConnectionStatus(
+          phase: ConnectionPhase.connectingMachine,
+          pendingAmbiguity: AmbiguityReason.machinePicker,
+          foundMachines: [FakeDe1(deviceId: 'm1', name: 'DE1 #1')],
+        ),
+      );
+      await tester.pumpWidget(
+        buildView(
+          exitLabel: skipLabel,
+          exitHelp: skipHelp,
+          onExit: () => exits++,
+          initialConnectionIntent: () => mockCm.scanAndConnect(),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text(skipLabel), findsOneWidget);
+      await tester.tap(find.text(skipLabel));
+      await tester.pump();
+
+      expect(exits, 1);
+      expect(mockCm.cancelActiveScanCallCount, 1);
+      expect(deviceController.stopScanCalls, 1);
+    });
+
+    testWidgets('error view keeps skip available', (tester) async {
+      var exits = 0;
+      mockCm.emitStatus(
+        ConnectionStatus(phase: ConnectionPhase.idle, error: connectError()),
+      );
+      await tester.pumpWidget(
+        buildView(
+          exitLabel: skipLabel,
+          exitHelp: skipHelp,
+          onExit: () => exits++,
+          initialConnectionIntent: () => mockCm.scanAndConnect(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Connection Error'), findsOneWidget);
+      await tester.tap(find.text(skipLabel));
+      await tester.pump();
+
+      expect(exits, 1);
+      expect(mockCm.cancelActiveScanCallCount, 1);
+    });
+
+    testWidgets('bluetooth unavailable view offers a usable skip', (
+      tester,
+    ) async {
+      var exits = 0;
+      final condition = TransportCondition(
+        transportType: TransportType.ble,
+        affectedDeviceTypes: const {DeviceType.machine, DeviceType.scale},
+        connectionError: ConnectionError(
+          kind: ConnectionErrorKind.adapterOff,
+          severity: ConnectionErrorSeverity.error,
+          timestamp: DateTime.utc(2026),
+          message: 'Bluetooth is turned off.',
+        ),
+      );
+      mockCm.emitStatus(
+        ConnectionStatus(
+          pendingAmbiguity: AmbiguityReason.machinePicker,
+          foundMachines: [
+            FakeDe1(
+              deviceId: 'ble-machine',
+              name: 'BLE Machine',
+              transportType: TransportType.ble,
+            ),
+          ],
+          error: condition.connectionError,
+          conditions: [condition],
+        ),
+      );
+      await tester.pumpWidget(
+        buildView(
+          exitLabel: skipLabel,
+          exitHelp: skipHelp,
+          onExit: () => exits++,
+          initialConnectionIntent: () => mockCm.scanAndConnect(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Bluetooth Unavailable'), findsOneWidget);
+      await tester.tap(find.text(skipLabel));
+      await tester.pump();
+
+      expect(exits, 1);
+      expect(mockCm.cancelActiveScanCallCount, 1);
+    });
+
+    testWidgets('serial picker with a Bluetooth notice keeps skip available', (
+      tester,
+    ) async {
+      var exits = 0;
+      final serialMachine = FakeDe1(
+        deviceId: 'usb-machine',
+        name: 'USB Machine',
+        transportType: TransportType.serial,
+      );
+      final condition = TransportCondition(
+        transportType: TransportType.ble,
+        affectedDeviceTypes: const {DeviceType.machine, DeviceType.scale},
+        connectionError: ConnectionError(
+          kind: ConnectionErrorKind.adapterOff,
+          severity: ConnectionErrorSeverity.error,
+          timestamp: DateTime.utc(2026),
+          message: 'Bluetooth is turned off.',
+        ),
+      );
+      mockCm.emitStatus(
+        ConnectionStatus(
+          pendingAmbiguity: AmbiguityReason.machinePicker,
+          foundMachines: [serialMachine],
+          error: condition.connectionError,
+          conditions: [condition],
+        ),
+      );
+      await tester.pumpWidget(
+        buildView(
+          exitLabel: skipLabel,
+          exitHelp: skipHelp,
+          onExit: () => exits++,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('USB Machine'), findsOneWidget);
+      expect(
+        find.text('Bluetooth is unavailable. USB devices remain available.'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text(skipLabel));
+      await tester.pump();
+
+      expect(exits, 1);
+      expect(mockCm.cancelActiveScanCallCount, 1);
+    });
+
+    testWidgets('preferred machine not found keeps skip available', (
+      tester,
+    ) async {
+      await settingsController.setPreferredMachineId('missing-machine');
+      mockCm.emitStatus(
+        ConnectionStatus(
+          phase: ConnectionPhase.idle,
+          pendingAmbiguity: AmbiguityReason.machinePicker,
+          foundMachines: [FakeDe1(deviceId: 'other', name: 'DE1 Other')],
+        ),
+      );
+      await tester.pumpWidget(
+        buildView(exitLabel: skipLabel, exitHelp: skipHelp),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(
+          "Your preferred machine wasn't found, but we discovered these:",
+        ),
+        findsOneWidget,
+      );
+      expect(find.text(skipLabel), findsOneWidget);
+    });
+
+    testWidgets('no-devices view without a report offers a usable skip', (
+      tester,
+    ) async {
+      var exits = 0;
+      mockCm.emitStatus(const ConnectionStatus(phase: ConnectionPhase.idle));
+      await tester.pumpWidget(
+        buildView(
+          exitLabel: skipLabel,
+          exitHelp: skipHelp,
+          onExit: () => exits++,
+          initialConnectionIntent: () => mockCm.scanAndConnect(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Scan Again'), findsOneWidget);
+      await tester.tap(find.text(skipLabel));
+      await tester.pump();
+
+      expect(exits, 1);
+      expect(mockCm.cancelActiveScanCallCount, 1);
+    });
+
+    testWidgets('scan summary uses the supplied skip label', (tester) async {
+      var exits = 0;
+      mockCm.setLastScanReport(
+        const ScanReport(
+          totalBleDevicesSeen: 0,
+          matchedDevices: [],
+          scanDuration: Duration(seconds: 5),
+          adapterStateAtStart: AdapterState.poweredOn,
+          adapterStateAtEnd: AdapterState.poweredOn,
+          scanTerminationReason: ScanTerminationReason.completed,
+        ),
+      );
+      mockCm.emitStatus(const ConnectionStatus(phase: ConnectionPhase.idle));
+      await tester.pumpWidget(
+        buildView(
+          exitLabel: skipLabel,
+          exitHelp: skipHelp,
+          onExit: () => exits++,
+          initialConnectionIntent: () => mockCm.scanAndConnect(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('No Bluetooth Devices Found'), findsOneWidget);
+      expect(find.text(skipLabel), findsOneWidget);
+      expect(find.text('Continue to Dashboard'), findsNothing);
+      await tester.tap(find.text(skipLabel));
+      await tester.pump();
+
+      expect(exits, 1);
+      expect(mockCm.cancelActiveScanCallCount, 1);
+    });
+
+    testWidgets('taking-too-long sheet uses the supplied skip label', (
+      tester,
+    ) async {
+      var exits = 0;
+      await tester.pumpWidget(
+        buildView(
+          exitLabel: skipLabel,
+          exitHelp: skipHelp,
+          onExit: () => exits++,
+          initialConnectionIntent: () => mockCm.scanAndConnect(),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(ScanFlowView.scanTooLongThreshold);
+      await tester.pump(const Duration(milliseconds: 500));
+
+      await tester.tap(find.text('This is taking a while...'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(find.widgetWithText(ListTile, skipLabel), findsOneWidget);
+      expect(
+        find.widgetWithText(ListTile, 'Continue to Dashboard'),
+        findsNothing,
+      );
+      await tester.tap(find.widgetWithText(ListTile, skipLabel));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(exits, 1);
+      expect(mockCm.cancelActiveScanCallCount, 1);
+    });
+  });
+
+  group('skip cancellation guards', () {
+    testWidgets(
+      'skip while connecting ignores late ready and guardian events',
+      (tester) async {
+        var connections = 0;
+        var exits = 0;
+        await tester.pumpWidget(
+          buildView(
+            exitLabel: skipLabel,
+            exitHelp: skipHelp,
+            onConnected: () => connections++,
+            onExit: () => exits++,
+          ),
+        );
+        await tester.pump();
+        mockCm.emitStatus(
+          const ConnectionStatus(phase: ConnectionPhase.connectingMachine),
+        );
+        await tester.pump();
+
+        await tester.tap(find.text(skipLabel));
+        await tester.pump();
+        expect(exits, 1);
+        expect(mockCm.cancelActiveScanCallCount, 1);
+
+        await tester.tap(find.text(skipLabel));
+        await tester.pump();
+        expect(exits, 1);
+
+        mockCm.emitStatus(const ConnectionStatus(phase: ConnectionPhase.ready));
+        scanStateGuardian.onAppResumed();
+        await tester.pump(
+          ScanFlowView.scanTooLongThreshold + const Duration(seconds: 1),
+        );
+
+        expect(connections, 0);
+        expect(mockCm.scanAndConnectCallCount, 0);
+        expect(mockCm.cancelActiveScanCallCount, 1);
+        expect(deviceController.stopScanCalls, 1);
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets('skip from the picker ignores late ready', (tester) async {
+      var connections = 0;
+      var exits = 0;
+      mockCm.emitStatus(
+        ConnectionStatus(
+          phase: ConnectionPhase.idle,
+          pendingAmbiguity: AmbiguityReason.machinePicker,
+          foundMachines: [FakeDe1(deviceId: 'm1', name: 'DE1 #1')],
+        ),
+      );
+      await tester.pumpWidget(
+        buildView(
+          exitLabel: skipLabel,
+          exitHelp: skipHelp,
+          onConnected: () => connections++,
+          onExit: () => exits++,
+          initialConnectionIntent: () => mockCm.scanAndConnect(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text(skipLabel));
+      await tester.pump();
+      expect(exits, 1);
+
+      mockCm.emitStatus(const ConnectionStatus(phase: ConnectionPhase.ready));
+      await tester.pump();
+
+      expect(connections, 0);
+      expect(mockCm.cancelActiveScanCallCount, 1);
+      expect(mockCm.selectMachineCallCount, 0);
+    });
+  });
+
+  group('successful connection', () {
+    testWidgets('advances once after a picker selection without another scan', (
+      tester,
+    ) async {
+      var connections = 0;
+      mockCm.emitStatus(
+        ConnectionStatus(
+          phase: ConnectionPhase.idle,
+          pendingAmbiguity: AmbiguityReason.machinePicker,
+          foundMachines: [FakeDe1(deviceId: 'm1', name: 'DE1 #1')],
+        ),
+      );
+      await tester.pumpWidget(
+        buildView(
+          onConnected: () => connections++,
+          initialConnectionIntent: () => mockCm.scanAndConnect(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('DE1 #1'));
+      await tester.pump();
+      await tester.tap(find.text('Connect'));
+      await tester.pump();
+      expect(mockCm.selectMachineCallCount, 1);
+      final scans = mockCm.scanAndConnectCallCount;
+
+      mockCm.emitStatus(const ConnectionStatus(phase: ConnectionPhase.ready));
+      await tester.pump();
+      mockCm.emitStatus(const ConnectionStatus(phase: ConnectionPhase.ready));
+      await tester.pump();
+
+      expect(connections, 1);
+      expect(mockCm.scanAndConnectCallCount, scans);
+      expect(mockCm.cancelActiveScanCallCount, 0);
+      expect(deviceController.stopScanCalls, 0);
+    });
+  });
+
+  group('direct connect policy', () {
+    testWidgets('auto-selects the discovered machine through the manager', (
+      tester,
+    ) async {
+      final machine = FakeDe1(deviceId: 'm1', name: 'DE1-Cafe');
+      discovery.addDevice(machine);
+      await tester.pumpWidget(
+        buildView(
+          directConnect: true,
+          initialConnectionIntent: () => mockCm.scanAndConnect(),
+        ),
+      );
+      await tester.pump();
+      await flushDiscovery(tester);
+
+      mockCm.emitStatus(
+        ConnectionStatus(
+          phase: ConnectionPhase.idle,
+          pendingAmbiguity: AmbiguityReason.machinePicker,
+          foundMachines: [machine],
+        ),
+      );
+      await tester.pump();
+
+      expect(mockCm.selectMachineCallCount, 1);
     });
   });
 }

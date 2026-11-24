@@ -29,18 +29,29 @@ Widget _buildWidget(
   VoidCallback? onExportLogs,
   VoidCallback? onContinueToDashboard,
   VoidCallback? onTryDemoMode,
+  String? exitLabel,
 }) {
   return ShadApp(
     home: Scaffold(
       body: SingleChildScrollView(
-        child: ScanResultsSummary(
-          report: report,
-          onScanAgain: onScanAgain ?? () {},
-          onTroubleshoot: onTroubleshoot ?? () {},
-          onExportLogs: onExportLogs ?? () {},
-          onContinueToDashboard: onContinueToDashboard ?? () {},
-          onTryDemoMode: onTryDemoMode ?? () {},
-        ),
+        child: exitLabel == null
+            ? ScanResultsSummary(
+                report: report,
+                onScanAgain: onScanAgain ?? () {},
+                onTroubleshoot: onTroubleshoot ?? () {},
+                onExportLogs: onExportLogs ?? () {},
+                onContinueToDashboard: onContinueToDashboard ?? () {},
+                onTryDemoMode: onTryDemoMode ?? () {},
+              )
+            : ScanResultsSummary(
+                report: report,
+                exitLabel: exitLabel,
+                onScanAgain: onScanAgain ?? () {},
+                onTroubleshoot: onTroubleshoot ?? () {},
+                onExportLogs: onExportLogs ?? () {},
+                onContinueToDashboard: onContinueToDashboard ?? () {},
+                onTryDemoMode: onTryDemoMode ?? () {},
+              ),
       ),
     ),
   );
@@ -232,5 +243,50 @@ void main() {
         );
       },
     );
+
+    testWidgets('default exit action reads Continue to Dashboard', (
+      tester,
+    ) async {
+      final report = _makeReport();
+      await tester.pumpWidget(_buildWidget(report));
+      await tester.pump();
+
+      expect(find.text('Continue to Dashboard'), findsOneWidget);
+    });
+
+    testWidgets('uses the supplied skip exit label', (tester) async {
+      var called = false;
+      final report = _makeReport();
+      await tester.pumpWidget(
+        _buildWidget(
+          report,
+          exitLabel: 'Skip device setup',
+          onContinueToDashboard: () => called = true,
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Skip device setup'), findsOneWidget);
+      expect(find.text('Continue to Dashboard'), findsNothing);
+
+      await tester.tap(find.text('Skip device setup'));
+      expect(called, isTrue);
+    });
+
+    testWidgets('skip exit is not a primary action', (tester) async {
+      final report = _makeReport();
+      await tester.pumpWidget(
+        _buildWidget(report, exitLabel: 'Skip device setup'),
+      );
+      await tester.pump();
+
+      final exitButton = tester.widget<ShadButton>(
+        find.widgetWithText(ShadButton, 'Skip device setup'),
+      );
+      expect(
+        exitButton.variant,
+        anyOf(ShadButtonVariant.secondary, ShadButtonVariant.outline),
+      );
+    });
   });
 }
