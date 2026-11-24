@@ -2214,6 +2214,10 @@ paths:
         A cleared espressoNotes is stored and returned as an empty string, not an
         omitted field, so a client can tell a cleared note from one that was never
         set; every other cleared annotation is omitted from the response.
+        The recorded extraction `timestamp` is not editable here: a body containing a
+        top-level `timestamp` key is rejected with 400, even when the value is null or
+        equal to the stored one, and the rejection is atomic - no annotation, stored
+        record, `updatedAt`, or `shotUpdated` event changes with it.
       tags: [Shots History]
       parameters:
         - in: path
@@ -2252,7 +2256,10 @@ paths:
           description: |
             Bad Request. Covers an ID in the body that does not match the
             path ID, a body containing `measurements`, and a body containing
-            the system-managed fields `createdAt` or `updatedAt`.
+            the non-editable recorded fields `timestamp`, `createdAt`, or
+            `updatedAt`. A request is rejected as a whole: a body mixing such a
+            field with valid annotation edits changes nothing and emits no
+            `shotUpdated` event.
           content:
             application/json:
               schema:
@@ -8499,8 +8506,14 @@ components:
       description: |
         Partial-update payload for PUT /api/v1/shots/{id}. Only the fields
         included in the body are changed; all other fields are preserved from
-        the existing record. `measurements`, `createdAt`, and `updatedAt` are
-        not editable and are rejected with 400. The `uploaded_to_decent`,
+        the existing record. `measurements`, `createdAt`, `updatedAt`, and
+        `timestamp` are not editable and are rejected with 400. `timestamp` is
+        the recorded extraction time, not an annotation: any top-level
+        `timestamp` key is refused, including a null or unchanged value. A
+        rejected field rejects the whole body atomically - no annotation, no
+        stored record, no `updatedAt` change, and no `shotUpdated` event - while
+        a `timestamp` key nested in `annotations.extras` is ordinary annotation
+        data. The `uploaded_to_decent`,
         `decent_upload_rejected`, and `visualizerId` keys inside
         annotations.extras are reserved bookkeeping:
         writes confined to them persist without advancing `updatedAt`.

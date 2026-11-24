@@ -243,6 +243,15 @@ class ShotsHandler {
         });
       }
 
+      if (json.containsKey('timestamp')) {
+        return jsonBadRequest({
+          "error":
+              "timestamp is not editable via this endpoint; it records when "
+              "the shot was pulled, so remove timestamp from the request body "
+              "and send annotations instead",
+        });
+      }
+
       final enjoymentError = _enjoymentRangeError(json);
       if (enjoymentError != null) {
         return jsonBadRequest({"error": enjoymentError});
