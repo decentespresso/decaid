@@ -25,7 +25,7 @@ Disposable combined commit: `38c484d6f7f16be8a16b08b56e82cf6409be05b7`.
 Combined tree: `8affecb0f251f05b5e10c2c30919e8cbadada524`.
 Exact candidate: `d461c7bd76c22e5fc502787be1a04ce3520ef72b3286274ff28e3c7a6925e503`.
 
-The combination includes the actual #913 and #912 commits plus frozen #1195 candidate `c7b7977b8c7f942fedc86074cc4712cb3728e2c8099a7d0d9dec90eaf919e0ce` and #1141 candidate above. Synthetic commits are local verification artifacts, not merges into main. Final implementation commit-to-tree mapping must be checked before treating this as current-head evidence.
+The combination includes the actual #913 and #912 commits plus frozen #1195 candidate `c7b7977b8c7f942fedc86074cc4712cb3728e2c8099a7d0d9dec90eaf919e0ce` and #1141 candidate above. Synthetic commits are local verification artifacts, not merges into main. Final implementation commit-to-tree mapping was independently checked: #1247 `385eefb7c536d3dadb0caa959e137ae8450f429e`, #1248 `6dbd1fd041e96651a68edf082b27a3f0c851ed51`, #1249 `aa458f640a7323f99ed752a2fa1803cef106dbde`, and #1250 `09f0610678a37a31bf078c48df64580c70831988`. These are the exact frozen inputs tested in combination. See the [G5 decision brief and full merge-batch evidence](G5.md) for current-head CI, limitations and maintainer action.
 
 All gates used the candidate helper; receipts finished, valid, exit 0:
 
