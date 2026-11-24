@@ -115,7 +115,7 @@ final class AppLogUploadService extends ChangeNotifier {
       }
       if (!linked) {
         await setEnabled(false);
-      } else if (!await _expireIfWindowEnded()) {
+      } else if (await _sharingDeadline() != null) {
         _schedule(initialDelay);
       }
     } else {
@@ -157,19 +157,23 @@ final class AppLogUploadService extends ChangeNotifier {
     }
   }
 
-  Future<bool> _expireIfWindowEnded() async {
+  Future<DateTime?> _sharingDeadline() async {
     final now = clock.now();
-    final enabledAt = _prefs.getInt(_enabledAtKey);
+    var enabledAt = _prefs.getInt(_enabledAtKey);
     if (enabledAt == null) {
-      await _prefs.setInt(_enabledAtKey, now.millisecondsSinceEpoch);
-      return false;
+      enabledAt = now.millisecondsSinceEpoch;
+      await _prefs.setInt(_enabledAtKey, enabledAt);
     }
     final endsAt = DateTime.fromMillisecondsSinceEpoch(enabledAt)
         .add(sharingWindow);
-    if (now.isBefore(endsAt)) return false;
+    if (now.isBefore(endsAt)) return endsAt;
+    await _expire();
+    return null;
+  }
+
+  Future<void> _expire() async {
     await setEnabled(false);
     await _setLastResult(_expiredMessage);
-    return true;
   }
 
   Future<AppLogUploadResult> uploadNow() async {
@@ -211,10 +215,19 @@ final class AppLogUploadService extends ChangeNotifier {
 
   Future<AppLogUploadResult> _performUpload() async {
     final consentGeneration = _consentGeneration;
-    bool uploadAllowed() => _enabled && consentGeneration == _consentGeneration;
+    bool consented() => _enabled && consentGeneration == _consentGeneration;
     _morePending = false;
-    if (!uploadAllowed()) return AppLogUploadResult.disabled;
-    if (await _expireIfWindowEnded()) return AppLogUploadResult.expired;
+    if (!consented()) return AppLogUploadResult.disabled;
+    final endsAt = await _sharingDeadline();
+    if (endsAt == null) return AppLogUploadResult.expired;
+    bool uploadAllowed() => consented() && clock.now().isBefore(endsAt);
+    Future<AppLogUploadResult?> blocked() async {
+      if (!consented()) return AppLogUploadResult.disabled;
+      if (uploadAllowed()) return null;
+      await _expire();
+      return AppLogUploadResult.expired;
+    }
+
     if (!await _accountService.hasLinkedAccount()) {
       await setEnabled(false);
       await _setLastResult('Link a Decent account before uploading logs');
@@ -239,7 +252,8 @@ final class AppLogUploadService extends ChangeNotifier {
       await _setLastResult('No new logs to upload');
       return AppLogUploadResult.noLogs;
     }
-    if (!uploadAllowed()) return AppLogUploadResult.disabled;
+    final blockedBeforeSend = await blocked();
+    if (blockedBeforeSend != null) return blockedBeforeSend;
 
     final body = jsonEncode({
       'app': 'decaid',
@@ -263,9 +277,9 @@ final class AppLogUploadService extends ChangeNotifier {
         timeout: requestTimeout,
       );
       if (response.statusCode >= 200 && response.statusCode < 300) {
-        if (!uploadAllowed()) return AppLogUploadResult.disabled;
+        if (!consented()) return AppLogUploadResult.disabled;
         await _saveCursor(batch.cursor);
-        if (!uploadAllowed()) {
+        if (!consented()) {
           await _prefs.remove(_cursorKey);
           return AppLogUploadResult.disabled;
         }
@@ -286,7 +300,8 @@ final class AppLogUploadService extends ChangeNotifier {
       await _setLastResult('Upload failed (HTTP ${response.statusCode})');
       return AppLogUploadResult.failed;
     } on StateError {
-      if (!uploadAllowed()) return AppLogUploadResult.disabled;
+      final cancelled = await blocked();
+      if (cancelled != null) return cancelled;
       await _setLastResult('Link a valid Decent account before uploading logs');
       return AppLogUploadResult.notLinked;
     }
