@@ -652,6 +652,10 @@ SQL comparisons against a NULL rating never match. A `minEnjoyment` that is not
 a finite number, or falls outside inclusive `0..10`, is rejected with 400.
 The legacy `ids` parameter is mutually exclusive with every filter above:
 combining them is rejected with 400 rather than silently dropping either side.
+`beanId` resolves through the bean's live batches, so shots that recorded a
+batch of a bean deleted with `DELETE /api/v1/beans/:id` no longer match that
+filter; they stay in history and remain reachable through `beanBatchId`,
+`GET /api/v1/shots/:id`, and their recorded metadata.
 
 Newly recorded shots snapshot `serialNumber`, `model`, `firmwareVersion`, and
 `flowCalibration` under `workflow.machine`. Historical records may omit these
@@ -816,6 +820,13 @@ bean. Accepted values are stored as supplied, without trimming.
 | GET | `/api/v1/bean-batches/:id` | Get batch | |
 | PUT | `/api/v1/bean-batches/:id` | Update batch | |
 | DELETE | `/api/v1/bean-batches/:id` | Delete batch | |
+
+`DELETE /api/v1/beans/:id` deletes the bean and every batch it owns, archived
+batches included, in one transaction, so a failing statement rolls the whole
+deletion back. Foreign-key enforcement stays enabled and no schema migration is
+involved. Historical shots are preserved: their recorded `beanBatchId`,
+workflow, annotations, measurements, and timestamps are neither deleted nor
+rewritten, which keeps history serving a batch that no longer exists.
 
 ### Grinders
 

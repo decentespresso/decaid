@@ -2040,7 +2040,10 @@ paths:
           description: |
             Filter by bean entity ID. Matches shots from every batch currently
             associated with the bean, including archived batches, so bean
-            renames do not break batch-backed shot history.
+            renames do not break batch-backed shot history. Matching resolves
+            through the bean's live batches, so shots whose bean and batches
+            were deleted are no longer returned by this filter; they remain in
+            history with their recorded beanBatchId and metadata.
           required: false
           schema:
             type: string
@@ -2680,7 +2683,14 @@ paths:
           description: Internal Server Error
     delete:
       summary: Delete a bean
-      description: Permanently deletes a bean and all its batches.
+      description: |
+        Permanently deletes a bean and all its batches, archived batches
+        included, in a single transaction. Historical shots that reference the
+        deleted batches are preserved with their recorded beanBatchId, workflow,
+        annotations, measurements, and timestamps. Because filtering shots by
+        bean ID resolves through the live batches, such shots may no longer
+        match that filter; read them through their recorded beanBatchId or
+        normal history.
       tags: [Beans]
       parameters:
         - name: id

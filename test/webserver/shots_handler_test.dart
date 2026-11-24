@@ -7,6 +7,7 @@ import 'package:reaprime/src/controllers/workflow_controller.dart';
 import 'package:reaprime/src/models/data/bean.dart';
 import 'package:reaprime/src/models/data/shot_annotations.dart';
 import 'package:reaprime/src/models/data/shot_record.dart';
+import 'package:reaprime/src/models/data/shot_snapshot.dart';
 import 'package:reaprime/src/models/data/workflow_context.dart';
 import 'package:reaprime/src/services/database/database.dart'
     hide Bean, ShotRecord;
@@ -1013,6 +1014,104 @@ void main() {
       },
     );
   });
+
+  group('ShotsHandler - history after a bean cascade delete (issue #911)', () {
+    test(
+      'keeps recorded shot data when its bean and batches are deleted',
+      () async {
+        final bean = Bean.create(roaster: '911 Roaster', name: '911 Coffee');
+        await beanStorage.insertBean(bean);
+        final activeBatch = BeanBatch.create(
+          beanId: bean.id,
+          roastLevel: 'light',
+        );
+        final archivedBatch = BeanBatch.create(
+          beanId: bean.id,
+          roastLevel: 'dark',
+        );
+        await beanStorage.insertBatch(activeBatch);
+        await beanStorage.insertBatch(archivedBatch);
+        await beanStorage.updateBatch(archivedBatch.copyWith(archived: true));
+
+        final timestamp = DateTime.utc(2026, 1, 5, 9, 30);
+        await persistence.persistShot(
+          makeShot(
+            id: 'cascade-shot',
+            timestamp: timestamp,
+            beanBatchId: activeBatch.id,
+            coffeeName: '911 Coffee',
+            coffeeRoaster: '911 Roaster',
+            annotations: const ShotAnnotations(
+              enjoyment: 8.5,
+              espressoNotes: 'kept recorded notes',
+              extras: {'favorite': true, 'issue': 911},
+            ),
+            measurements: [
+              ShotSnapshot.fromJson(measurementJson(timestamp, 18.2)),
+              ShotSnapshot.fromJson(
+                measurementJson(
+                  timestamp.add(const Duration(seconds: 1)),
+                  24.6,
+                ),
+              ),
+            ],
+          ),
+        );
+
+        final beforeResponse = await sendGet('/api/v1/shots/cascade-shot');
+        expect(beforeResponse.statusCode, 200);
+        final before = await decode(beforeResponse);
+        expect(before['measurements'], hasLength(2));
+        expect(before['workflow']['context']['beanBatchId'], activeBatch.id);
+        expect(before['annotations']['espressoNotes'], 'kept recorded notes');
+        expect(
+          DateTime.parse(before['timestamp'] as String).toUtc(),
+          timestamp,
+        );
+
+        await beanStorage.deleteBean(bean.id);
+
+        expect(
+          await beanStorage.getBatchesForBean(bean.id, includeArchived: true),
+          isEmpty,
+        );
+
+        final afterResponse = await sendGet('/api/v1/shots/cascade-shot');
+        expect(afterResponse.statusCode, 200);
+        final after = await decode(afterResponse);
+        expect(after, equals(before));
+        expect(after['workflow']['context']['beanBatchId'], activeBatch.id);
+        expect(after['annotations']['enjoyment'], 8.5);
+        expect(after['annotations']['extras']['favorite'], true);
+        expect(after['measurements'], hasLength(2));
+
+        final stored = await db.shotDao.getShotById('cascade-shot');
+        expect(stored, isNotNull);
+        expect(stored!.beanBatchId, activeBatch.id);
+        expect(stored.timestamp.toUtc(), timestamp);
+        expect(stored.createdAt, isNotNull);
+        expect(stored.updatedAt, isNotNull);
+
+        final history = await decode(await sendGet('/api/v1/shots'));
+        expect(history['total'], 1);
+        expect((history['items'] as List).map((item) => item['id']).toList(), [
+          'cascade-shot',
+        ]);
+        expect(
+          history['items'][0]['workflow']['context']['beanBatchId'],
+          activeBatch.id,
+        );
+
+        final byRecordedBatch = await decode(
+          await sendGet('/api/v1/shots?beanBatchId=${activeBatch.id}'),
+        );
+        expect(
+          (byRecordedBatch['items'] as List).map((item) => item['id']).toList(),
+          ['cascade-shot'],
+        );
+      },
+    );
+  });
 }
 
 ShotRecord makeShot({
@@ -1028,6 +1127,7 @@ ShotRecord makeShot({
   int? grinderRpm,
   ShotAnnotations? annotations,
   Map<String, dynamic>? contextExtras,
+  List<ShotSnapshot> measurements = const [],
 }) {
   final workflow = WorkflowController().currentWorkflow.copyWith(
     context: WorkflowContext(
@@ -1045,8 +1145,35 @@ ShotRecord makeShot({
   return ShotRecord(
     id: id,
     timestamp: timestamp ?? DateTime.utc(2026, 1, 1, 10),
-    measurements: const [],
+    measurements: measurements,
     workflow: workflow,
     annotations: annotations,
   );
+}
+
+Map<String, dynamic> measurementJson(DateTime timestamp, double weight) {
+  return {
+    'machine': {
+      'timestamp': timestamp.toIso8601String(),
+      'state': {'state': 'espresso', 'substate': 'pouring'},
+      'flow': 1.4,
+      'pressure': 9.1,
+      'targetFlow': 1.5,
+      'targetPressure': 9.0,
+      'mixTemperature': 88.5,
+      'groupTemperature': 92.0,
+      'targetMixTemperature': 88.0,
+      'targetGroupTemperature': 92.0,
+      'profileFrame': 3,
+      'steamTemperature': 0,
+    },
+    'scale': {
+      'timestamp': timestamp.toIso8601String(),
+      'weight': weight,
+      'weightFlow': 0.7,
+      'battery': 88,
+      'timerValue': 1500,
+    },
+    'volume': 12.5,
+  };
 }
