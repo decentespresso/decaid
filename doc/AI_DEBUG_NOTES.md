@@ -74,7 +74,7 @@ rules if either logger gains new responsibilities.
 
 **Symptom:** `Activity did not call through to super.onCreate()` — Android launch crash.
 **Fix (PR #435):** `super.onCreate()` moved to top of `onCreate()` before early-return guards.
-**Follow-up:** `isRunningInClonedEnvironment()` heuristic may flag legitimate multi-user/work-profile devices as clones.
+**Follow-up (#1227):** `isRunningInClonedEnvironment()` compares `filesDir` with the data path of the user the process runs as, so a full secondary user, including the owner on a headless system user device such as the Alexa Tablet 8, is no longer reported as a clone. Profiles (work, clone, private space, OEM dual-app) and virtual-space paths are still rejected, and before Android 11 only user 0 is accepted.
 
 ## BLE Error Debugging
 
