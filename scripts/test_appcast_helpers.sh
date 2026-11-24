@@ -35,6 +35,42 @@ MAX="$(appcast_max_build "$TMP/fixture.xml")"
 [ "$MAX" = "101" ] || fail "appcast_max_build expected 101, got '$MAX'"
 echo "ok: appcast_max_build = $MAX"
 
+# Pre-#1240 assets are published without a v-prefixed version in the filename;
+# they stay valid, so the same feed mixes both naming conventions.
+cat > "$TMP/renamed-fixture.xml" <<'XML'
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Decaid Changelog</title>
+    <item>
+      <title>Version 2.2.0</title>
+      <sparkle:version>103</sparkle:version>
+      <sparkle:channel>beta</sparkle:channel>
+      <enclosure url="https://github.com/decentespresso/decaid/releases/download/v2.2.0-beta.1/decaid-macos-v2.2.0-beta.1.zip"
+                 sparkle:edSignature="CC==" type="application/octet-stream"/>
+    </item>
+    <item>
+      <title>Version 2.1.1</title>
+      <sparkle:version>102</sparkle:version>
+      <enclosure url="https://github.com/decentespresso/decaid/releases/download/v2.1.1/decaid-macos-v2.1.1.zip"
+                 sparkle:edSignature="DD==" type="application/octet-stream"/>
+    </item>
+  </channel>
+</rss>
+XML
+
+RENAMED_MAX="$(appcast_max_build "$TMP/renamed-fixture.xml")"
+[ "$RENAMED_MAX" = "103" ] || fail "appcast_max_build expected 103, got '$RENAMED_MAX'"
+echo "ok: appcast_max_build with renamed assets = $RENAMED_MAX"
+
+appcast_assert_item "$TMP/renamed-fixture.xml" 102 \
+  "https://github.com/decentespresso/decaid/releases/download/v2.1.1/decaid-macos-v2.1.1.zip" \
+  "" && echo "ok: stable item with v-prefixed alias-style name passes" || fail "stable item with full tag rejected"
+
+appcast_assert_item "$TMP/renamed-fixture.xml" 103 \
+  "https://github.com/decentespresso/decaid/releases/download/v2.2.0-beta.1/decaid-macos-v2.2.0-beta.1.zip" \
+  "beta" && echo "ok: beta item with v-prefixed beta tag name passes" || fail "beta item with full tag rejected"
+
 assert_build_increasing 102 101 && echo "ok: 102 > 101 accepted"
 if assert_build_increasing 101 101 >/dev/null 2>&1; then
   fail "assert_build_increasing accepted equal build 101"
@@ -52,9 +88,9 @@ cat > "$TMP/zip/Decaid.app/Contents/Info.plist" <<'PLIST'
   <key>CFBundleVersion</key><string>102</string>
 </dict></plist>
 PLIST
-ditto -c -k --keepParent "$TMP/zip/Decaid.app" "$TMP/decaid-macos-2.1.0.zip"
+ditto -c -k --keepParent "$TMP/zip/Decaid.app" "$TMP/decaid-macos-v2.1.0.zip"
 
-BUILD="$(zip_read_build "$TMP/decaid-macos-2.1.0.zip")"
+BUILD="$(zip_read_build "$TMP/decaid-macos-v2.1.0.zip")"
 [ "$BUILD" = "102" ] || fail "zip_read_build expected 102, got '$BUILD'"
 echo "ok: zip_read_build = $BUILD"
 

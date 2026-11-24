@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version label used in dry-run artifact names'
+        description: 'Version or tag used in dry-run artifact names (a missing v prefix is added)'
         type: string
         default: '0.0.0-dryrun'
         required: false
@@ -40,10 +40,14 @@ jobs:
         id: meta
         run: |
           if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
-            VERSION="${{ inputs.version }}"
-            if [ -z "$VERSION" ]; then VERSION="0.0.0-dryrun"; fi
-            TAG=""
-            echo "Dry run: building $VERSION without publishing" >&2
+            INPUT="${{ inputs.version }}"
+            if [ -z "$INPUT" ]; then INPUT="0.0.0-dryrun"; fi
+            case "$INPUT" in
+              v*) TAG="$INPUT" ;;
+              *) TAG="v$INPUT" ;;
+            esac
+            VERSION="${TAG#v}"
+            echo "Dry run: building $VERSION as $TAG without publishing" >&2
           else
             TAG="${GITHUB_REF#refs/tags/}"
             case "$TAG" in
@@ -127,16 +131,16 @@ jobs:
         env:
           FEEDBACK_TOKEN: ${{ secrets.FEEDBACK_TOKEN }}
 
-      - name: Rename APK with version
+      - name: Rename APK with release tag
         run: |
           mv build/app/outputs/flutter-apk/app-release.apk \
-             build/app/outputs/flutter-apk/decaid-android-${{ needs.release-metadata.outputs.version }}.apk
+             build/app/outputs/flutter-apk/decaid-android-${{ needs.release-metadata.outputs.tag }}.apk
 
       - name: Upload Android APK artifact
         uses: actions/upload-artifact@v7
         with:
           name: android-apk
-          path: build/app/outputs/flutter-apk/decaid-android-${{ needs.release-metadata.outputs.version }}.apk
+          path: build/app/outputs/flutter-apk/decaid-android-${{ needs.release-metadata.outputs.tag }}.apk
 
   build-macos:
     needs: release-metadata
@@ -271,7 +275,7 @@ jobs:
       - name: Create release ZIP
         run: |
           cd build/macos/Build/Products/Release
-          ditto -c -k --keepParent Decaid.app ../../../../../decaid-macos-${{ needs.release-metadata.outputs.version }}.zip
+          ditto -c -k --keepParent Decaid.app ../../../../../decaid-macos-${{ needs.release-metadata.outputs.tag }}.zip
 
       # ---- DMG ----
       - name: Create DMG
@@ -286,12 +290,12 @@ jobs:
             -volname Decaid \
             -srcfolder "$DMG_STAGE" \
             -ov -format UDZO \
-            decaid-macos-${{ needs.release-metadata.outputs.version }}.dmg
+            decaid-macos-${{ needs.release-metadata.outputs.tag }}.dmg
 
       - name: Sign DMG
         run: |
           codesign --sign "Developer ID Application" --timestamp \
-            decaid-macos-${{ needs.release-metadata.outputs.version }}.dmg
+            decaid-macos-${{ needs.release-metadata.outputs.tag }}.dmg
 
       - name: Notarize DMG
         env:
@@ -300,7 +304,7 @@ jobs:
           APP_SPECIFIC_PASSWORD: ${{ secrets.APP_SPECIFIC_PASSWORD }}
         run: |
           xcrun notarytool submit \
-            decaid-macos-${{ needs.release-metadata.outputs.version }}.dmg \
+            decaid-macos-${{ needs.release-metadata.outputs.tag }}.dmg \
             --apple-id "$APPLE_ID" \
             --team-id "$TEAM_ID" \
             --password "$APP_SPECIFIC_PASSWORD" \
@@ -316,7 +320,7 @@ jobs:
 
       - name: Staple DMG
         run: |
-          DMG="decaid-macos-${{ needs.release-metadata.outputs.version }}.dmg"
+          DMG="decaid-macos-${{ needs.release-metadata.outputs.tag }}.dmg"
           for i in 1 2 3 4 5; do
             if xcrun stapler staple "$DMG"; then
               exit 0
@@ -330,7 +334,7 @@ jobs:
       - name: Verify DMG contents, signature, and launch
         run: |
           set -euo pipefail
-          DMG="decaid-macos-${{ needs.release-metadata.outputs.version }}.dmg"
+          DMG="decaid-macos-${{ needs.release-metadata.outputs.tag }}.dmg"
           MOUNT="$RUNNER_TEMP/dmg-mount"
           rm -rf "$MOUNT"
           mkdir -p "$MOUNT"
@@ -349,8 +353,8 @@ jobs:
         with:
           name: macos-app
           path: |
-            decaid-macos-${{ needs.release-metadata.outputs.version }}.zip
-            decaid-macos-${{ needs.release-metadata.outputs.version }}.dmg
+            decaid-macos-${{ needs.release-metadata.outputs.tag }}.zip
+            decaid-macos-${{ needs.release-metadata.outputs.tag }}.dmg
 
   build-linux:
     needs: release-metadata
@@ -396,26 +400,26 @@ jobs:
       - name: Create Linux archive
         run: |
           cd build/linux/x64/release
-          tar -czf ../../../../decaid-linux-x64-${{ needs.release-metadata.outputs.version }}.tar.gz bundle
+          tar -czf ../../../../decaid-linux-x64-${{ needs.release-metadata.outputs.tag }}.tar.gz bundle
 
       - name: Package Linux AppImage
         run: |
           scripts/package_appimage.sh \
             build/linux/x64/release/bundle \
-            x86_64 ${{ needs.release-metadata.outputs.version }} "$GITHUB_WORKSPACE"
+            x86_64 ${{ needs.release-metadata.outputs.tag }} "$GITHUB_WORKSPACE"
 
       - name: Verify Linux AppImage structure and launch
         run: |
           scripts/verify_appimage.sh \
-            decaid-linux-x86_64-${{ needs.release-metadata.outputs.version }}.AppImage x86-64
+            decaid-linux-x86_64-${{ needs.release-metadata.outputs.tag }}.AppImage x86-64
 
       - name: Upload Linux app artifacts
         uses: actions/upload-artifact@v7
         with:
           name: linux-app
           path: |
-            decaid-linux-x64-${{ needs.release-metadata.outputs.version }}.tar.gz
-            decaid-linux-x86_64-${{ needs.release-metadata.outputs.version }}.AppImage
+            decaid-linux-x64-${{ needs.release-metadata.outputs.tag }}.tar.gz
+            decaid-linux-x86_64-${{ needs.release-metadata.outputs.tag }}.AppImage
 
   build-raspberrypi:
     name: Build for Raspberry Pi (ARM64 / Pi 4+)
@@ -465,26 +469,26 @@ jobs:
       - name: Create Raspberry Pi archive
         run: |
           cd build/linux/arm64/release
-          tar -czf ../../../../decaid-linux-arm64-${{ needs.release-metadata.outputs.version }}.tar.gz bundle
+          tar -czf ../../../../decaid-linux-arm64-${{ needs.release-metadata.outputs.tag }}.tar.gz bundle
 
       - name: Package Raspberry Pi AppImage
         run: |
           scripts/package_appimage.sh \
             build/linux/arm64/release/bundle \
-            aarch64 ${{ needs.release-metadata.outputs.version }} "$GITHUB_WORKSPACE"
+            aarch64 ${{ needs.release-metadata.outputs.tag }} "$GITHUB_WORKSPACE"
 
       - name: Verify Raspberry Pi AppImage structure and launch
         run: |
           scripts/verify_appimage.sh \
-            decaid-linux-aarch64-${{ needs.release-metadata.outputs.version }}.AppImage aarch64
+            decaid-linux-aarch64-${{ needs.release-metadata.outputs.tag }}.AppImage aarch64
 
       - name: Upload Raspberry Pi build artifacts
         uses: actions/upload-artifact@v7
         with:
           name: raspberrypi-linux-arm64-app
           path: |
-            decaid-linux-arm64-${{ needs.release-metadata.outputs.version }}.tar.gz
-            decaid-linux-aarch64-${{ needs.release-metadata.outputs.version }}.AppImage
+            decaid-linux-arm64-${{ needs.release-metadata.outputs.tag }}.tar.gz
+            decaid-linux-aarch64-${{ needs.release-metadata.outputs.tag }}.AppImage
 
   build-windows:
     needs: release-metadata
@@ -541,12 +545,12 @@ jobs:
       - name: Create Windows archive
         shell: pwsh
         run: |
-          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath decaid-windows-x64-${{ needs.release-metadata.outputs.version }}.zip
+          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath decaid-windows-x64-${{ needs.release-metadata.outputs.tag }}.zip
 
       - name: Verify ZIP clean extraction and launch
         shell: pwsh
         run: |
-          $zip = 'decaid-windows-x64-${{ needs.release-metadata.outputs.version }}.zip'
+          $zip = 'decaid-windows-x64-${{ needs.release-metadata.outputs.tag }}.zip'
           $extract = Join-Path $env:RUNNER_TEMP 'decaid-extracted'
           Expand-Archive -Path $zip -DestinationPath $extract
           # GUI-subsystem executables cannot be awaited with & or -Wait on the
@@ -566,7 +570,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: windows-app
-          path: decaid-windows-x64-${{ needs.release-metadata.outputs.version }}.zip
+          path: decaid-windows-x64-${{ needs.release-metadata.outputs.tag }}.zip
 
   build-ios:
     needs: release-metadata
@@ -623,7 +627,7 @@ jobs:
       - name: Package unsigned IPA
         run: |
           APP_PATH="build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app"
-          OUTPUT_PATH="$GITHUB_WORKSPACE/decaid-ios-unsigned-${{ needs.release-metadata.outputs.version }}.ipa"
+          OUTPUT_PATH="$GITHUB_WORKSPACE/decaid-ios-unsigned-${{ needs.release-metadata.outputs.tag }}.ipa"
           PACKAGE_DIR="$RUNNER_TEMP/unsigned-ipa"
 
           test -d "$APP_PATH"
@@ -639,7 +643,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: ios-ipa-unsigned
-          path: decaid-ios-unsigned-${{ needs.release-metadata.outputs.version }}.ipa
+          path: decaid-ios-unsigned-${{ needs.release-metadata.outputs.tag }}.ipa
           if-no-files-found: error
 
       - name: Import distribution certificate
@@ -820,17 +824,17 @@ jobs:
       - name: Assert expected release artifacts
         run: |
           set -euo pipefail
-          VERSION="${{ needs.release-metadata.outputs.version }}"
+          TAG="${{ needs.release-metadata.outputs.tag }}"
           EXPECTED=(
-            "release-artifacts/android-apk/decaid-android-${VERSION}.apk"
-            "release-artifacts/macos-app/decaid-macos-${VERSION}.zip"
-            "release-artifacts/macos-app/decaid-macos-${VERSION}.dmg"
-            "release-artifacts/linux-app/decaid-linux-x64-${VERSION}.tar.gz"
-            "release-artifacts/linux-app/decaid-linux-x86_64-${VERSION}.AppImage"
-            "release-artifacts/raspberrypi-linux-arm64-app/decaid-linux-arm64-${VERSION}.tar.gz"
-            "release-artifacts/raspberrypi-linux-arm64-app/decaid-linux-aarch64-${VERSION}.AppImage"
-            "release-artifacts/windows-app/decaid-windows-x64-${VERSION}.zip"
-            "release-artifacts/ios-ipa-unsigned/decaid-ios-unsigned-${VERSION}.ipa"
+            "release-artifacts/android-apk/decaid-android-${TAG}.apk"
+            "release-artifacts/macos-app/decaid-macos-${TAG}.zip"
+            "release-artifacts/macos-app/decaid-macos-${TAG}.dmg"
+            "release-artifacts/linux-app/decaid-linux-x64-${TAG}.tar.gz"
+            "release-artifacts/linux-app/decaid-linux-x86_64-${TAG}.AppImage"
+            "release-artifacts/raspberrypi-linux-arm64-app/decaid-linux-arm64-${TAG}.tar.gz"
+            "release-artifacts/raspberrypi-linux-arm64-app/decaid-linux-aarch64-${TAG}.AppImage"
+            "release-artifacts/windows-app/decaid-windows-x64-${TAG}.zip"
+            "release-artifacts/ios-ipa-unsigned/decaid-ios-unsigned-${TAG}.ipa"
           )
           for f in "${EXPECTED[@]}"; do
             [ -f "$f" ] || { echo "FAIL: missing $f" >&2; exit 1; }
@@ -839,17 +843,17 @@ jobs:
       - name: Generate SHA-256 manifest
         run: |
           set -euo pipefail
-          VERSION="${{ needs.release-metadata.outputs.version }}"
+          TAG="${{ needs.release-metadata.outputs.tag }}"
           cd release-artifacts
           find . -type f -print0 | sort -z | xargs -0 sha256sum \
-            | sed 's| \./[^/]*/| |' > "../decaid-${VERSION}-SHA256SUMS.txt"
+            | sed 's| \./[^/]*/| |' > "../decaid-${TAG}-SHA256SUMS.txt"
           cd ..
-          cat "decaid-${VERSION}-SHA256SUMS.txt"
+          cat "decaid-${TAG}-SHA256SUMS.txt"
 
       - name: Create stable aliases for every artifact
         env:
-          VERSION: ${{ needs.release-metadata.outputs.version }}
-        run: scripts/create_release_aliases.sh release-artifacts "$VERSION"
+          TAG: ${{ needs.release-metadata.outputs.tag }}
+        run: scripts/create_release_aliases.sh release-artifacts "$TAG"
 
       - name: Generate release notes
         run: |
@@ -870,7 +874,7 @@ jobs:
             release-artifacts/raspberrypi-linux-arm64-app/*
             release-artifacts/windows-app/*
             release-artifacts/ios-ipa-unsigned/*
-            decaid-${{ needs.release-metadata.outputs.version }}-SHA256SUMS.txt
+            decaid-${{ needs.release-metadata.outputs.tag }}-SHA256SUMS.txt
             decaid-latest-SHA256SUMS.txt
           tag_name: ${{ needs.release-metadata.outputs.tag }}
           name: Decaid ${{ needs.release-metadata.outputs.version }}
@@ -937,7 +941,7 @@ jobs:
       - name: Download the release ZIP asset
         run: |
           gh release download "${{ steps.version.outputs.tag }}" \
-            --pattern "decaid-macos-${{ steps.version.outputs.version }}.zip" \
+            --pattern "decaid-macos-${{ steps.version.outputs.tag }}.zip" \
             --dir "$RUNNER_TEMP/appcast-staging"
           ls -la "$RUNNER_TEMP/appcast-staging"
         env:
@@ -976,7 +980,7 @@ jobs:
             echo "  gh secret set SPARKLE_ED_PRIVATE_KEY < private-key-file"
             exit 1
           fi
-          ZIP="$RUNNER_TEMP/appcast-staging/decaid-macos-${{ steps.version.outputs.version }}.zip"
+          ZIP="$RUNNER_TEMP/appcast-staging/decaid-macos-${{ steps.version.outputs.tag }}.zip"
           mkdir -p "$RUNNER_TEMP/pages"
           PREV=""
           if [ -f "$RUNNER_TEMP/previous-appcast.xml" ]; then
