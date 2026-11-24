@@ -24,7 +24,12 @@ class MockDe1 implements De1Interface, SimulatedDevice {
   MockDe1({
     this._deviceId = "MockDe1",
     this._simulationTickInterval = const Duration(milliseconds: 100),
+    this._groupHeadControllerPresent = const bool.fromEnvironment(
+      'MOCK_DE1_GHC',
+    ),
   });
+
+  final bool _groupHeadControllerPresent;
 
   /// Wall-clock cadence of the simulation tick. The simulation model still
   /// advances 100ms per tick, so shortening this makes simulated time run
@@ -108,7 +113,7 @@ class MockDe1 implements De1Interface, SimulatedDevice {
       'MOCK_DE1_SERIAL',
       defaultValue: 'mock-de1',
     ),
-    groupHeadControllerPresent: false,
+    groupHeadControllerPresent: _groupHeadControllerPresent,
     extra: {},
   );
 
@@ -129,6 +134,9 @@ class MockDe1 implements De1Interface, SimulatedDevice {
     } else if (_currentState == MachineState.hotWater) {
       _simulationType = _SimulationType.hotWater;
       _hotWaterElapsedMs = 0.0;
+    } else if (_currentState == MachineState.steam) {
+      _simulationType = _SimulationType.steam;
+      _steamElapsedMs = 0.0;
     } else if (_currentState == MachineState.skipStep &&
         _simulationType == _SimulationType.espresso &&
         _currentProfile != null) {
@@ -179,13 +187,14 @@ class MockDe1 implements De1Interface, SimulatedDevice {
         case _SimulationType.hotWater:
           newSnapshot = _simulateHotWater();
           break;
+        case _SimulationType.steam:
+          newSnapshot = _simulateSteam();
+          break;
         case _SimulationType.idle:
           if (clock.now().difference(lastIdleSnapshot).inMilliseconds < 500) {
             return;
           }
           lastIdleSnapshot = clock.now();
-          newSnapshot = _simulateIdle();
-        default:
           newSnapshot = _simulateIdle();
       }
       _snapshotStream.add(newSnapshot);
@@ -465,6 +474,52 @@ class MockDe1 implements De1Interface, SimulatedDevice {
       targetGroupTemperature: targetTemp,
       profileFrame: 0,
       steamTemperature: _lastSnapshot.steamTemperature,
+    );
+  }
+
+  double _steamElapsedMs = 0.0;
+  static const double _steamPrepareMs = 500;
+  static const double _steamPuffMs = 1500;
+
+  MachineSnapshot _simulateSteam() {
+    _steamElapsedMs += 100;
+    final settings = _shotSettingsController.value;
+    final steamEndMs = _steamPrepareMs + settings.targetSteamDuration * 1000;
+    if (_steamElapsedMs >= steamEndMs + _steamPuffMs) {
+      _simulationType = _SimulationType.idle;
+      _currentState = MachineState.idle;
+    }
+    final MachineSubstate substate;
+    if (_currentState != MachineState.steam) {
+      substate = MachineSubstate.idle;
+    } else if (_steamElapsedMs < _steamPrepareMs) {
+      substate = MachineSubstate.preparingForShot;
+    } else if (_steamElapsedMs < steamEndMs) {
+      substate = MachineSubstate.pouring;
+    } else {
+      substate = MachineSubstate.puffing;
+    }
+    final targetFlow = substate == MachineSubstate.pouring ? _steamFlow : 0.0;
+    final newFlow =
+        _lastSnapshot.flow + (targetFlow - _lastSnapshot.flow) * 0.35;
+    final targetSteamTemp = settings.targetSteamTemp.toDouble();
+    return MachineSnapshot(
+      timestamp: clock.now(),
+      state: MachineStateSnapshot(state: _currentState, substate: substate),
+      flow: newFlow,
+      pressure: newFlow * 1.5,
+      targetFlow: targetFlow,
+      targetPressure: 0,
+      mixTemperature: _lastSnapshot.mixTemperature,
+      groupTemperature: _lastSnapshot.groupTemperature,
+      targetMixTemperature: _lastSnapshot.targetMixTemperature,
+      targetGroupTemperature: _lastSnapshot.targetGroupTemperature,
+      profileFrame: 0,
+      steamTemperature: _calculateTemperature(
+        current: _lastSnapshot.steamTemperature.toDouble(),
+        target: targetSteamTemp,
+        rate: 2,
+      ).toInt(),
     );
   }
 
