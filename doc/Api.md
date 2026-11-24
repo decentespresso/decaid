@@ -789,6 +789,12 @@ fields preserve stored values, explicit `null` clears nullable fields, and
 supplied values replace them. Explicit `null` for non-nullable fields returns
 `400`.
 
+`POST /api/v1/beans` requires `roaster` and `name`. Each must be a JSON string
+that is non-empty after trimming; a missing, `null`, non-string, empty or
+whitespace-only value returns `400` with
+`{"error":"Invalid request","message":"<field> is required"}` and creates no
+bean. Accepted values are stored as supplied, without trimming.
+
 | Method | Path | Description | Handler |
 |--------|------|-------------|---------|
 | GET | `/api/v1/beans` | List all beans | `beans_handler.dart` |
