@@ -50,16 +50,9 @@ Future<({De1Controller controller, FakeBleTransport transport})> _connect({
   FakeBleTransport? transport,
   int serialN = 12345,
   int calFlowEst = 1000,
-  List<int>? calFlowEstSequence,
 }) async {
   final activeTransport = (transport ?? FakeBleTransport())
     ..queueOnConnectResponses(serialN: serialN, calFlowEst: calFlowEst);
-  if (calFlowEstSequence != null) {
-    activeTransport.queueMmrResponseIntSequence(
-      MMRItem.calFlowEst,
-      calFlowEstSequence,
-    );
-  }
   activeTransport
     ..queueRead(
       Endpoint.stateInfo.uuid,
@@ -80,6 +73,23 @@ Future<({De1Controller controller, FakeBleTransport transport})> _connect({
 
 List<int> _refillRegisterWrites(FakeBleTransport transport) {
   final address = MMRItem.refillKitPresent.address;
+  return transport.writes
+      .where(
+        (write) =>
+            write.characteristicUUID == Endpoint.writeToMMR.uuid &&
+            write.data.length >= 8 &&
+            write.data[1] == ((address >> 16) & 0xff) &&
+            write.data[2] == ((address >> 8) & 0xff) &&
+            write.data[3] == (address & 0xff),
+      )
+      .map(
+        (write) => ByteData.sublistView(write.data).getUint32(4, Endian.little),
+      )
+      .toList();
+}
+
+List<int> _fanRegisterWrites(FakeBleTransport transport) {
+  final address = MMRItem.fanThreshold.address;
   return transport.writes
       .where(
         (write) =>
@@ -176,18 +186,24 @@ void main() {
           'device:usb-2e8a-a-unknown-7',
           flowCalibration: 1.5,
         );
-        await settings.update('serial:12345', flowCalibration: 1.25);
+        await settings.update(
+          'serial:12345',
+          fanThreshold: 42,
+          flowCalibration: 1.25,
+        );
         final harness = await _connect(
           settings: settings,
           transport: _SessionTransport(),
           serialN: serial,
-          calFlowEstSequence: serial == 0 ? [1000] : [1000, 1250],
         );
         addTearDown(harness.controller.dispose);
         expect(settings.reads, isNot(contains('device:usb-2e8a-a-unknown-7')));
+        expect(_flowRegisterWrites(harness.transport), isEmpty);
+        // 50 (not 55) is the MMR-clamped fan default: an unknown identity has
+        // no saved fan, and the write proves the defaults branch still ran.
         expect(
-          _flowRegisterWrites(harness.transport),
-          serial == 0 ? isEmpty : [1250],
+          _fanRegisterWrites(harness.transport),
+          serial == 0 ? [50] : [42],
         );
       },
     );
@@ -200,20 +216,47 @@ void main() {
     expect(_flowRegisterWrites(harness.transport), isEmpty);
   });
 
-  test('saved calibration override writes explicit 1.0 at connect', () async {
-    final settings = MemoryMachineSettingsStore();
-    await settings.update('serial:12345', flowCalibration: 1.0);
-    final harness = await _connect(
-      settings: settings,
-      calFlowEstSequence: [1000, 1000],
-    );
-    addTearDown(harness.controller.dispose);
+  for (final (raw, expected) in [(800, 0.8), (1250, 1.25), (1000, 1.0)]) {
+    test(
+      'first connection reports machine multiplier $expected without a write',
+      () async {
+        final harness = await _connect(calFlowEst: raw);
+        addTearDown(harness.controller.dispose);
 
-    expect(_flowRegisterWrites(harness.transport), [1000]);
-  });
+        expect(
+          harness.controller.connectedDe1OrNull?.cachedFlowEstimation,
+          closeTo(expected, 1e-9),
+        );
+        expect(_flowRegisterWrites(harness.transport), isEmpty);
+      },
+    );
+  }
+
+  for (final legacy in [1.0, 1.5]) {
+    test(
+      'legacy stored multiplier $legacy is never replayed over machine 0.8',
+      () async {
+        final settings = MemoryMachineSettingsStore();
+        await settings.update(
+          'serial:12345',
+          fanThreshold: 42,
+          flowCalibration: legacy,
+        );
+        final harness = await _connect(settings: settings, calFlowEst: 800);
+        addTearDown(harness.controller.dispose);
+
+        expect(_flowRegisterWrites(harness.transport), isEmpty);
+        expect(
+          harness.controller.connectedDe1OrNull?.cachedFlowEstimation,
+          closeTo(0.8, 1e-9),
+        );
+        expect(_fanRegisterWrites(harness.transport), [42]);
+      },
+    );
+  }
 
   test(
-    'two machine identities restore independent calibration overrides',
+    'two machines report their own multiplier and replay no legacy override',
     () async {
       final settings = MemoryMachineSettingsStore();
       await settings.update('serial:12345', flowCalibration: 1.25);
@@ -221,54 +264,56 @@ void main() {
       final firstA = await _connect(
         settings: settings,
         serialN: 12345,
-        calFlowEstSequence: [1000, 1250],
+        calFlowEst: 800,
       );
       final secondA = await _connect(
         settings: settings,
         serialN: 54321,
-        calFlowEstSequence: [1000, 1500],
+        calFlowEst: 1250,
       );
       final firstB = await _connect(
         settings: settings,
         serialN: 12345,
-        calFlowEstSequence: [1000, 1250],
-      );
-      final secondB = await _connect(
-        settings: settings,
-        serialN: 54321,
-        calFlowEstSequence: [1000, 1500],
+        calFlowEst: 1000,
       );
       addTearDown(firstA.controller.dispose);
       addTearDown(secondA.controller.dispose);
       addTearDown(firstB.controller.dispose);
-      addTearDown(secondB.controller.dispose);
 
-      expect(_flowRegisterWrites(firstA.transport), [1250]);
-      expect(_flowRegisterWrites(secondA.transport), [1500]);
-      expect(_flowRegisterWrites(firstB.transport), [1250]);
-      expect(_flowRegisterWrites(secondB.transport), [1500]);
-      expect(firstA.controller.connectedDe1OrNull?.cachedFlowEstimation, 1.25);
-      expect(secondA.controller.connectedDe1OrNull?.cachedFlowEstimation, 1.5);
-      expect(firstB.controller.connectedDe1OrNull?.cachedFlowEstimation, 1.25);
-      expect(secondB.controller.connectedDe1OrNull?.cachedFlowEstimation, 1.5);
+      expect(_flowRegisterWrites(firstA.transport), isEmpty);
+      expect(_flowRegisterWrites(secondA.transport), isEmpty);
+      expect(_flowRegisterWrites(firstB.transport), isEmpty);
+      expect(
+        firstA.controller.connectedDe1OrNull?.cachedFlowEstimation,
+        closeTo(0.8, 1e-9),
+      );
+      expect(
+        secondA.controller.connectedDe1OrNull?.cachedFlowEstimation,
+        closeTo(1.25, 1e-9),
+      );
+      expect(
+        firstB.controller.connectedDe1OrNull?.cachedFlowEstimation,
+        closeTo(1.0, 1e-9),
+      );
     },
   );
 
-  test('legacy raw serial fallback keeps one calibration identity', () async {
-    final settings = MemoryMachineSettingsStore();
-    await settings.update('device:fake-ble', flowCalibration: 1.25);
-    final first = await _connect(
-      settings: settings,
-      serialN: 0,
-      calFlowEstSequence: [1000, 1250],
-    );
-    final second = await _connect(settings: settings, serialN: 999);
-    addTearDown(first.controller.dispose);
-    addTearDown(second.controller.dispose);
+  test(
+    'legacy raw serial fallback keeps one identity and replays nothing',
+    () async {
+      final settings = MemoryMachineSettingsStore();
+      await settings.update('device:fake-ble', flowCalibration: 1.25);
+      final first = await _connect(settings: settings, serialN: 0);
+      final second = await _connect(settings: settings, serialN: 999);
+      addTearDown(first.controller.dispose);
+      addTearDown(second.controller.dispose);
 
-    expect(_flowRegisterWrites(first.transport), [1250]);
-    expect(_flowRegisterWrites(second.transport), isEmpty);
-  });
+      expect(settings.reads, contains('device:fake-ble'));
+      expect(settings.reads, contains('serial:999'));
+      expect(_flowRegisterWrites(first.transport), isEmpty);
+      expect(_flowRegisterWrites(second.transport), isEmpty);
+    },
+  );
 
   test('fresh connect without saved refill writes auto exactly once', () async {
     final harness = await _connect();

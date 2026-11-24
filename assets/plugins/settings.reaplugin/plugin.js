@@ -175,6 +175,14 @@ function createPlugin(host) {
     }
   }
 
+  const flowMultiplierMin = 0.13;
+  const flowMultiplierMax = 2.0;
+
+  function isValidFlowMultiplier(value) {
+    return typeof value === 'number' && Number.isFinite(value) &&
+      value >= flowMultiplierMin && value <= flowMultiplierMax;
+  }
+
   /**
    * Generate HTML page with all settings (with editable controls)
    */
@@ -740,18 +748,18 @@ function createPlugin(host) {
             <!-- Machine Calibration -->
             <section class="section" aria-labelledby="machine-calibration-heading">
                 <h2 id="machine-calibration-heading">Calibration</h2>
-            ${calibrationSettings ? `
+            ${calibrationSettings ? (isValidFlowMultiplier(calibrationSettings.flowMultiplier) ? `
                 <div class="settings-grid">
                     <div class="setting-item">
                         <label class="setting-label" for="flowMultiplier">Flow Estimation Multiplier</label>
                         <div class="setting-control">
-                            <input type="number" id="flowMultiplier" value="${calibrationSettings.flowMultiplier !== undefined ? calibrationSettings.flowMultiplier : 1.0}" step="0.01" min="0.13" max="2.0" aria-describedby="flowMultiplier-desc">
-                            <span id="flowMultiplier-desc" class="visually-hidden">Adjusts the DE1 flow sensor calibration. Valid range: 0.13 to 2.0. Default is 1.0.</span>
+                            <input type="number" id="flowMultiplier" value="${calibrationSettings.flowMultiplier}" step="0.01" min="0.13" max="2.0" aria-describedby="flowMultiplier-desc">
+                            <span id="flowMultiplier-desc" class="visually-hidden">Adjusts the DE1 flow sensor calibration. Valid range: 0.13 to 2.0. The value shown is read from the machine and is not restored for you after a power cycle.</span>
                             <button class="btn btn-primary" onclick="updateCalibrationSetting('flowMultiplier', parseFloat(document.getElementById('flowMultiplier').value))" aria-label="Save flow estimation multiplier">Save</button>
                         </div>
                     </div>
                 </div>
-            ` : '<div class="error" role="alert">Failed to load calibration settings (machine may not be connected)</div>'}
+            ` : '<div class="error" role="alert">Flow estimation multiplier unavailable (the machine did not report a usable value)</div>') : '<div class="error" role="alert">Failed to load calibration settings (machine may not be connected)</div>'}
             </section>
 
             <!-- Presence & Sleep -->
@@ -1142,6 +1150,10 @@ function createPlugin(host) {
         }
 
         async function updateCalibrationSetting(key, value) {
+            if (!(Number.isFinite(value) && value >= 0.13 && value <= 2.0)) {
+                showToast('Enter a flow estimation multiplier between 0.13 and 2.0 before saving', true);
+                return;
+            }
             try {
                 const payload = {};
                 payload[key] = value;

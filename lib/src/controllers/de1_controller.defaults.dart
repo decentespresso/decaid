@@ -14,11 +14,6 @@ extension Defaults on De1Controller {
       await device.setRefillKitSettings(savedRefill);
       if (!stillCurrent()) return;
     }
-    final savedFlowCalibration = saved?.flowCalibration;
-    if (savedFlowCalibration != null) {
-      await device.setFlowEstimation(savedFlowCalibration);
-      if (!stillCurrent()) return;
-    }
     final savedRefillLevel = saved?.refillLevel;
     if (savedRefillLevel != null) {
       await device.setRefillLevel(savedRefillLevel);
