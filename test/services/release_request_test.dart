@@ -54,13 +54,17 @@ class _SeenRequest {
       path = request.uri.path,
       userAgent = request.headers.value(HttpHeaders.userAgentHeader),
       authorization = request.headers.value(HttpHeaders.authorizationHeader),
-      cookie = request.headers.value(HttpHeaders.cookieHeader);
+      cookie = request.headers.value(HttpHeaders.cookieHeader),
+      proxyAuthorization = request.headers.value(
+        HttpHeaders.proxyAuthorizationHeader,
+      );
 
   final String method;
   final String path;
   final String? userAgent;
   final String? authorization;
   final String? cookie;
+  final String? proxyAuthorization;
 }
 
 class _TestServer {
@@ -416,6 +420,157 @@ void main() {
         expectNoCredentialHeaders(requests);
       },
     );
+  });
+
+  group('redirect downgrade', () {
+    test('rejects an https to http redirect before the next request', () async {
+      final requests = <http.BaseRequest>[];
+      var drained = 0;
+      final client = MockClient.streaming((request, body) async {
+        requests.add(request);
+        if (request.url.path == '/channels.json') {
+          return http.StreamedResponse(
+            Stream.fromIterable([
+              [1],
+            ]),
+            200,
+            contentLength: 1,
+          );
+        }
+        return http.StreamedResponse(
+          Stream.fromIterable([
+            [1, 2, 3],
+            [4, 5],
+          ]).map((chunk) {
+            drained += chunk.length;
+            return chunk;
+          }),
+          302,
+          headers: {
+            'location': 'http://fast.decentespresso.com/artifacts/app.apk',
+          },
+        );
+      });
+
+      await expectLater(
+        releaseStreamRequest(client, Uri.parse(mirrorReleaseUrl)),
+        throwsA(isA<http.ClientException>()),
+      );
+
+      expect(requests, hasLength(1));
+      expect(requests.single.url.toString(), mirrorReleaseUrl);
+      expect(requests.single.headers['user-agent'], versionedUserAgent);
+      expect(
+        requests.map((request) => request.url.scheme),
+        everyElement('https'),
+      );
+      expect(drained, 5);
+
+      final later = await releaseGet(
+        'https://fast.decentespresso.com/channels.json',
+        client: client,
+      );
+
+      expect(later.statusCode, 200);
+      expect(later.bodyBytes, [1]);
+      expect(requests, hasLength(2));
+    });
+
+    test('rejects a downgrade after following a secure hop', () async {
+      final requests = <http.BaseRequest>[];
+      final client = MockClient.streaming((request, body) async {
+        requests.add(request);
+        return http.StreamedResponse(
+          const Stream.empty(),
+          request.url.host == 'fast.decentespresso.com' ? 307 : 308,
+          headers: {
+            'location': request.url.host == 'fast.decentespresso.com'
+                ? githubReleaseUrl
+                : 'http://github.com/decentespresso/decaid/app.apk',
+          },
+        );
+      });
+
+      await expectLater(
+        releaseStreamRequest(client, Uri.parse(mirrorReleaseUrl)),
+        throwsA(isA<http.ClientException>()),
+      );
+
+      expect(requests.map((request) => request.url.scheme), ['https', 'https']);
+      expectVersionedUserAgent(requests);
+      expectNoCredentialHeaders(requests);
+    });
+
+    test('follows an http loopback redirect', () async {
+      final server = await _TestServer.start((request, origin) async {
+        if (request.uri.path == '/mirror/app.apk') {
+          request.response.statusCode = HttpStatus.found;
+          request.response.headers.set(
+            HttpHeaders.locationHeader,
+            '$origin/artifacts/app.apk',
+          );
+        } else {
+          request.response.add([3, 2, 1]);
+        }
+        await request.response.close();
+      });
+      addTearDown(server.close);
+
+      final response = await releaseGet('${server.origin}/mirror/app.apk');
+
+      expect(response.statusCode, 200);
+      expect(response.bodyBytes, [3, 2, 1]);
+      expect(server.seen.map((request) => request.path), [
+        '/mirror/app.apk',
+        '/artifacts/app.apk',
+      ]);
+      expect(
+        server.seen.map((request) => request.userAgent),
+        everyElement(versionedUserAgent),
+      );
+    });
+  });
+
+  group('cross-origin redirects', () {
+    for (final status in [302, 307]) {
+      test('a $status redirect to another origin drops credentials', () async {
+        final destination = await _TestServer.start((request, origin) async {
+          request.response.add([7, 8, 9]);
+          await request.response.close();
+        });
+        addTearDown(destination.close);
+        final mirror = await _TestServer.start((request, origin) async {
+          request.response.statusCode = status;
+          request.response.headers.set(
+            HttpHeaders.locationHeader,
+            '${destination.origin}/artifacts/app.apk',
+          );
+          await request.response.close();
+        });
+        addTearDown(mirror.close);
+
+        final response = await releaseGet(
+          '${mirror.origin}/mirror/app.apk',
+          headers: {
+            'Authorization': 'Bearer ghp-synthetic-pat',
+            'Cookie': 'session=synthetic-account',
+            'Proxy-Authorization': 'Basic c3ludGhldGljOmFjY291bnQ=',
+          },
+        );
+
+        expect(response.statusCode, 200);
+        expect(response.bodyBytes, [7, 8, 9]);
+        expect(mirror.origin, isNot(destination.origin));
+        expect(mirror.seen.single.path, '/mirror/app.apk');
+        expect(destination.seen.single.path, '/artifacts/app.apk');
+        for (final seen in [...mirror.seen, ...destination.seen]) {
+          expect(seen.userAgent, versionedUserAgent);
+          expect(seen.authorization, isNull);
+          expect(seen.cookie, isNull);
+          expect(seen.proxyAuthorization, isNull);
+        }
+      });
+    }
   });
 
   group('real transport', () {

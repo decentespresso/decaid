@@ -747,12 +747,13 @@ void main() {
         final host = 'http://${server.address.address}:${server.port}';
         final paths = <String>[];
         final userAgents = <String?>[];
+        final firstChunkSeen = Completer<void>();
         final client = http.Client();
         addTearDown(() async {
           client.close();
           await server.close(force: true);
         });
-        server.listen((request) {
+        server.listen((request) async {
           paths.add(request.uri.path);
           userAgents.add(request.headers.value(HttpHeaders.userAgentHeader));
           if (request.uri.path == '/app.apk') {
@@ -762,9 +763,14 @@ void main() {
               '$host/cdn/app.apk',
             );
           } else {
-            request.response.add([4, 5, 6]);
+            request.response.contentLength = 12;
+            request.response.bufferOutput = false;
+            request.response.add([1, 2, 3, 4, 5, 6]);
+            await request.response.flush();
+            await firstChunkSeen.future;
+            request.response.add([7, 8, 9, 10, 11, 12]);
           }
-          request.response.close();
+          await request.response.close();
         });
         final updater = AndroidUpdater(
           owner: 'tadelv',
@@ -779,10 +785,42 @@ void main() {
           tagName: 'v1.2.3',
         );
 
-        final path = await updater.downloadUpdate(update, cacheDir: tmp);
+        final progress = <double>[];
+        final path = await updater.downloadUpdate(
+          update,
+          cacheDir: tmp,
+          onProgress: (value) {
+            progress.add(value);
+            if (value == 0.5 && !firstChunkSeen.isCompleted) {
+              expect(
+                tmp.listSync().whereType<File>().single.readAsBytesSync(),
+                [1, 2, 3, 4, 5, 6],
+              );
+              firstChunkSeen.complete();
+            }
+          },
+        );
 
         expect(path, '${tmp.path}/update_1.2.3.apk');
-        expect(await File(path).readAsBytes(), [4, 5, 6]);
+        expect(await File(path).readAsBytes(), [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+        ]);
+        expect(progress, contains(0.5));
+        expect(progress.last, 1.0);
+        for (var i = 1; i < progress.length; i++) {
+          expect(progress[i], greaterThanOrEqualTo(progress[i - 1]));
+        }
         expect(paths, ['/app.apk', '/cdn/app.apk']);
         expect(userAgents, [
           'Decaid/${BuildInfo.version}',
@@ -790,6 +828,245 @@ void main() {
         ]);
       },
     );
+
+    for (final truncated in [true, false]) {
+      test('removes partial data from a redirected body that is '
+          '${truncated ? 'truncated' : 'failing'}', () async {
+        final failure = const HttpException('connection cancelled');
+        Stream<List<int>> redirectedBody() async* {
+          yield [1, 2, 3];
+          expect(tmp.listSync().whereType<File>().single.readAsBytesSync(), [
+            1,
+            2,
+            3,
+          ]);
+          if (!truncated) throw failure;
+        }
+
+        final requests = <http.BaseRequest>[];
+        final updater = AndroidUpdater(
+          owner: 'tadelv',
+          repo: 'reaprime',
+          httpClient: MockClient.streaming((request, body) async {
+            requests.add(request);
+            if (request.url.path == '/mirror/app.apk') {
+              return http.StreamedResponse(
+                const Stream.empty(),
+                307,
+                headers: {'location': 'https://cdn.example.com/app.apk'},
+              );
+            }
+            return http.StreamedResponse(
+              redirectedBody(),
+              200,
+              contentLength: 6,
+            );
+          }),
+        );
+
+        await expectLater(
+          updater.downloadUpdate(
+            UpdateInfo(
+              version: '1.2.3',
+              downloadUrl: 'https://mirror.example.com/mirror/app.apk',
+              releaseNotes: '',
+              isPrerelease: false,
+              tagName: 'v1.2.3',
+            ),
+            cacheDir: tmp,
+          ),
+          throwsA(truncated ? isA<HttpException>() : same(failure)),
+        );
+
+        expect(requests, hasLength(2));
+        expect(tmp.listSync(), isEmpty);
+      });
+    }
+
+    test('drains a non-200 body and keeps the shared client usable', () async {
+      final requests = <http.BaseRequest>[];
+      var drained = 0;
+      final updater = AndroidUpdater(
+        owner: 'tadelv',
+        repo: 'reaprime',
+        httpClient: MockClient.streaming((request, body) async {
+          requests.add(request);
+          if (request.url.path == '/missing.apk') {
+            return http.StreamedResponse(
+              Stream.fromIterable([
+                [1, 2, 3],
+                [4, 5, 6],
+              ]).map((chunk) {
+                drained += chunk.length;
+                return chunk;
+              }),
+              404,
+              contentLength: 6,
+            );
+          }
+          return http.StreamedResponse(
+            Stream.fromIterable([
+              [7, 8, 9],
+            ]),
+            200,
+            contentLength: 3,
+          );
+        }),
+      );
+
+      await expectLater(
+        updater.downloadUpdate(
+          UpdateInfo(
+            version: '1.2.3',
+            downloadUrl: 'https://example.com/missing.apk',
+            releaseNotes: '',
+            isPrerelease: false,
+            tagName: 'v1.2.3',
+          ),
+          cacheDir: tmp,
+        ),
+        throwsA(
+          isA<RemoteServiceException>().having(
+            (error) => error.statusCode,
+            'statusCode',
+            404,
+          ),
+        ),
+      );
+      expect(drained, 6);
+      expect(tmp.listSync(), isEmpty);
+
+      final path = await updater.downloadUpdate(info(), cacheDir: tmp);
+
+      expect(await File(path).readAsBytes(), [7, 8, 9]);
+      expect(requests, hasLength(2));
+    });
+
+    test(
+      'rejects an insecure redirect and keeps the shared client usable',
+      () async {
+        final requests = <http.BaseRequest>[];
+        var drained = 0;
+        final updater = AndroidUpdater(
+          owner: 'tadelv',
+          repo: 'reaprime',
+          httpClient: MockClient.streaming((request, body) async {
+            requests.add(request);
+            if (request.url.scheme == 'https') {
+              return http.StreamedResponse(
+                Stream.fromIterable([
+                  [1, 2],
+                ]).map((chunk) {
+                  drained += chunk.length;
+                  return chunk;
+                }),
+                302,
+                headers: {'location': 'http://cdn.example.com/app.apk'},
+              );
+            }
+            return http.StreamedResponse(
+              Stream.fromIterable([
+                [4, 5, 6],
+              ]),
+              200,
+              contentLength: 3,
+            );
+          }),
+        );
+
+        await expectLater(
+          updater.downloadUpdate(
+            UpdateInfo(
+              version: '1.2.3',
+              downloadUrl: 'https://mirror.example.com/app.apk',
+              releaseNotes: '',
+              isPrerelease: false,
+              tagName: 'v1.2.3',
+            ),
+            cacheDir: tmp,
+          ),
+          throwsA(isA<http.ClientException>()),
+        );
+        expect(drained, 2);
+        expect(requests, hasLength(1));
+        expect(tmp.listSync(), isEmpty);
+
+        final path = await updater.downloadUpdate(
+          UpdateInfo(
+            version: '1.2.3',
+            downloadUrl: 'http://cdn.example.com/app.apk',
+            releaseNotes: '',
+            isPrerelease: false,
+            tagName: 'v1.2.3',
+          ),
+          cacheDir: tmp,
+        );
+
+        expect(await File(path).readAsBytes(), [4, 5, 6]);
+        expect(requests, hasLength(2));
+      },
+    );
+
+    test('a failed download leaves a real shared client usable', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final host = 'http://${server.address.address}:${server.port}';
+      final client = http.Client();
+      addTearDown(() async {
+        client.close();
+        await server.close(force: true);
+      });
+      final paths = <String>[];
+      server.listen((request) {
+        paths.add(request.uri.path);
+        if (request.uri.path == '/missing.apk') {
+          request.response.statusCode = HttpStatus.notFound;
+          request.response.write('{"message":"Not Found"}');
+        } else {
+          request.response.add([4, 5, 6]);
+        }
+        request.response.close();
+      });
+      final updater = AndroidUpdater(
+        owner: 'tadelv',
+        repo: 'reaprime',
+        httpClient: client,
+      );
+
+      await expectLater(
+        updater.downloadUpdate(
+          UpdateInfo(
+            version: '1.2.3',
+            downloadUrl: '$host/missing.apk',
+            releaseNotes: '',
+            isPrerelease: false,
+            tagName: 'v1.2.3',
+          ),
+          cacheDir: tmp,
+        ),
+        throwsA(
+          isA<RemoteServiceException>().having(
+            (error) => error.statusCode,
+            'statusCode',
+            404,
+          ),
+        ),
+      );
+      expect(tmp.listSync(), isEmpty);
+
+      final path = await updater.downloadUpdate(
+        UpdateInfo(
+          version: '1.2.3',
+          downloadUrl: '$host/app.apk',
+          releaseNotes: '',
+          isPrerelease: false,
+          tagName: 'v1.2.3',
+        ),
+        cacheDir: tmp,
+      );
+
+      expect(await File(path).readAsBytes(), [4, 5, 6]);
+      expect(paths, ['/missing.apk', '/app.apk']);
+    });
 
     test('removes partial data after a response stream error', () async {
       final failure = const HttpException('connection cancelled');
