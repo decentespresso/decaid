@@ -1086,14 +1086,36 @@ never retain the disconnected instance beside its connected replacement.
 
 If multiple machines or scales are found without a preferred device set, ConnectionManager emits `pendingAmbiguity: machinePicker` or `scalePicker`, and the UI shows a picker dialog.
 
+### Live Discovery During Scanning
+
+While the scan is active, the onboarding scan lists the recognized Decent
+machines and scales it has found, grouped by the roles Machine and Scale and
+labelled with each device's own display name. Duplicate `deviceId` values are
+collapsed, distinct devices that share a display name stay distinct, and
+missing or blank names fall back to a role label. Long names are ellipsized
+inside a bounded, scrollable region that follows the device stream for
+additions, renames and removals. When nothing is recognized, the scan says it
+is still looking for a Decent machine. The
+list is informational: it is read-only during the active scan, never presents
+Bluetooth addresses or unsupported peripherals, and makes no connection or
+preference call. `ConnectionManager` keeps ownership of connection decisions,
+and completed discovery still uses the existing machine and scale pickers with
+`selectMachine`/`selectScale`.
+
 ### Leaving Initial Discovery
 
-The onboarding scan offers **Continue to Dashboard** immediately while scanning
-or connecting. The 16-second **This is taking a while...** troubleshooting sheet
-remains available when the user keeps waiting.
+The onboarding scan offers **Skip device setup** immediately while scanning,
+while connecting, in the picker, and in the empty, error, Bluetooth-unavailable
+and troubleshooting states. Scanning and connecting also explain that the
+machine can be connected later from the dashboard. The same skip wording is
+used by the 16-second
+**This is taking a while...** sheet and by `ScanResultsSummary`.
+`LauncherScanPage` keeps **Cancel** and receives no onboarding help copy. The
+skip action is presented as a secondary/outline control while scan progress and
+connection actions use the theme's primary treatment.
 
 `ScanFlowView` owns exit cancellation for both onboarding and `LauncherScanPage`.
-Dashboard/Cancel actions and system back finish the flow before calling
+Skip/Cancel actions and system back finish the flow before calling
 `ConnectionManager.cancelActiveScan()` and `DeviceController.stopScan()`, then
 invoke the caller's navigation callback. Disposal of an unfinished scan also
 cancels it. Late status, discovery, guardian events and the threshold timer

@@ -43,6 +43,11 @@ class ScanStepView extends StatelessWidget {
   @visibleForTesting
   static const scanTooLongThreshold = ScanFlowView.scanTooLongThreshold;
 
+  static const skipExitLabel = 'Skip device setup';
+
+  static const skipExitHelp =
+      'You can connect your machine later from the dashboard.';
+
   const ScanStepView({
     super.key,
     required this.onboardingController,
@@ -64,7 +69,8 @@ class ScanStepView extends StatelessWidget {
       directConnect: directConnect,
       onConnected: onboardingController.advance,
       onExit: onSkipToDashboard ?? onboardingController.advance,
-      exitLabel: 'Dashboard',
+      exitLabel: skipExitLabel,
+      exitHelp: skipExitHelp,
     );
   }
 }

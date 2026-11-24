@@ -27,6 +27,13 @@ import '../onboarding_feature/widgets/troubleshooting_wizard.dart';
 
 final _log = Logger('ScanFlow');
 
+class _RecognizedDevice {
+  const _RecognizedDevice({required this.role, required this.name});
+
+  final String role;
+  final String name;
+}
+
 class ScanFlowView extends StatefulWidget {
   final ConnectionManager connectionManager;
   final DeviceController deviceController;
@@ -43,6 +50,8 @@ class ScanFlowView extends StatefulWidget {
 
   final String exitLabel;
 
+  final String? exitHelp;
+
   static const scanTooLongThreshold = Duration(seconds: 16);
 
   const ScanFlowView({
@@ -55,7 +64,8 @@ class ScanFlowView extends StatefulWidget {
     this.initialConnectionIntent,
     required this.onConnected,
     required this.onExit,
-    this.exitLabel = 'Dashboard',
+    this.exitLabel = 'Continue to Dashboard',
+    this.exitHelp,
   });
 
   @override
@@ -325,95 +335,164 @@ class ScanFlowViewState extends State<ScanFlowView> {
     );
   }
 
-  int get _totalDiscovered =>
-      _discoveredMachines.length + _discoveredScales.length;
+  static const _machineRole = 'Machine';
+  static const _scaleRole = 'Scale';
+
+  List<_RecognizedDevice> get _recognizedDevices {
+    final rows = <_RecognizedDevice>[];
+    final seenIds = <String>{};
+
+    void addRole(String role, String fallbackName, List<dev.Device> devices) {
+      for (final device in devices) {
+        final id = device.deviceId;
+        if (id.isNotEmpty && !seenIds.add(id)) continue;
+        final name = device.name.trim();
+        rows.add(
+          _RecognizedDevice(
+            role: role,
+            name: name.isEmpty ? fallbackName : name,
+          ),
+        );
+      }
+    }
+
+    addRole(_machineRole, 'Decent machine', _discoveredMachines);
+    addRole(_scaleRole, 'Decent scale', _discoveredScales);
+    return rows;
+  }
+
+  int get _recognizedDeviceCount => _recognizedDevices.length;
 
   String _scanningMessage() {
     if (_showTakingTooLong) {
       return 'Scanning is taking longer than usual. Check that your devices '
           'are powered on and in range.';
     }
-    if (_totalDiscovered == 0) {
+    if (_recognizedDeviceCount == 0) {
       return 'Scanning for your Decent machine and scale...';
     }
-    final plural = _totalDiscovered == 1 ? '' : 's';
-    return 'Found $_totalDiscovered device$plural. Still scanning...';
+    final plural = _recognizedDeviceCount == 1 ? '' : 's';
+    return 'Found $_recognizedDeviceCount device$plural. Still scanning...';
+  }
+
+  Widget _boundedButtonLabel(String text) {
+    return Flexible(
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(text, maxLines: 1, textAlign: TextAlign.center),
+      ),
+    );
   }
 
   Widget _scanningView(BuildContext context) {
+    final theme = ShadTheme.of(context);
+    final messageStyle = Theme.of(context).textTheme.titleMedium;
+    final secondaryMessageStyle = Theme.of(context).textTheme.bodySmall;
     final hasDevicesNotPreferred = _hasDevicesButNotPreferred;
-    final deviceCount = _totalDiscovered;
+    final deviceCount = _recognizedDeviceCount;
+    final recognizedDevices = _recognizedDevices;
 
     return Column(
       children: [
         Expanded(
           child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Semantics(
-                  label: 'Scanning for devices',
-                  child: SizedBox(width: 200, child: ShadProgress()),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 440),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Semantics(
+                      container: true,
+                      label: 'Scanning for devices',
+                      child: Center(
+                        child: SizedBox(width: 200, child: ShadProgress()),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Semantics(
+                      liveRegion: true,
+                      child: hasDevicesNotPreferred && _showTakingTooLong
+                          ? Column(
+                              children: [
+                                Text(
+                                  '$deviceCount device${deviceCount == 1 ? '' : 's'} found, but not your preferred one.',
+                                  style: messageStyle,
+                                  textAlign: TextAlign.center,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Still scanning...',
+                                  style: secondaryMessageStyle,
+                                  textAlign: TextAlign.center,
+                                ),
+                              ],
+                            )
+                          : Text(
+                              _scanningMessage(),
+                              style: messageStyle,
+                              textAlign: TextAlign.center,
+                            ),
+                    ),
+                    if (recognizedDevices.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      _recognizedDeviceList(context, recognizedDevices),
+                    ],
+                    ExcludeSemantics(
+                      excluding: !_showTakingTooLong,
+                      child: AnimatedOpacity(
+                        opacity: _showTakingTooLong ? 1.0 : 0.0,
+                        duration: const Duration(milliseconds: 400),
+                        child: IgnorePointer(
+                          ignoring: !_showTakingTooLong,
+                          child: Padding(
+                            padding: const EdgeInsets.only(top: 16),
+                            child: AccessibleButton(
+                              label: hasDevicesNotPreferred
+                                  ? 'View found devices'
+                                  : 'This is taking a while...',
+                              onTap: _showTakingTooLongSheet,
+                              child: ShadButton.outline(
+                                size: ShadButtonSize.sm,
+                                onPressed: _showTakingTooLongSheet,
+                                child: _boundedButtonLabel(
+                                  hasDevicesNotPreferred
+                                      ? 'View found devices'
+                                      : 'This is taking a while...',
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 16),
-                if (hasDevicesNotPreferred && _showTakingTooLong) ...[
-                  Semantics(
-                    liveRegion: true,
-                    child: Text(
-                      '$deviceCount device${deviceCount == 1 ? '' : 's'} found, but not your preferred one.',
-                      style: Theme.of(context).textTheme.titleMedium,
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Semantics(
-                    liveRegion: true,
-                    child: Text(
-                      'Still scanning...',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ),
-                ] else
-                  Semantics(
-                    liveRegion: true,
-                    child: Text(
-                      _scanningMessage(),
-                      style: Theme.of(context).textTheme.titleMedium,
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-              ],
+              ),
             ),
           ),
         ),
         Padding(
-          padding: const EdgeInsets.only(bottom: 16),
-          child: _exitButton(),
-        ),
-        ExcludeSemantics(
-          excluding: !_showTakingTooLong,
-          child: AnimatedOpacity(
-            opacity: _showTakingTooLong ? 1.0 : 0.0,
-            duration: const Duration(milliseconds: 400),
-            child: IgnorePointer(
-              ignoring: !_showTakingTooLong,
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 32),
-                child: AccessibleButton(
-                  label: hasDevicesNotPreferred
-                      ? 'View found devices'
-                      : 'This is taking a while...',
-                  onTap: _showTakingTooLongSheet,
-                  child: ShadButton.outline(
-                    size: ShadButtonSize.sm,
-                    onPressed: _showTakingTooLongSheet,
-                    child: Text(
-                      hasDevicesNotPreferred
-                          ? 'View found devices'
-                          : 'This is taking a while...',
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 440),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (widget.exitHelp != null) ...[
+                    Text(
+                      widget.exitHelp!,
+                      style: theme.textTheme.muted,
+                      textAlign: TextAlign.center,
                     ),
-                  ),
-                ),
+                    const SizedBox(height: 8),
+                  ],
+                  _exitButton(),
+                ],
               ),
             ),
           ),
@@ -422,16 +501,69 @@ class ScanFlowViewState extends State<ScanFlowView> {
     );
   }
 
+  Widget _recognizedDeviceList(
+    BuildContext context,
+    List<_RecognizedDevice> devices,
+  ) {
+    final headerStyle = ShadTheme.of(context).textTheme.small
+        .copyWith(fontWeight: FontWeight.w600);
+    final machines = devices
+        .where((device) => device.role == _machineRole)
+        .toList();
+    final scales = devices
+        .where((device) => device.role == _scaleRole)
+        .toList();
+
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 480, maxHeight: 220),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ..._recognizedRoleRows(headerStyle, machines),
+            ..._recognizedRoleRows(headerStyle, scales),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _recognizedRoleRows(
+    TextStyle headerStyle,
+    List<_RecognizedDevice> devices,
+  ) {
+    if (devices.isEmpty) return const [];
+    return [
+      Text(devices.first.role, style: headerStyle),
+      for (final device in devices)
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Semantics(
+            container: true,
+            label: '${device.role} ${device.name}',
+            excludeSemantics: true,
+            child: Text(
+              device.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
+    ];
+  }
+
   Widget _exitButton() {
-    final label = widget.exitLabel == 'Dashboard'
-        ? 'Continue to Dashboard'
-        : widget.exitLabel;
-    return AccessibleButton(
-      label: label,
-      onTap: _skipToDashboard,
-      child: ShadButton.secondary(
-        onPressed: _skipToDashboard,
-        child: Text(label),
+    final label = widget.exitLabel;
+    return Semantics(
+      container: true,
+      child: AccessibleButton(
+        label: label,
+        onTap: _skipToDashboard,
+        child: ShadButton.outline(
+          onPressed: _skipToDashboard,
+          child: _boundedButtonLabel(label),
+        ),
       ),
     );
   }
@@ -441,20 +573,32 @@ class ScanFlowViewState extends State<ScanFlowView> {
         ? 'Connecting to your machine...'
         : 'Connecting to your scale...';
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        spacing: 16,
-        children: [
-          Semantics(
-            label: 'Connecting to device',
-            child: SizedBox(width: 200, child: ShadProgress()),
-          ),
-          Semantics(
-            liveRegion: true,
-            child: Text(label, style: Theme.of(context).textTheme.titleMedium),
-          ),
-          _exitButton(),
-        ],
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          spacing: 16,
+          children: [
+            Semantics(
+              label: 'Connecting to device',
+              child: SizedBox(width: 200, child: ShadProgress()),
+            ),
+            Semantics(
+              liveRegion: true,
+              child: Text(
+                label,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+            if (widget.exitHelp != null)
+              Text(
+                widget.exitHelp!,
+                style: ShadTheme.of(context).textTheme.muted,
+                textAlign: TextAlign.center,
+              ),
+            _exitButton(),
+          ],
+        ),
       ),
     );
   }
@@ -625,9 +769,11 @@ class ScanFlowViewState extends State<ScanFlowView> {
                 ],
               ),
             ),
-            Row(
-              mainAxisSize: MainAxisSize.min,
+            Wrap(
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
               spacing: 8,
+              runSpacing: 8,
               children: [
                 if (!isConnecting)
                   AccessibleButton(
@@ -659,16 +805,15 @@ class ScanFlowViewState extends State<ScanFlowView> {
                       connectTarget != null ? 'Connect' : 'Select a machine',
                     ),
                   ),
-                if (!isConnecting)
-                  AccessibleButton(
-                    label: widget.exitLabel,
-                    onTap: _skipToDashboard,
-                    child: ShadButton.secondary(
-                      size: ShadButtonSize.sm,
-                      onPressed: _skipToDashboard,
-                      child: Text(widget.exitLabel),
-                    ),
+                AccessibleButton(
+                  label: widget.exitLabel,
+                  onTap: _skipToDashboard,
+                  child: ShadButton.outline(
+                    size: ShadButtonSize.sm,
+                    onPressed: _skipToDashboard,
+                    child: _boundedButtonLabel(widget.exitLabel),
                   ),
+                ),
               ],
             ),
           ],
@@ -762,9 +907,11 @@ class ScanFlowViewState extends State<ScanFlowView> {
                 ),
               );
             }),
-            Row(
-              mainAxisSize: MainAxisSize.min,
+            Wrap(
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
               spacing: 8,
+              runSpacing: 8,
               children: [
                 if (!isConnecting)
                   ShadButton.outline(
@@ -797,12 +944,11 @@ class ScanFlowViewState extends State<ScanFlowView> {
                         )
                       : const Text('Connect'),
                 ),
-                if (!isConnecting)
-                  ShadButton.secondary(
-                    size: ShadButtonSize.sm,
-                    onPressed: _skipToDashboard,
-                    child: Text(widget.exitLabel),
-                  ),
+                ShadButton.outline(
+                  size: ShadButtonSize.sm,
+                  onPressed: _skipToDashboard,
+                  child: _boundedButtonLabel(widget.exitLabel),
+                ),
               ],
             ),
           ],
@@ -848,9 +994,11 @@ class ScanFlowViewState extends State<ScanFlowView> {
               ),
             ),
           ),
-          Row(
-            mainAxisSize: MainAxisSize.min,
+          Wrap(
+            alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
             spacing: 8,
+            runSpacing: 8,
             children: [
               if (hasFoundDevices)
                 ShadButton.outline(
@@ -858,9 +1006,9 @@ class ScanFlowViewState extends State<ScanFlowView> {
                       setState(() => _showDevicePickerOverride = true),
                   child: const Text('View found devices'),
                 ),
-              ShadButton.secondary(
+              ShadButton.outline(
                 onPressed: _skipToDashboard,
-                child: Text(widget.exitLabel),
+                child: _boundedButtonLabel(widget.exitLabel),
               ),
             ],
           ),
@@ -940,6 +1088,7 @@ class ScanFlowViewState extends State<ScanFlowView> {
               ),
             ),
           ),
+          _exitButton(),
         ],
       ),
     );
@@ -949,13 +1098,20 @@ class ScanFlowViewState extends State<ScanFlowView> {
     final report = widget.connectionManager.lastScanReport;
     if (report == null) {
       return Center(
-        child: AccessibleButton(
-          label: 'Scan Again',
-          onTap: () => widget.connectionManager.scanAndConnect(),
-          child: ShadButton(
-            onPressed: () => widget.connectionManager.scanAndConnect(),
-            child: const Text('Scan Again'),
-          ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          spacing: 16,
+          children: [
+            AccessibleButton(
+              label: 'Scan Again',
+              onTap: () => widget.connectionManager.scanAndConnect(),
+              child: ShadButton(
+                onPressed: () => widget.connectionManager.scanAndConnect(),
+                child: const Text('Scan Again'),
+              ),
+            ),
+            _exitButton(),
+          ],
         ),
       );
     }
@@ -963,6 +1119,7 @@ class ScanFlowViewState extends State<ScanFlowView> {
     return Center(
       child: ScanResultsSummary(
         report: report,
+        exitLabel: widget.exitLabel,
         onScanAgain: () => widget.connectionManager.scanAndConnect(),
         onTryDemoMode: _tryDemoModeFromNoDevices,
         onTroubleshoot: () => showTroubleshootingWizard(
@@ -980,7 +1137,7 @@ class ScanFlowViewState extends State<ScanFlowView> {
   }
 
   void _showTakingTooLongSheet() {
-    final hasDevices = _totalDiscovered > 0;
+    final hasDevices = _recognizedDeviceCount > 0;
     showModalBottomSheet(
       context: context,
       builder: (_) => SafeArea(
@@ -991,7 +1148,7 @@ class ScanFlowViewState extends State<ScanFlowView> {
               ListTile(
                 leading: const Icon(LucideIcons.list),
                 title: Text(
-                  'View $_totalDiscovered found device${_totalDiscovered == 1 ? '' : 's'}',
+                  'View $_recognizedDeviceCount found device${_recognizedDeviceCount == 1 ? '' : 's'}',
                 ),
                 onTap: () {
                   Navigator.pop(context);
@@ -1027,11 +1184,7 @@ class ScanFlowViewState extends State<ScanFlowView> {
             ),
             ListTile(
               leading: const Icon(LucideIcons.layoutDashboard),
-              title: Text(
-                widget.exitLabel == 'Dashboard'
-                    ? 'Continue to Dashboard'
-                    : widget.exitLabel,
-              ),
+              title: Text(widget.exitLabel),
               onTap: () {
                 Navigator.pop(context);
                 _skipToDashboard();
