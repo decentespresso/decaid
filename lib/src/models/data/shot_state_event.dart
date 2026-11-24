@@ -8,6 +8,8 @@ enum ShotDecisionKind { advance, stop, abort, terminal, finalize }
 enum ShotDecisionReason {
   noScale,
 
+  tareUnconfirmed,
+
   targetWeight,
 
   targetVolume,
