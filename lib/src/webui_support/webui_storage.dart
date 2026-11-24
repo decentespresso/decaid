@@ -14,6 +14,7 @@ import 'package:path/path.dart' as p;
 import 'package:reaprime/src/services/github_credentials.dart';
 import 'package:reaprime/src/services/github_rate_limit.dart';
 import 'package:reaprime/src/services/github_request.dart';
+import 'package:reaprime/src/services/release_request.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/services/storage/app_directories.dart';
 import 'package:reaprime/src/util/safe_path.dart';
@@ -326,11 +327,26 @@ class WebUIStorage {
     String? sourceIdentifier,
     String? releaseAssetName,
     bool? includePrerelease,
+  }) => _installFromUrl(
+    url,
+    sourceIdentifier: sourceIdentifier,
+    releaseAssetName: releaseAssetName,
+    includePrerelease: includePrerelease,
+  );
+
+  Future<void> _installFromUrl(
+    String url, {
+    String? sourceIdentifier,
+    String? releaseAssetName,
+    bool? includePrerelease,
+    bool isReleaseDownload = false,
   }) async {
     _log.info('Downloading WebUI from URL: $url');
 
     try {
-      final response = await http.get(Uri.parse(url));
+      final response = isReleaseDownload
+          ? await releaseGet(url)
+          : await http.get(Uri.parse(url));
       if (response.statusCode != 200) {
         throw remoteHttpError(response.statusCode);
       }
@@ -444,11 +460,12 @@ class WebUIStorage {
 
       _log.info('Downloading asset: ${targetAsset['name']}');
 
-      await installFromUrl(
+      await _installFromUrl(
         downloadUrl,
         sourceIdentifier: 'github_release:$repo@$releaseTag',
         releaseAssetName: assetName,
         includePrerelease: includePrerelease,
+        isReleaseDownload: true,
       );
 
       _log.info(
@@ -784,7 +801,7 @@ class WebUIStorage {
         return RemoteUpdateStatus.alreadyCurrent;
       }
 
-      final assetResponse = await http.get(Uri.parse(downloadUrl));
+      final assetResponse = await releaseGet(downloadUrl);
       if (assetResponse.statusCode != 200) {
         throw remoteHttpError(assetResponse.statusCode);
       }

@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/util/remote_update_report.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
@@ -306,6 +307,131 @@ void main() {
       );
 
       expect(apiGets, greaterThanOrEqualTo(2));
+    });
+
+    test('managed release asset and arbitrary URL requests stay distinct', () async {
+      final archive = makeGitHubArchive();
+      final seen = <http.Request>[];
+      const assetUrl =
+          'https://github.com/acme/custom-skin/releases/download/v1.0.0/'
+          'custom-skin.zip';
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      rootBundle.evict('skin_sources.json');
+      messenger.setMockMessageHandler('flutter/assets', (message) async {
+        final key = const StringCodec().decodeMessage(message);
+        if (key != 'skin_sources.json') return null;
+        return ByteData.sublistView(
+          Uint8List.fromList(
+            utf8.encode(
+              jsonEncode([
+                {
+                  'type': 'github_release',
+                  'repo': 'acme/custom-skin',
+                  'asset': 'custom-skin.zip',
+                },
+              ]),
+            ),
+          ),
+        );
+      });
+      addTearDown(() {
+        messenger.setMockMessageHandler('flutter/assets', null);
+        rootBundle.evict('skin_sources.json');
+      });
+      final settings = SettingsController(MockSettingsService());
+      await settings.loadSettings();
+      final managedStorage = WebUIStorage(settings, webUIDir: webUIDir);
+
+      await http.runWithClient(
+        () => managedStorage.checkRemoteBundledSkins(),
+        () => MockClient((request) async {
+          seen.add(request);
+          final url = request.url.toString();
+          if (url ==
+              'https://api.github.com/repos/acme/custom-skin/releases/latest') {
+            return http.Response(
+              jsonEncode({
+                'tag_name': 'v1.0.0',
+                'name': 'Custom Skin v1.0.0',
+                'published_at': '2026-01-01T00:00:00Z',
+                'assets': [
+                  {
+                    'name': 'custom-skin.zip',
+                    'browser_download_url': assetUrl,
+                    'size': 1234,
+                  },
+                ],
+              }),
+              200,
+            );
+          }
+          if (url == assetUrl) return http.Response.bytes(archive, 200);
+          return http.Response('', 404);
+        }),
+      );
+
+      final asset = seen.singleWhere(
+        (request) => request.url.toString() == assetUrl,
+      );
+      expect(asset.headers['user-agent'], 'Decaid/${BuildInfo.version}');
+      expect(asset.followRedirects, isFalse);
+
+      seen.clear();
+      await http.runWithClient(
+        () => storage.installFromUrl('https://example.com/user-skin.zip'),
+        () => MockClient((request) async {
+          seen.add(request);
+          return http.Response.bytes(archive, 200);
+        }),
+      );
+
+      expect(seen.single.headers.containsKey('user-agent'), isFalse);
+    });
+
+    test('public GitHub release asset download identifies Decaid', () async {
+      final archive = makeGitHubArchive();
+      final seen = <http.Request>[];
+      const assetUrl =
+          'https://github.com/acme/custom-skin/releases/download/v1.0.0/'
+          'custom-skin.zip';
+
+      await http.runWithClient(
+        () => storage.installFromGitHubRelease('acme/custom-skin'),
+        () => MockClient((request) async {
+          seen.add(request);
+          final url = request.url.toString();
+          if (url ==
+              'https://api.github.com/repos/acme/custom-skin/releases/latest') {
+            return http.Response(
+              jsonEncode({
+                'tag_name': 'v1.0.0',
+                'name': 'Custom Skin v1.0.0',
+                'published_at': '2026-01-01T00:00:00Z',
+                'assets': [
+                  {
+                    'name': 'custom-skin.zip',
+                    'browser_download_url': assetUrl,
+                    'size': 1234,
+                  },
+                ],
+              }),
+              200,
+            );
+          }
+          if (url == assetUrl) return http.Response.bytes(archive, 200);
+          return http.Response('', 404);
+        }),
+      );
+
+      final asset = seen.singleWhere(
+        (request) => request.url.toString() == assetUrl,
+      );
+      expect(asset.headers['user-agent'], 'Decaid/${BuildInfo.version}');
+      expect(
+        asset.headers.keys.map((key) => key.toLowerCase()),
+        isNot(contains('authorization')),
+      );
     });
 
     test('GitHub release update preserves a specifically selected asset', () async {

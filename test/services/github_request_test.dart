@@ -1,6 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/services/github_credentials.dart';
 import 'package:reaprime/src/services/github_rate_limit.dart';
 import 'package:reaprime/src/services/github_request.dart';
@@ -85,7 +88,10 @@ void main() {
           () => MockClient((request) async {
             requests++;
             expect(request.headers['accept'], 'application/vnd.github.v3+json');
-            expect(request.headers['user-agent'], 'Decaid');
+            expect(
+              request.headers['user-agent'],
+              'Decaid/${BuildInfo.version}',
+            );
             if (requests > 1) return http.Response('{"sha":"abc"}', 200);
             return http.Response(
               'quota exceeded',
@@ -175,6 +181,52 @@ void main() {
       }
       expect(limit.isLimited, isFalse);
       expect(requests, 2);
+    },
+  );
+
+  test(
+    'release metadata and artifact requests keep the PAT on the API origin',
+    () async {
+      const pat = 'ghp-release-secret';
+      final credentials = GithubCredentialProvider(store: _TestStore(pat));
+      final seen = <http.Request>[];
+      final client = MockClient((request) async {
+        seen.add(request);
+        if (request.url.host == 'api.github.com') {
+          return http.Response(
+            jsonEncode({
+              'tag_name': 'v1.0.0',
+              'assets': [
+                {
+                  'name': 'decaid.apk',
+                  'browser_download_url':
+                      'https://github.com/acme/decaid/releases/download/'
+                      'v1.0.0/decaid.apk',
+                },
+              ],
+            }),
+            200,
+          );
+        }
+        return http.Response.bytes([1, 2, 3], 200);
+      });
+
+      final bytes = await http.runWithClient(() async {
+        final release = await fetchLatestGitHubRelease(
+          'acme/decaid',
+          credentials: credentials,
+        );
+        return downloadGitHubArchive(release.assets.single.downloadUrl);
+      }, () => client);
+
+      expect(bytes, [1, 2, 3]);
+      expect(seen, hasLength(2));
+      expect(
+        seen.map((request) => request.headers['user-agent']),
+        everyElement('Decaid/${BuildInfo.version}'),
+      );
+      expect(seen.first.headers['authorization'], 'Bearer $pat');
+      expect(seen.last.headers.containsKey('authorization'), isFalse);
     },
   );
 
