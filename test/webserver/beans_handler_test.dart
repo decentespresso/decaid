@@ -150,6 +150,42 @@ void main() {
     return await handler(Request('DELETE', Uri.parse('http://localhost$path')));
   }
 
+  Future<String> seedExistingBean() async {
+    final response = await sendPost('/api/v1/beans', {
+      'roaster': 'Sey',
+      'name': 'Gichathaini',
+    });
+    expect(response.statusCode, 201);
+    final seeded = jsonDecode(await response.readAsString());
+    return seeded['id'] as String;
+  }
+
+  Future<void> expectRejectedAndUnchanged({
+    required String field,
+    required String caseName,
+    required Map<String, dynamic> body,
+    required String seededId,
+  }) async {
+    final reason = '$field $caseName: ${jsonEncode(body)}';
+    final response = await sendPost('/api/v1/beans', body);
+    final raw = await response.readAsString();
+    expect(response.statusCode, 400, reason: '$reason -> $raw');
+    expect(jsonDecode(raw), {
+      'error': 'Invalid request',
+      'message': '$field is required',
+    }, reason: reason);
+
+    final listed = jsonDecode(
+      await (await sendGet('/api/v1/beans')).readAsString(),
+    ) as List;
+    expect(listed, hasLength(1), reason: reason);
+    expect(listed.single['id'], seededId, reason: reason);
+    expect(listed.single['roaster'], 'Sey', reason: reason);
+    expect(listed.single['name'], 'Gichathaini', reason: reason);
+    expect(storage.beans, hasLength(1), reason: reason);
+    expect(storage.beans.single.id, seededId, reason: reason);
+  }
+
   group('BeansHandler - Beans', () {
     test('GET /api/v1/beans returns empty list', () async {
       final response = await sendGet('/api/v1/beans');
@@ -170,6 +206,73 @@ void main() {
       expect(body['name'], 'Gichathaini');
       expect(body['country'], 'Kenya');
       expect(body['id'], isNotEmpty);
+    });
+
+    test('POST /api/v1/beans preserves padded required strings', () async {
+      final response = await sendPost('/api/v1/beans', {
+        'roaster': '  Sey  ',
+        'name': ' Gichathaini ',
+      });
+      expect(response.statusCode, 201);
+      final created = jsonDecode(await response.readAsString());
+      expect(created['roaster'], '  Sey  ');
+      expect(created['name'], ' Gichathaini ');
+      expect(created['id'], isNotEmpty);
+
+      final stored = jsonDecode(
+        await (await sendGet('/api/v1/beans/${created['id']}')).readAsString(),
+      );
+      expect(stored['roaster'], '  Sey  ');
+      expect(stored['name'], ' Gichathaini ');
+      expect(storage.beans.single.roaster, '  Sey  ');
+      expect(storage.beans.single.name, ' Gichathaini ');
+    });
+
+    test('POST /api/v1/beans rejects missing, null and non-string required '
+        'fields without mutation', () async {
+      final seeded = await seedExistingBean();
+      const peer = {'roaster': 'Sey', 'name': 'Gichathaini'};
+      final invalidValues = <String, Object?>{
+        'null': null,
+        'bool': true,
+        'number': 42,
+        'list': ['Sey'],
+        'map': {'value': 'Sey'},
+      };
+
+      for (final field in const ['roaster', 'name']) {
+        await expectRejectedAndUnchanged(
+          field: field,
+          caseName: 'missing',
+          body: Map.of(peer)..remove(field),
+          seededId: seeded,
+        );
+        for (final entry in invalidValues.entries) {
+          await expectRejectedAndUnchanged(
+            field: field,
+            caseName: entry.key,
+            body: {...peer, field: entry.value},
+            seededId: seeded,
+          );
+        }
+      }
+    });
+
+    test('POST /api/v1/beans rejects empty and whitespace-only required '
+        'fields without mutation', () async {
+      final seeded = await seedExistingBean();
+      const peer = {'roaster': 'Sey', 'name': 'Gichathaini'};
+
+      for (final field in const ['roaster', 'name']) {
+        for (final value in const ['', '   ', '\t\n']) {
+          await expectRejectedAndUnchanged(
+            field: field,
+            caseName: jsonEncode(value),
+            body: {...peer, field: value},
+            seededId: seeded,
+          );
+        }
+      }
     });
 
     test('GET /api/v1/beans returns created beans', () async {
