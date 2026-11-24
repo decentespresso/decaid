@@ -1431,7 +1431,9 @@ so a late joiner gets a coherent view from any single frame; `decision` is non-n
   `targetVolume` (app-side targets), `profileSkip` (app-issued weight skip), `profileAdvance`
   (firmware-natural step exit), `apiStop` / `appStop` (stop command attributed to a REST client /
   the in-app Stop button), `machineEnded` (GHC stop or natural profile completion —
-  indistinguishable), `noScale` (blocked by `blockOnNoScale`), `error` / `disconnected` (abnormal
+  indistinguishable), `noScale` (blocked by `blockOnNoScale`), `tareUnconfirmed` (with `blockOnNoScale`, the scale
+  never confirmed a zero reading after the tare request, so the shot was aborted and not saved),
+  `error` / `disconnected` (abnormal
   endings, `event: "terminal"`), `stoppingBackstop` (post-stop settling window closed by the safety
   timer; never the stop reason itself).
 - Coverage: the feed reflects app-side sequencing only. In full gateway mode with the app

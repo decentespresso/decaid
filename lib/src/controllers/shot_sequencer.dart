@@ -206,44 +206,83 @@ class ShotSequencer {
   bool _scaleTared = false;
   static const double _tareConfirmGrams = 3.0;
   static const Duration _tareRetryInterval = Duration(seconds: 1);
-  static const int _tareMaxAttempts = 6;
+  static const int _preheatTareMaxAttempts = 6;
+  static const int _pourTareMaxAttempts = 3;
   bool _awaitingTareConfirmation = false;
+  bool _tareAborted = false;
   int _tareAttempts = 0;
+  int _tareAttemptLimit = _preheatTareMaxAttempts;
   Timer? _tareRetryTimer;
   StreamSubscription<device.ConnectionState>? _scaleConnectionSubscription;
 
-  void _requestPourTare() {
+  void _requestTare({required int maxAttempts}) {
+    _cancelTareRetry();
+    _scaleTared = false;
     _awaitingTareConfirmation = true;
     _tareAttempts = 0;
-    _sendPourTare();
+    _tareAttemptLimit = maxAttempts;
+    _sendTare();
   }
 
-  void _sendPourTare() {
+  void _sendTare() {
     _tareAttempts++;
     scaleController.tare().catchError(
-      (e) => _log.warning("Failed to tare scale for pour", e),
+      (e) => _log.warning("Failed to tare scale", e),
     );
-    _tareRetryTimer = Timer(_tareRetryInterval, _retryPourTare);
+    _tareRetryTimer = Timer(_tareRetryInterval, _retryTare);
   }
 
-  void _retryPourTare() {
-    if (!_awaitingTareConfirmation ||
-        _scaleLost ||
-        _state != ShotState.pouring) {
+  void _retryTare() {
+    _tareRetryTimer = null;
+    final retrying =
+        _state == ShotState.preheating || _state == ShotState.pouring;
+    if (!_awaitingTareConfirmation || _scaleLost || !retrying) {
       _cancelTareRetry();
       return;
     }
-    if (_tareAttempts >= _tareMaxAttempts) {
-      _log.warning(
-        'Scale tare not confirmed after $_tareAttempts attempts. '
-        'Stop-at-weight disabled for remainder of this shot.',
-      );
-      _cancelTareRetry();
-      _continueWithoutScale();
+    if (_tareAttempts >= _tareAttemptLimit) {
+      _failTareConfirmation();
       return;
     }
     _log.info('Scale not at zero yet, taring again');
-    _sendPourTare();
+    _sendTare();
+  }
+
+  void _failTareConfirmation() {
+    final pouring = _state == ShotState.pouring;
+    _log.warning(
+      'Scale tare not confirmed after $_tareAttempts attempts '
+      '(state: ${_state.name}).',
+    );
+    _cancelTareRetry();
+    if (_blockOnNoScale) {
+      _abortUnconfirmedTare();
+    } else if (pouring) {
+      _continueWithoutScale();
+    }
+  }
+
+  void _abortUnconfirmedTare() {
+    if (_tareAborted) return;
+    _tareAborted = true;
+    _cancelTareRetry();
+    _volumeCountingActive = false;
+    dataCollectionEnabled = false;
+    _stopScaleTimer();
+    de1controller
+        .requestMachineState(MachineState.idle)
+        .catchError(
+          (error) =>
+              _log.warning("Failed to abort shot for unconfirmed tare: $error"),
+        );
+    _emitDecision(
+      ShotDecisionKind.abort,
+      ShotDecisionReason.tareUnconfirmed,
+      details:
+          'Scale tare could not be confirmed, aborting shot '
+          '(state: ${_state.name}, attempts: $_tareAttempts)',
+      data: {'attempts': _tareAttempts},
+    );
   }
 
   void _confirmTare(WeightSnapshot snapshot) {
@@ -299,8 +338,13 @@ class ShotSequencer {
 
   void _continueWithoutScale() {
     if (_scaleLost ||
+        _tareAborted ||
         _state == ShotState.idle ||
         _state == ShotState.finished) {
+      return;
+    }
+    if (_blockOnNoScale && _awaitingTareConfirmation) {
+      _abortUnconfirmedTare();
       return;
     }
     _scaleLost = true;
@@ -328,6 +372,8 @@ class ShotSequencer {
 
   void _processSnapshot(ShotSnapshot snapshot) {
     _log.finest("Processing snapshot");
+
+    if (_tareAborted) return;
 
     if (!_scaleTared && snapshot.scale != null) {
       final raw = snapshot.scale!;
@@ -445,9 +491,7 @@ class ShotSequencer {
             _log.info(
               "Machine getting ready. Taring scale and resetting timer...",
             );
-            scaleController.tare().catchError(
-              (e) => _log.warning("Failed to tare scale at shot start", e),
-            );
+            _requestTare(maxAttempts: _preheatTareMaxAttempts);
             scaleController.connectedScale().resetTimer().catchError(
               (e) => _log.warning('Failed to reset scale timer', e),
             );
@@ -470,12 +514,13 @@ class ShotSequencer {
         }
         if (machine.state.substate == MachineSubstate.preinfusion ||
             machine.state.substate == MachineSubstate.pouring) {
+          _cancelTareRetry();
           if (scale == null) {
             _continueScaleless = true;
           }
           if (_bypassSAW == false && scale != null && !_scaleLost) {
             _log.info("Taring scale again and starting timer.");
-            _requestPourTare();
+            _requestTare(maxAttempts: _pourTareMaxAttempts);
             _scaleTimerScale = scaleController.connectedScale();
             _scaleTimerScale!.startTimer().catchError(
               (e) => _log.warning('Failed to start scale timer', e),
