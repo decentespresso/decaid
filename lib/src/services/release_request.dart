@@ -49,6 +49,12 @@ Future<http.StreamedResponse> releaseStreamRequest(
     final next = target.resolve(location);
     if (next.scheme != 'http' && next.scheme != 'https') return response;
     await response.stream.drain<void>();
+    if (target.scheme == 'https' && next.scheme != 'https') {
+      throw http.ClientException(
+        'Refusing to follow an insecure redirect to $next',
+        target,
+      );
+    }
     target = next;
   }
 }

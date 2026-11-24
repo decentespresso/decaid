@@ -172,6 +172,7 @@ class AndroidUpdater {
       );
 
       if (response.statusCode != 200) {
+        await response.stream.drain<void>();
         throw remoteHttpError(response.statusCode);
       }
 
