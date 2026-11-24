@@ -82,6 +82,8 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
     _transport = UnifiedDe1Transport(
       transport: transport,
       onNotification: notifyFrom,
+      onSessionRecoveryStarted: _onTransportRecoveryStarted,
+      onSessionRecovered: _onTransportRecovered,
     );
   }
 
@@ -304,13 +306,109 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
     ++_flowEstimationEpoch;
     _cachedFlowEstimation = null;
     _cachedFlowEstimationGeneration = -1;
+    _recoveryStartEpoch = -1;
+    _recoveredGeneration = -1;
   }
 
   Future<void> _refreshFlowEstimation() async {
     try {
       await getFlowEstimation();
     } catch (e) {
-      _log.warning('Could not read flow calibration on connect: $e');
+      _log.warning('Could not read flow calibration: $e');
+    }
+  }
+
+  bool _automaticObservationLive(int generation, int epoch) =>
+      _sessionActive &&
+      generation >= 0 &&
+      generation == _transport.connectionGeneration &&
+      epoch == _flowEstimationEpoch;
+
+  Future<bool> _observeFlowEstimationAutomatically(
+    int generation,
+    int epoch,
+  ) async {
+    if (!_automaticObservationLive(generation, epoch)) return false;
+    try {
+      return await _firmwareMmrGate.runMmr(() async {
+        if (!_automaticObservationLive(generation, epoch)) return false;
+        final List<int> response;
+        try {
+          response = await _mmrReadRawPermitted(
+            MMRItem.calFlowEst.address,
+            label: MMRItem.calFlowEst.name,
+          );
+        } catch (_) {
+          if (_automaticObservationLive(generation, epoch)) {
+            _cachedFlowEstimation = null;
+            _cachedFlowEstimationGeneration = generation;
+          }
+          rethrow;
+        }
+        if (!_automaticObservationLive(generation, epoch)) return false;
+        _rememberFlowEstimation(
+          _unpackMMRInt(response).toDouble() * MMRItem.calFlowEst.readScale,
+          generation,
+        );
+        return true;
+      });
+    } catch (e) {
+      _log.warning('Could not read flow calibration automatically: $e');
+      return false;
+    }
+  }
+
+  static const _maxRecoveryRefreshAttempts = 2;
+
+  bool _recoveryRefreshRunning = false;
+  bool _recoveryRefreshQueued = false;
+
+  void _onTransportRecoveryStarted(int token) {
+    if (!_sessionActive) return;
+    _recoveryToken = token;
+    _recoveryStartEpoch = _flowEstimationEpoch;
+    _recoveredGeneration = -1;
+  }
+
+  void _onTransportRecovered(int token) {
+    if (token != _recoveryToken) return;
+    if (!_sessionActive || _recoveryStartEpoch != _flowEstimationEpoch) {
+      _recoveredGeneration = -1;
+      return;
+    }
+    _recoveredGeneration = _transport.connectionGeneration;
+    ++_recoverySequence;
+    if (_recoveryRefreshRunning) {
+      _recoveryRefreshQueued = true;
+      return;
+    }
+    unawaited(_runRecoveryRefresh(_recoveryStartEpoch));
+  }
+
+  Future<void> _runRecoveryRefresh(int epoch) async {
+    _recoveryRefreshRunning = true;
+    var chainEpoch = epoch;
+    var attempt = 0;
+    try {
+      while (true) {
+        _recoveryRefreshQueued = false;
+        ++attempt;
+        final observed = await _observeFlowEstimationAutomatically(
+          _recoveredGeneration,
+          chainEpoch,
+        );
+        if (observed) return;
+        if (!_recoveryRefreshQueued) return;
+        if (_recoveryStartEpoch != chainEpoch) {
+          chainEpoch = _recoveryStartEpoch;
+          attempt = 0;
+          continue;
+        }
+        if (attempt >= _maxRecoveryRefreshAttempts) return;
+      }
+    } finally {
+      _recoveryRefreshRunning = false;
+      _recoveryRefreshQueued = false;
     }
   }
 
@@ -443,7 +541,14 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
   double? _cachedFlowEstimation;
   int _cachedFlowEstimationGeneration = -1;
   int _flowEstimationEpoch = 0;
+  Object? _sessionOwner;
+  int _recoveryToken = 0;
+  int _recoveryStartEpoch = -1;
+  int _recoveredGeneration = -1;
+  int _recoverySequence = 0;
   int? _connectedModelValue;
+
+  bool get _sessionActive => _sessionOwner != null;
 
   @protected
   int get connectedModelValue => _connectedModelValue!;
@@ -451,54 +556,67 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
   @override
   Future<void> onConnect() async {
     initRawStream();
+    final owner = Object();
+    _sessionOwner = owner;
     _forgetFlowEstimation();
-    await _transport.connect();
+    try {
+      await _transport.connect();
 
-    _currentProfile = null;
-    clearEffectiveIdentity();
+      _currentProfile = null;
+      clearEffectiveIdentity();
 
-    if (_info != null) {
-      await _refreshFlowEstimation();
-      return;
-    }
+      if (_info != null) {
+        if (_sessionActive) await _refreshFlowEstimation();
+        return;
+      }
 
-    final model = _unpackMMRInt(await _mmrRead(MMRItem.v13Model));
-    _connectedModelValue = model;
-    if (isBengleModelValue(model) && implementation != .bengle) {
-      _log.warning(
-        'Device model $model indicates Bengle hardware; '
-        'continuing in degraded DE1-compatible mode.',
+      final model = _unpackMMRInt(await _mmrRead(MMRItem.v13Model));
+      _connectedModelValue = model;
+      if (isBengleModelValue(model) && implementation != .bengle) {
+        _log.warning(
+          'Device model $model indicates Bengle hardware; '
+          'continuing in degraded DE1-compatible mode.',
+        );
+      }
+      final ghcInfo = _unpackMMRInt(await _mmrRead(MMRItem.ghcInfo));
+      final serial = _unpackMMRInt(await _mmrRead(MMRItem.serialN));
+      final firmware = _unpackMMRInt(await _mmrRead(MMRItem.cpuFirmwareBuild));
+      _voltage = _unpackMMRInt(await _mmrRead(MMRItem.heaterV));
+      _refillKitDetected = _unpackMMRInt(
+        await _mmrRead(MMRItem.refillKitPresent),
       );
+      if (_sessionActive) await _refreshFlowEstimation();
+
+      _info = MachineInfo(
+        version: "$firmware",
+        model: DecentMachineModel.fromInt(model).name,
+        serialNumber: "$serial",
+        groupHeadControllerPresent: (ghcInfo & 0x04) > 1,
+        extra: {
+          'refillKit': (_refillKitDetected & 0x01) != 0,
+          'voltage': _voltage,
+        },
+      );
+
+      _log.info("Info: ${_info!.toJson()}");
+
+      await _mmrWrite(MMRItem.refillKitPresent, [
+        De1RefillKitSettings.auto.hex,
+      ]);
+      _refillKitSetting = De1RefillKitSettings.auto;
+
+      await enableUserPresenceFeature();
+    } catch (_) {
+      if (identical(_sessionOwner, owner)) {
+        _sessionOwner = null;
+        _forgetFlowEstimation();
+      }
+      rethrow;
     }
-    final ghcInfo = _unpackMMRInt(await _mmrRead(MMRItem.ghcInfo));
-    final serial = _unpackMMRInt(await _mmrRead(MMRItem.serialN));
-    final firmware = _unpackMMRInt(await _mmrRead(MMRItem.cpuFirmwareBuild));
-    _voltage = _unpackMMRInt(await _mmrRead(MMRItem.heaterV));
-    _refillKitDetected = _unpackMMRInt(
-      await _mmrRead(MMRItem.refillKitPresent),
-    );
-    await _refreshFlowEstimation();
-
-    _info = MachineInfo(
-      version: "$firmware",
-      model: DecentMachineModel.fromInt(model).name,
-      serialNumber: "$serial",
-      groupHeadControllerPresent: (ghcInfo & 0x04) > 1,
-      extra: {
-        'refillKit': (_refillKitDetected & 0x01) != 0,
-        'voltage': _voltage,
-      },
-    );
-
-    _log.info("Info: ${_info!.toJson()}");
-
-    await _mmrWrite(MMRItem.refillKitPresent, [De1RefillKitSettings.auto.hex]);
-    _refillKitSetting = De1RefillKitSettings.auto;
-
-    await enableUserPresenceFeature();
   }
 
   Future<void> onDisconnect() async {
+    _sessionOwner = null;
     _forgetFlowEstimation();
   }
 
@@ -677,13 +795,26 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
   Future<void> _setFlowEstimationLocked(double multiplier) async {
     final generation = _transport.connectionGeneration;
     final epoch = _flowEstimationEpoch;
+    final recoverySequence = _recoverySequence;
     final effective =
         _scaledClampedMMRInt(MMRItem.calFlowEst, multiplier).toDouble() *
         MMRItem.calFlowEst.readScale;
     await _writeMMRScaled(MMRItem.calFlowEst, multiplier);
-    final unchanged = _flowEstimationSessionUnchanged(generation, epoch);
-    ++_flowEstimationEpoch;
-    if (unchanged) {
+    if (epoch != _flowEstimationEpoch) return;
+    final acknowledgedGeneration = _transport.connectionGeneration;
+    final acknowledgedEpoch = ++_flowEstimationEpoch;
+    final recovered =
+        _recoverySequence != recoverySequence &&
+        _recoveryStartEpoch == epoch &&
+        _recoveredGeneration == acknowledgedGeneration;
+    if (recovered) {
+      await _observeFlowEstimationAutomatically(
+        acknowledgedGeneration,
+        acknowledgedEpoch,
+      );
+      return;
+    }
+    if (acknowledgedGeneration == generation) {
       _rememberFlowEstimation(effective, generation);
     }
   }

@@ -808,7 +808,7 @@ Future<void> connectToDe1(De1Interface de1Interface) async {
 }
 ```
 
-On connect, the DE1 firmware calibration is read first, then a nullable saved flow override is applied during startup defaults; absent overrides leave firmware calibration untouched. The persisted value is the **requested** multiplier; after the transport acknowledges the write, the cache holds the **effective** value derived from Decaid's own register encoding (requested value clamped to the raw 130–2000 range, converted back through the read scale), with no post-write read-back. Only an explicit `getFlowEstimation()` returns a value actually **reported** by the machine. The override identity is captured from the raw serial, falling back to device ID, and is not recomputed after connection identity resolution.
+On each DE1 connection, the firmware flow estimation multiplier is read into the live session cache; legacy saved calibration overrides are inert and are never replayed during startup defaults. An explicit calibration write caches the **effective** multiplier derived from Decaid's register encoding (raw 130–2000, converted through the read scale) after acknowledgement when the session is unchanged. Successful transparent BLE recovery triggers a fresh, read-only firmware observation. An explicit write that spans recovery awaits a fresh observation after releasing the MMR gate. Failed or obsolete observations leave the session value unknown without blocking readiness or turning a successful write acknowledgement into a failure. Failed writes neither update the cache nor create a deferred write. Workflow provenance uses the current session cache, not a stored override.
 
 **Key Streams:**
 - `de1`: Current connected DE1 (or null)

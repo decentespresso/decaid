@@ -36,7 +36,10 @@ class UnifiedDe1Transport {
   final TransportType transportType;
   final Logger _log;
   final void Function(Endpoint, Uint8List)? onNotification;
+  final void Function(int token)? onSessionRecoveryStarted;
+  final void Function(int token)? onSessionRecovered;
   int _notificationGeneration = 0;
+  int _recoveryToken = 0;
 
   StreamSubscription<String>? _transportSubscription;
   StreamSubscription<device.ConnectionState>? _connectionStateSubscription;
@@ -93,10 +96,14 @@ class UnifiedDe1Transport {
   // it from live frames and from every local write.
   Uint8List _localShotSettings = Uint8List.fromList(_defaultShotSettingsFrame);
 
-  UnifiedDe1Transport({required DataTransport transport, this.onNotification})
-    : _transport = transport,
-      transportType = transport.transportType,
-      _log = Logger("UnifiedDe1Transport-${transport.id}");
+  UnifiedDe1Transport({
+    required DataTransport transport,
+    this.onNotification,
+    this.onSessionRecoveryStarted,
+    this.onSessionRecovered,
+  }) : _transport = transport,
+       transportType = transport.transportType,
+       _log = Logger("UnifiedDe1Transport-${transport.id}");
   Future<void> connect() async {
     final wasConnected =
         transportType == TransportType.ble &&
@@ -901,6 +908,8 @@ class UnifiedDe1Transport {
   Future<bool> _handleBleTimeout(Object error, StackTrace st) async {
     _log.warning('BLE write timed out, attempting reconnect');
     _recovering = true;
+    final token = ++_recoveryToken;
+    onSessionRecoveryStarted?.call(token);
     final restoreBengleShotSample = _bengleShotSampleEnabled;
     try {
       _notificationGeneration++;
@@ -921,6 +930,7 @@ class UnifiedDe1Transport {
         await subscribeBengleShotSample();
       }
       _log.info('BLE reconnect successful after timeout');
+      onSessionRecovered?.call(token);
       return true;
     } catch (reconnectError) {
       _log.severe('BLE reconnect failed, disconnecting', reconnectError);
