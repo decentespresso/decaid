@@ -15,8 +15,10 @@ import 'package:reaprime/src/models/data/steam_record.dart';
 import 'package:reaprime/src/models/data/workflow.dart';
 import 'package:reaprime/src/models/data/workflow_context.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
+import 'package:reaprime/src/models/device/device.dart' as device;
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
 import 'package:reaprime/src/models/device/machine.dart';
+import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/services/storage/storage_service.dart';
 import 'package:reaprime/src/settings/gateway_mode.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
@@ -26,6 +28,7 @@ import '../helpers/mock_device_discovery_service.dart';
 import '../helpers/mock_settings_service.dart';
 import '../helpers/recovering_firmware_transport.dart';
 import '../helpers/test_de1.dart';
+import '../helpers/test_scale.dart';
 
 class _TestDe1Controller extends De1Controller {
   final BehaviorSubject<De1Interface?> de1Subject = BehaviorSubject.seeded(
@@ -168,6 +171,8 @@ void main() {
   late _CapturingStorageService storage;
   late WorkflowController workflowController;
   late De1StateManager manager;
+  late MockSettingsService settingsService;
+  late SettingsController settingsController;
   late List<ShotStateEvent> events;
   late StreamSubscription<ShotStateEvent> eventsSub;
 
@@ -182,9 +187,9 @@ void main() {
     storage = _CapturingStorageService();
     workflowController = WorkflowController();
 
-    final settingsService = MockSettingsService();
+    settingsService = MockSettingsService();
     await settingsService.updateGatewayMode(GatewayMode.tracking);
-    final settingsController = SettingsController(settingsService);
+    settingsController = SettingsController(settingsService);
     await settingsController.loadSettings();
 
     final connectionManager = ConnectionManager(
@@ -552,4 +557,125 @@ void main() {
       );
     },
   );
+
+  group('pour tare confirmation', () {
+    final shotTime = DateTime(2026, 1, 15, 8, 0);
+    late TestScale scale;
+
+    setUp(() async {
+      scale = TestScale();
+      await scaleController.connectToScale(scale);
+      await scaleController.connectionState.firstWhere(
+        (s) => s == device.ConnectionState.connected,
+      );
+    });
+
+    tearDown(() => scale.dispose());
+
+    void emitScale(double weight) {
+      scale.emitSnapshot(
+        ScaleSnapshot(timestamp: shotTime, weight: weight, batteryLevel: 90),
+      );
+    }
+
+    Future<void> startShotOnStuckScale() async {
+      emitScale(170.7);
+      await pump();
+      testDe1.emitStateAndSubstate(
+        MachineState.espresso,
+        MachineSubstate.preparingForShot,
+      );
+      await pump();
+      testDe1.emitStateAndSubstate(
+        MachineState.espresso,
+        MachineSubstate.pouring,
+      );
+      await pump();
+    }
+
+    test('an unconfirmed tare aborts a blockOnNoScale shot without saving it, '
+        'and the next shot is unaffected', () async {
+      await settingsService.setBlockOnNoScale(true);
+      await settingsController.loadSettings();
+
+      await startShotOnStuckScale();
+      await Future<void>.delayed(const Duration(milliseconds: 3300));
+
+      final aborts = events.where(
+        (e) =>
+            e.event == 'decision' && e.decision?.kind == ShotDecisionKind.abort,
+      );
+      expect(aborts, hasLength(1));
+      expect(
+        aborts.single.decision?.reason,
+        ShotDecisionReason.tareUnconfirmed,
+      );
+      expect(testDe1.requestedStates, contains(MachineState.idle));
+      expect(events.where((e) => e.event == 'terminal'), isEmpty);
+      expect(events.last.state, ShotState.idle);
+      expect(events.last.shotId, isNull);
+      expect(storage.storedShots, isEmpty);
+
+      testDe1.emitStateAndSubstate(MachineState.idle, MachineSubstate.idle);
+      await pump();
+      events.clear();
+
+      emitScale(0.0);
+      await pump();
+      testDe1.emitStateAndSubstate(
+        MachineState.espresso,
+        MachineSubstate.preparingForShot,
+      );
+      await pump();
+      emitScale(0.0);
+      await pump();
+      testDe1.emitStateAndSubstate(
+        MachineState.espresso,
+        MachineSubstate.pouring,
+      );
+      await pump();
+      emitScale(0.0);
+      await pump();
+      testDe1.emitStateAndSubstate(
+        MachineState.espresso,
+        MachineSubstate.pouringDone,
+      );
+      await pump();
+
+      expect(storage.storedShots, hasLength(1));
+      expect(storage.storedShots.single.stopReason, 'machineEnded');
+      expect(
+        events.where(
+          (e) => e.decision?.reason == ShotDecisionReason.tareUnconfirmed,
+        ),
+        isEmpty,
+      );
+    });
+
+    test('an unconfirmed tare without blockOnNoScale keeps the shot running '
+        'and saves it', () async {
+      await startShotOnStuckScale();
+      await Future<void>.delayed(const Duration(milliseconds: 3300));
+
+      expect(
+        events.where((e) => e.decision?.kind == ShotDecisionKind.abort),
+        isEmpty,
+      );
+      expect(testDe1.requestedStates, isNot(contains(MachineState.idle)));
+
+      testDe1.emitStateAndSubstate(
+        MachineState.espresso,
+        MachineSubstate.pouringDone,
+      );
+      await pump();
+
+      expect(storage.storedShots, hasLength(1));
+      expect(storage.storedShots.single.stopReason, 'machineEnded');
+      expect(
+        events.any((e) => e.scaleLost),
+        isTrue,
+        reason: 'stop-at-weight is disabled for the rest of the shot',
+      );
+    });
+  });
 }
