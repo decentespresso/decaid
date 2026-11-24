@@ -209,6 +209,10 @@ class ScaleController {
   Future<void> tare() async {
     final scale = connectedScale();
     await scale.tare();
+    resetFlowEstimation();
+  }
+
+  void resetFlowEstimation() {
     _kalmanEstimator?.reset(0.0);
     _resetDisplayEstimator();
     _flowSettleUntil = _lastSnapshotTime?.add(_smoothingWindow);

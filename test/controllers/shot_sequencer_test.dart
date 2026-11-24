@@ -82,6 +82,7 @@ class _TestScaleController extends ScaleController {
   final BehaviorSubject<ConnectionState> _connectionState;
   final StreamController<WeightSnapshot> _weight;
   int generation = 0;
+  int flowResets = 0;
   WeightSnapshot? _currentWeight;
 
   _TestScaleController(this.testScale, {bool replayWeights = true})
@@ -128,6 +129,12 @@ class _TestScaleController extends ScaleController {
     );
     _currentWeight = snapshot;
     _weight.add(snapshot);
+  }
+
+  @override
+  void resetFlowEstimation() {
+    flowResets++;
+    super.resetFlowEstimation();
   }
 
   void simulateDisconnect() {
@@ -1986,6 +1993,53 @@ void main() {
         expect(testScale.tareCallCount, 4);
         expect(testDe1.requestedStates, isNot(contains(MachineState.idle)));
         expect(recorded.last.scale, isNull);
+        shotSequencer.dispose();
+      });
+    });
+
+    test('a confirmed tare clears the flow history and the stale flow', () {
+      fakeAsync((async) {
+        scaleController.emitWeight(170.7);
+        final shotSequencer = tareSequencer();
+        final recorded = <ShotSnapshot>[];
+        shotSequencer.shotData.listen(recorded.add);
+        async.elapse(Duration(milliseconds: 10));
+
+        startPour(async);
+        final resetsBeforeConfirm = scaleController.flowResets;
+        scaleController.emitWeight(
+          0.0,
+          weightFlow: -190.0,
+          controlWeightFlow: -190.0,
+        );
+        emitPouring();
+        async.elapse(Duration(milliseconds: 10));
+
+        expect(scaleController.flowResets, resetsBeforeConfirm + 1);
+        expect(recorded.last.scale?.weight, 0.0);
+        expect(recorded.last.scale?.weightFlow, 0.0);
+        expect(recorded.last.scale?.controlWeightFlow, 0.0);
+        shotSequencer.dispose();
+      });
+    });
+
+    test('a step weight exit waits for a confirmed tare', () {
+      fakeAsync((async) {
+        scaleController.emitWeight(170.7);
+        profile = _profileWithSteps([_pressureStep(name: 'first', weight: 10)]);
+        final shotSequencer = tareSequencer();
+        async.elapse(Duration(milliseconds: 10));
+
+        startPour(async);
+        scaleController.emitWeight(170.7);
+        emitPouring();
+        testDe1.emitSnapshot(
+          testDe1.snapshotSubject.value.copyWith(profileFrame: 0),
+        );
+        async.elapse(Duration(milliseconds: 500));
+
+        expect(testDe1.requestedStates, isNot(contains(MachineState.skipStep)));
+        expect(shotSequencer.skippedSteps, isEmpty);
         shotSequencer.dispose();
       });
     });

@@ -291,6 +291,16 @@ class ShotSequencer {
       'attempt $_tareAttempts)',
     );
     _cancelTareRetry();
+    scaleController.resetFlowEstimation();
+    _latestScale = WeightSnapshot(
+      timestamp: snapshot.timestamp,
+      weight: snapshot.weight,
+      weightFlow: 0,
+      controlWeightFlow: 0,
+      battery: snapshot.battery,
+      timerValue: snapshot.timerValue,
+      connectionGeneration: snapshot.connectionGeneration,
+    );
     _scaleTared = true;
   }
 

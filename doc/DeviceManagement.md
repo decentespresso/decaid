@@ -1265,6 +1265,8 @@ If the pour tare is still unconfirmed after the last attempt:
 - `blockOnNoScale` enabled: the shot is aborted with an `abort` decision, reason `tareUnconfirmed`, the machine is sent to idle, and no shot is saved. Losing or replacing the scale while a tare is pending aborts the same way.
 - `blockOnNoScale` disabled: stop-at-weight is disabled for the remainder of the shot, the same as losing the scale, and the target volume fallback applies when one is configured.
 
+When a tare is confirmed the scale controller's flow estimators are reset and the confirming reading's flow is zeroed. A tare that lands on a cup still reading its weight otherwise leaves a large negative flow followed by a positive overshoot that lasts several seconds, which could trigger a weight step exit or stop-at-weight right after the tare.
+
 Losing the scale after a tare was confirmed keeps the existing behaviour: the shot continues without stop-at-weight. Cleaning and calibration shots never enable `blockOnNoScale`.
 
 Readings that arrived before the tare request never confirm it, because a scale reports its old weight until it has applied the tare. Without this check a cup left on the scale made the first post-tare reading look like an overweight shot and stopped it at the start of the pour. de1app handled the same case by re-taring until zero was seen and by clearing its weight history on a confirmed tare.
