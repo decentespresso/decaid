@@ -1,8 +1,11 @@
 import 'dart:convert';
 
+import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/data/bean.dart';
+import 'package:reaprime/src/services/database/database.dart' hide Bean;
 import 'package:reaprime/src/services/storage/bean_storage_service.dart';
+import 'package:reaprime/src/services/storage/drift_bean_storage.dart';
 import 'package:reaprime/src/services/webserver/beans_handler.dart';
 import 'package:shelf_plus/shelf_plus.dart';
 
@@ -730,6 +733,192 @@ void main() {
 
       final getRes = await sendGet('/api/v1/bean-batches/$batchId');
       expect(getRes.statusCode, 404);
+    });
+  });
+
+  group('BeansHandler - bean delete cascade over SQLite', () {
+    late AppDatabase realDb;
+    late Handler realHandler;
+
+    setUp(() {
+      realDb = AppDatabase(NativeDatabase.memory());
+      final beansHandler = BeansHandler(
+        storage: DriftBeanStorageService(realDb),
+      );
+      final app = Router().plus;
+      beansHandler.addRoutes(app);
+      realHandler = app.call;
+    });
+
+    tearDown(() async {
+      await realDb.close();
+    });
+
+    Future<Response> sendReal(
+      String method,
+      String path, {
+      Map<String, dynamic>? body,
+    }) async {
+      return realHandler(
+        Request(
+          method,
+          Uri.parse('http://localhost$path'),
+          body: body == null ? null : jsonEncode(body),
+          headers: body == null ? null : {'content-type': 'application/json'},
+        ),
+      );
+    }
+
+    Future<Map<String, dynamic>> readJson(Response response) async =>
+        jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+
+    Future<List<dynamic>> readList(Response response) async =>
+        jsonDecode(await response.readAsString()) as List<dynamic>;
+
+    Future<Map<String, dynamic>> createRealBean(
+      String roaster,
+      String name,
+    ) async {
+      final response = await sendReal(
+        'POST',
+        '/api/v1/beans',
+        body: {'roaster': roaster, 'name': name},
+      );
+      expect(response.statusCode, 201);
+      return readJson(response);
+    }
+
+    Future<Map<String, dynamic>> createRealBatch(
+      String beanId,
+      Map<String, dynamic> body,
+    ) async {
+      final response = await sendReal(
+        'POST',
+        '/api/v1/beans/$beanId/batches',
+        body: body,
+      );
+      expect(response.statusCode, 201);
+      return readJson(response);
+    }
+
+    test(
+      'DELETE removes the bean and every batch, archived batches included',
+      () async {
+        final target = await createRealBean(
+          '911 Cascade Roaster',
+          '911 Cascade Coffee',
+        );
+        final targetId = target['id'] as String;
+        final activeOne = await createRealBatch(targetId, {
+          'roastLevel': 'light',
+          'weight': 250.0,
+        });
+        final activeTwo = await createRealBatch(targetId, {
+          'roastLevel': 'medium',
+          'weight': 500.0,
+        });
+        final archived = await createRealBatch(targetId, {
+          'roastLevel': 'dark',
+        });
+        final archiveResponse = await sendReal(
+          'PUT',
+          '/api/v1/bean-batches/${archived['id']}',
+          body: {'archived': true},
+        );
+        expect(archiveResponse.statusCode, 200);
+
+        final keepBean = await createRealBean(
+          '911 Keep Roaster',
+          '911 Keep Coffee',
+        );
+        final keepBeanId = keepBean['id'] as String;
+        final keepBatch = await createRealBatch(keepBeanId, {
+          'roastLevel': 'light',
+          'weight': 250.0,
+        });
+        final keepArchivedBatch = await createRealBatch(keepBeanId, {
+          'roastLevel': 'dark',
+        });
+        final keepBeanBefore = await readJson(
+          await sendReal('GET', '/api/v1/beans/$keepBeanId'),
+        );
+        final keepBatchesBefore = await readList(
+          await sendReal(
+            'GET',
+            '/api/v1/beans/$keepBeanId/batches?includeArchived=true',
+          ),
+        );
+        expect(keepBatchesBefore, hasLength(2));
+
+        final deleteResponse = await sendReal(
+          'DELETE',
+          '/api/v1/beans/$targetId',
+        );
+        final deleteBody = await deleteResponse.readAsString();
+        expect(deleteResponse.statusCode, 200, reason: deleteBody);
+        expect(jsonDecode(deleteBody), {'success': true, 'id': targetId});
+
+        final beanAfter = await sendReal('GET', '/api/v1/beans/$targetId');
+        expect(beanAfter.statusCode, 404);
+
+        final batchesAfter = await readList(
+          await sendReal(
+            'GET',
+            '/api/v1/beans/$targetId/batches?includeArchived=true',
+          ),
+        );
+        expect(batchesAfter, isEmpty);
+
+        for (final batch in [activeOne, activeTwo, archived]) {
+          final response = await sendReal(
+            'GET',
+            '/api/v1/bean-batches/${batch['id']}',
+          );
+          expect(response.statusCode, 404, reason: '${batch['id']}');
+        }
+
+        final remainingBatches = await readList(
+          await sendReal('GET', '/api/v1/bean-batches?includeArchived=true'),
+        );
+        expect(remainingBatches.map((batch) => batch['id']).toSet(), {
+          keepBatch['id'],
+          keepArchivedBatch['id'],
+        });
+
+        expect(
+          await readJson(await sendReal('GET', '/api/v1/beans/$keepBeanId')),
+          equals(keepBeanBefore),
+        );
+        expect(
+          (await readList(
+            await sendReal(
+              'GET',
+              '/api/v1/beans/$keepBeanId/batches?includeArchived=true',
+            ),
+          )).map((batch) => jsonEncode(batch)).toSet(),
+          equals(keepBatchesBefore.map((batch) => jsonEncode(batch)).toSet()),
+        );
+      },
+    );
+
+    test('DELETE removes a bean that has no batches', () async {
+      final bean = await createRealBean(
+        '911 Empty Roaster',
+        '911 Empty Coffee',
+      );
+      final beanId = bean['id'] as String;
+
+      final response = await sendReal('DELETE', '/api/v1/beans/$beanId');
+      expect(response.statusCode, 200);
+      expect(await readJson(response), {'success': true, 'id': beanId});
+
+      expect((await sendReal('GET', '/api/v1/beans/$beanId')).statusCode, 404);
+    });
+
+    test('DELETE keeps the documented response for a missing bean', () async {
+      final response = await sendReal('DELETE', '/api/v1/beans/911-missing');
+      expect(response.statusCode, 200);
+      expect(await readJson(response), {'success': true, 'id': '911-missing'});
     });
   });
 }
