@@ -1217,6 +1217,14 @@ De1StateManager({
 
 See [`device-notes/de1.md`](device-notes/de1.md#legacy-identity-resolution).
 
+### Espresso tare confirmation
+
+`ShotSequencer` tares the scale when the machine starts getting ready and again when the pour begins. The pour-time tare is the one that counts: until a scale reading at or below 3 g arrives after that tare was requested, the recorded weight and weight flow are held at 0 and stop-at-weight and weight step exits see nothing.
+
+While the tare is unconfirmed, the sequencer sends another tare every second, up to six attempts in total. If the scale still has not zeroed, stop-at-weight is disabled for the remainder of the shot, the same as losing the scale, and the target volume fallback applies when one is configured.
+
+Readings that arrived before the tare request never confirm it, because a scale reports its old weight until it has applied the tare. Without this check a cup left on the scale made the first post-tare reading look like an overweight shot and stopped it at the start of the pour. de1app handled the same case by re-taring until zero was seen and by clearing its weight history on a confirmed tare.
+
 ### Hot water stop-at-weight
 
 See [`device-notes/de1.md`](device-notes/de1.md#hot-water-stop-at-weight).
