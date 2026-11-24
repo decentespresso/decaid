@@ -15,6 +15,7 @@ import 'package:reaprime/src/models/data/steam_record.dart';
 import 'package:reaprime/src/models/data/workflow.dart';
 import 'package:reaprime/src/models/data/workflow_context.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
+import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/services/storage/storage_service.dart';
 import 'package:reaprime/src/settings/gateway_mode.dart';
@@ -23,6 +24,7 @@ import 'package:rxdart/rxdart.dart';
 
 import '../helpers/mock_device_discovery_service.dart';
 import '../helpers/mock_settings_service.dart';
+import '../helpers/recovering_firmware_transport.dart';
 import '../helpers/test_de1.dart';
 
 class _TestDe1Controller extends De1Controller {
@@ -63,6 +65,30 @@ class _TestDe1Controller extends De1Controller {
 class _UnknownCalibrationDe1 extends TestDe1 {
   @override
   double? get cachedFlowEstimation => null;
+}
+
+class _MutableCalibrationDe1 extends TestDe1 {
+  double? calibration = 1.0;
+
+  @override
+  double? get cachedFlowEstimation => calibration;
+}
+
+class _RecoveredCacheDe1 extends TestDe1 {
+  _RecoveredCacheDe1(this.device);
+
+  final UnifiedDe1 device;
+
+  @override
+  double? get cachedFlowEstimation => device.cachedFlowEstimation;
+}
+
+Future<void> _pumpUntil(bool Function() condition, String label) async {
+  for (var turn = 0; turn < 500; turn++) {
+    if (condition()) return;
+    await Future<void>.delayed(Duration.zero);
+  }
+  fail('condition not met: $label');
 }
 
 class _CapturingStorageService implements StorageService {
@@ -191,23 +217,22 @@ void main() {
     await testDe1.dispose();
   });
 
-  Future<void> driveShot() async {
-    testDe1.emitStateAndSubstate(
+  Future<void> driveShotOn(TestDe1 device) async {
+    device.emitStateAndSubstate(
       MachineState.espresso,
       MachineSubstate.preparingForShot,
     );
     await pump();
-    testDe1.emitStateAndSubstate(
-      MachineState.espresso,
-      MachineSubstate.pouring,
-    );
+    device.emitStateAndSubstate(MachineState.espresso, MachineSubstate.pouring);
     await pump();
-    testDe1.emitStateAndSubstate(
+    device.emitStateAndSubstate(
       MachineState.espresso,
       MachineSubstate.pouringDone,
     );
     await pump();
   }
+
+  Future<void> driveShot() => driveShotOn(testDe1);
 
   test('forwards a full shot lifecycle onto De1Controller.shotState and '
       'persists a matching record', () async {
@@ -285,6 +310,59 @@ void main() {
 
     final record = storage.storedShots.single;
     expect(record.workflow.machine?.flowCalibration, isNull);
+    expect(
+      record.workflow.machine?.provenanceStatus,
+      WorkflowMachineProvenanceStatus.captured,
+    );
+  });
+
+  test('shot provenance captures the live session multiplier, not the '
+      'connect-time value', () async {
+    final mutable = _MutableCalibrationDe1();
+    addTearDown(mutable.dispose);
+    de1Controller.connect(mutable);
+    await pump();
+
+    mutable.calibration = 1.5;
+    await driveShotOn(mutable);
+
+    final record = storage.storedShots.single;
+    expect(record.workflow.machine?.flowCalibration, 1.5);
+    expect(
+      record.workflow.machine?.provenanceStatus,
+      WorkflowMachineProvenanceStatus.captured,
+    );
+  });
+
+  test('shot provenance records the multiplier refreshed after a transport '
+      'recovery', () async {
+    final transport = RecoveringFirmwareTransport()
+      ..machineRawCalFlowEst = 1000;
+    final device = UnifiedDe1(
+      transport: transport,
+      calibrationTimeout: const Duration(milliseconds: 200),
+    );
+    addTearDown(device.dispose);
+    await device.onConnect();
+
+    transport.machineRawCalFlowEst = 800;
+    transport.timeoutNextMmrWrite();
+    await device.setFanThreshhold(20);
+    await _pumpUntil(
+      () => device.cachedFlowEstimation != null,
+      'the multiplier refreshed after recovery',
+    );
+    expect(device.cachedFlowEstimation, closeTo(0.8, 1e-9));
+    expect(transport.calFlowEstWrites, isEmpty);
+
+    final proxied = _RecoveredCacheDe1(device);
+    addTearDown(proxied.dispose);
+    de1Controller.connect(proxied);
+    await pump();
+    await driveShotOn(proxied);
+
+    final record = storage.storedShots.single;
+    expect(record.workflow.machine?.flowCalibration, closeTo(0.8, 1e-9));
     expect(
       record.workflow.machine?.provenanceStatus,
       WorkflowMachineProvenanceStatus.captured,
