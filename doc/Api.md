@@ -482,9 +482,9 @@ For browser clients on a different origin, `ETag` is exposed via `Access-Control
 | POST | `/api/v1/machine/shotSettings` | Update shot settings (steam temp, hot water, target volume, group temp) | |
 | GET | `/api/v1/machine/settings/advanced` | Advanced heater/phase settings | |
 | POST | `/api/v1/machine/settings/advanced` | Update advanced settings (heater phase flows/timeouts, idle temp, `heaterVoltage`, `refillKitSetting`). `refillKitSetting` is an override (`0` force off, `1` force on, `2` auto) retained locally per machine across app restarts and reapplied after reconnect; without a saved override, the firmware's auto handoff is the only refill-kit write on connect. The bounded map keeps 32 machines and evicts the oldest-updated entry. Each connection captures its raw handshake serial, falling back to device ID; account-resolved effective serials are excluded. Raw identity changes across connections do not migrate buckets, while account-only effective identity changes within a connection leave the bucket fixed. If neither is available, defaults are used with no retained entry. It is not detection: `GET /api/v1/machine/info` -> `extra.refillKit` reports what the machine detected | |
-| DELETE | `/api/v1/machine/settings/reset` | Reset the connected machine's settings to defaults (fan, heater idle/phase flows + ph2 timeout, refill kit auto, steam purge 0) and clear its retained fan/refill overrides — flow calibration is left untouched and its saved per-machine override is preserved; no calibration packet is sent and no unit multiplier is written; an acknowledgement is not evidence of factory restoration | |
-| GET | `/api/v1/machine/calibration` | Flow estimation calibration (`flowMultiplier`, calFlowEst MMR) | |
-| POST | `/api/v1/machine/calibration` | Update flow estimation calibration and persist the requested multiplier per machine for the next connection. The key is the raw serial, falling back to device ID; reset preserves the connected machine's override. | |
+| DELETE | `/api/v1/machine/settings/reset` | Reset the connected machine's settings to defaults (fan, heater idle/phase flows + ph2 timeout, refill kit auto, steam purge 0) and clear its retained fan/refill overrides — flow calibration is left untouched; no calibration packet is sent and no unit multiplier is written. A legacy per-machine saved multiplier is never replayed, so reset does not preserve a calibration override for a later connection; an acknowledgement is not evidence of factory restoration | |
+| GET | `/api/v1/machine/calibration` | Flow estimation calibration (`flowMultiplier`, calFlowEst MMR) read live from the machine on every request. A read failure returns 500 with an `error` and no `flowMultiplier`; the response is never a fabricated 1.0 | |
+| POST | `/api/v1/machine/calibration` | Write the flow estimation calibration multiplier to the machine (calFlowEst MMR) and update the session value. The write is explicit and session-only: nothing is persisted per machine and nothing is replayed on reconnect, app restart, or settings reset. The machine stays authoritative on every connection, and firmware retention of the value across a DE1 power cycle is unverified | |
 | GET | `/api/v1/machine/calibration/{target}` | Read DE1 sensor calibration for `flow`/`pressure`/`temperature`, `?source=current\|factory`. Read responses carry the calibration value in `measuredValue` (`de1ReportedValue` is 1.0 for flow/pressure, 0.0 for temperature) | |
 | PUT | `/api/v1/machine/calibration/{target}` | Write DE1 sensor calibration for `flow`/`pressure`/`temperature`. Writes are corrections, not sets: flow/pressure multiply the stored value by `measuredValue/de1ReportedValue`, temperature adds `measuredValue−de1ReportedValue`. To set an absolute value, read current `C` first, then write `{de1ReportedValue: C, measuredValue: X}` | |
 | POST | `/api/v1/machine/profile` | Upload profile to machine | |
@@ -654,7 +654,9 @@ The legacy `ids` parameter is mutually exclusive with every filter above:
 combining them is rejected with 400 rather than silently dropping either side.
 
 Newly recorded shots snapshot `serialNumber`, `model`, `firmwareVersion`, and
-`flowCalibration` under `workflow.machine`. Historical records may omit these
+`flowCalibration` under `workflow.machine`; `flowCalibration` is the multiplier
+read from (or explicitly written to) the machine in that session and is omitted
+when the machine did not report one. Historical records may omit these
 fields. Consumers must not infer missing capture-time identity from the machine
 that happens to be connected when a record is read.
 

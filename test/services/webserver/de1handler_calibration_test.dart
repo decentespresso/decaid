@@ -47,6 +47,16 @@ class _BleTimeoutDe1 extends TestDe1 {
   }
 }
 
+class _FlowEstimationReadFailureDe1 extends TestDe1 {
+  @override
+  Future<double> getFlowEstimation() async {
+    throw const MmrTimeoutException('calFlowEst', Duration(seconds: 4));
+  }
+
+  @override
+  double? get cachedFlowEstimation => null;
+}
+
 De1ShotSettings _anyShotSettings() => De1ShotSettings(
   steamSetting: 0,
   targetSteamTemp: 0,
@@ -139,6 +149,15 @@ void main() {
       await wireWith(null);
       final res = await get('/api/v1/machine/calibration');
       expect(res.statusCode, 500);
+    });
+
+    test('reports a read failure instead of a fabricated 1.0', () async {
+      await wireWith(_FlowEstimationReadFailureDe1());
+      final res = await get('/api/v1/machine/calibration');
+      expect(res.statusCode, 500);
+      final body = jsonDecode(await res.readAsString());
+      expect(body.containsKey('flowMultiplier'), isFalse);
+      expect(body['error'], contains('calFlowEst'));
     });
   });
 

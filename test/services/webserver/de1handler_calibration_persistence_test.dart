@@ -104,27 +104,80 @@ Future<Response> _post(Handler handler, Object body) async => await handler(
   ),
 );
 
+Future<Response> _get(Handler handler) async => await handler(
+  Request('GET', Uri.parse('http://localhost/api/v1/machine/calibration')),
+);
+
 void main() {
-  test('successful calibration write persists requested intent', () async {
+  test('successful calibration write reaches the machine only', () async {
     final settings = MemoryMachineSettingsStore();
     final harness = await _connect(settings);
     addTearDown(harness.controller.dispose);
     final handler = await _handler(harness.controller);
 
     expect((await _post(handler, {'flowMultiplier': 3.0})).statusCode, 202);
-    expect(settings.values['serial:12345']?.flowCalibration, 3.0);
     expect(_flowWrites(harness.transport), [2000]);
+    expect(
+      harness.controller.connectedDe1OrNull?.cachedFlowEstimation,
+      closeTo(2.0, 1e-9),
+    );
+    expect(settings.updates, isEmpty);
+    expect(settings.values, isEmpty);
   });
 
-  test('failed calibration write does not persist an override', () async {
+  test('a GET after the write agrees and writes nothing', () async {
     final settings = MemoryMachineSettingsStore();
-    final transport = FakeBleTransport()
-      ..failMmrWritesForAddresses.add(MMRItem.calFlowEst.address);
-    final harness = await _connect(settings, transport: transport);
+    final harness = await _connect(settings);
     addTearDown(harness.controller.dispose);
     final handler = await _handler(harness.controller);
 
-    expect((await _post(handler, {'flowMultiplier': 1.25})).statusCode, 500);
+    expect((await _post(handler, {'flowMultiplier': 1.25})).statusCode, 202);
+    harness.transport.queueMmrResponseInt(MMRItem.calFlowEst, 1250);
+
+    final response = await _get(handler);
+    expect(response.statusCode, 200);
+    expect(jsonDecode(await response.readAsString()), {'flowMultiplier': 1.25});
+    harness.transport.queueMmrResponseInt(MMRItem.calFlowEst, 1000);
+    expect(jsonDecode(await (await _get(handler)).readAsString()), {
+      'flowMultiplier': 1.0,
+    });
+    expect(_flowWrites(harness.transport), [1250]);
     expect(settings.values, isEmpty);
   });
+
+  test(
+    'failed calibration write persists nothing and keeps the cache',
+    () async {
+      final settings = MemoryMachineSettingsStore();
+      final transport = FakeBleTransport()
+        ..failMmrWritesForAddresses.add(MMRItem.calFlowEst.address);
+      final harness = await _connect(settings, transport: transport);
+      addTearDown(harness.controller.dispose);
+      final handler = await _handler(harness.controller);
+
+      expect((await _post(handler, {'flowMultiplier': 1.25})).statusCode, 500);
+      expect(settings.values, isEmpty);
+      expect(
+        harness.controller.connectedDe1OrNull?.cachedFlowEstimation,
+        closeTo(1.0, 1e-9),
+      );
+    },
+  );
+
+  test(
+    'a legacy stored override is never replayed on the next connection',
+    () async {
+      final settings = MemoryMachineSettingsStore();
+      await settings.update('serial:12345', flowCalibration: 1.5);
+      final harness = await _connect(settings);
+      addTearDown(harness.controller.dispose);
+
+      expect(_flowWrites(harness.transport), isEmpty);
+      expect(
+        harness.controller.connectedDe1OrNull?.cachedFlowEstimation,
+        closeTo(1.0, 1e-9),
+      );
+      expect((await settings.read('serial:12345'))?.flowCalibration, 1.5);
+    },
+  );
 }

@@ -265,16 +265,54 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
 
   @override
   Future<double> getFlowEstimation() async {
+    final generation = _transport.connectionGeneration;
     final epoch = _flowEstimationEpoch;
-    final value = await _readMMRScaled(MMRItem.calFlowEst);
-    if (epoch == _flowEstimationEpoch) {
-      _cachedFlowEstimation = value;
+    final double value;
+    try {
+      value = await _readMMRScaled(MMRItem.calFlowEst);
+    } catch (_) {
+      if (_flowEstimationSessionUnchanged(generation, epoch)) {
+        _cachedFlowEstimation = null;
+        _cachedFlowEstimationGeneration = generation;
+      }
+      rethrow;
+    }
+    if (_flowEstimationSessionUnchanged(generation, epoch)) {
+      _rememberFlowEstimation(value, generation);
     }
     return value;
   }
 
   @override
-  double? get cachedFlowEstimation => _cachedFlowEstimation;
+  double? get cachedFlowEstimation {
+    if (_cachedFlowEstimationGeneration != _transport.connectionGeneration) {
+      return null;
+    }
+    return _cachedFlowEstimation;
+  }
+
+  bool _flowEstimationSessionUnchanged(int generation, int epoch) =>
+      generation == _transport.connectionGeneration &&
+      epoch == _flowEstimationEpoch;
+
+  void _rememberFlowEstimation(double value, int generation) {
+    _cachedFlowEstimation = value;
+    _cachedFlowEstimationGeneration = generation;
+  }
+
+  void _forgetFlowEstimation() {
+    ++_flowEstimationEpoch;
+    _cachedFlowEstimation = null;
+    _cachedFlowEstimationGeneration = -1;
+  }
+
+  Future<void> _refreshFlowEstimation() async {
+    try {
+      await getFlowEstimation();
+    } catch (e) {
+      _log.warning('Could not read flow calibration on connect: $e');
+    }
+  }
 
   @override
   Future<int> getSteamPurgeMode() async {
@@ -403,6 +441,7 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
   int _refillKitDetected = -1;
   De1RefillKitSettings _refillKitSetting = De1RefillKitSettings.auto;
   double? _cachedFlowEstimation;
+  int _cachedFlowEstimationGeneration = -1;
   int _flowEstimationEpoch = 0;
   int? _connectedModelValue;
 
@@ -412,12 +451,14 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
   @override
   Future<void> onConnect() async {
     initRawStream();
+    _forgetFlowEstimation();
     await _transport.connect();
 
     _currentProfile = null;
     clearEffectiveIdentity();
 
     if (_info != null) {
+      await _refreshFlowEstimation();
       return;
     }
 
@@ -436,11 +477,7 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
     _refillKitDetected = _unpackMMRInt(
       await _mmrRead(MMRItem.refillKitPresent),
     );
-    try {
-      _cachedFlowEstimation = await getFlowEstimation();
-    } catch (e) {
-      _log.warning('Could not read flow calibration on connect: $e');
-    }
+    await _refreshFlowEstimation();
 
     _info = MachineInfo(
       version: "$firmware",
@@ -461,7 +498,9 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
     await enableUserPresenceFeature();
   }
 
-  Future<void> onDisconnect() async {}
+  Future<void> onDisconnect() async {
+    _forgetFlowEstimation();
+  }
 
   final StreamController<De1RawMessage> _rawMessageController =
       StreamController.broadcast();
@@ -636,12 +675,17 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
   }
 
   Future<void> _setFlowEstimationLocked(double multiplier) async {
+    final generation = _transport.connectionGeneration;
+    final epoch = _flowEstimationEpoch;
     final effective =
         _scaledClampedMMRInt(MMRItem.calFlowEst, multiplier).toDouble() *
         MMRItem.calFlowEst.readScale;
     await _writeMMRScaled(MMRItem.calFlowEst, multiplier);
+    final unchanged = _flowEstimationSessionUnchanged(generation, epoch);
     ++_flowEstimationEpoch;
-    _cachedFlowEstimation = effective;
+    if (unchanged) {
+      _rememberFlowEstimation(effective, generation);
+    }
   }
 
   @override

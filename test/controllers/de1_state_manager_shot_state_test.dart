@@ -60,6 +60,11 @@ class _TestDe1Controller extends De1Controller {
   }
 }
 
+class _UnknownCalibrationDe1 extends TestDe1 {
+  @override
+  double? get cachedFlowEstimation => null;
+}
+
 class _CapturingStorageService implements StorageService {
   final List<ShotRecord> storedShots = [];
 
@@ -251,6 +256,38 @@ void main() {
       reason:
           'the persisted record id must match the live shotId so '
           'clients can correlate the stream to the saved shot',
+    );
+  });
+
+  test('shot provenance keeps an unknown flow calibration unknown', () async {
+    final unknown = _UnknownCalibrationDe1();
+    addTearDown(unknown.dispose);
+    de1Controller.connect(unknown);
+    await pump();
+
+    unknown.emitStateAndSubstate(
+      MachineState.espresso,
+      MachineSubstate.preparingForShot,
+    );
+    await pump();
+    unknown.emitStateAndSubstate(
+      MachineState.espresso,
+      MachineSubstate.pouring,
+    );
+    await pump();
+    unknown.emitStateAndSubstate(
+      MachineState.espresso,
+      MachineSubstate.pouringDone,
+    );
+    await pump();
+    unknown.emitStateAndSubstate(MachineState.idle, MachineSubstate.idle);
+    await pump();
+
+    final record = storage.storedShots.single;
+    expect(record.workflow.machine?.flowCalibration, isNull);
+    expect(
+      record.workflow.machine?.provenanceStatus,
+      WorkflowMachineProvenanceStatus.captured,
     );
   });
 

@@ -1,9 +1,11 @@
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reaprime/src/controllers/connection/connection_timings.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
+import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/impl/de1/mmr_address.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
@@ -11,7 +13,24 @@ import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 
 import '../helpers/fake_ble_transport.dart';
+import '../helpers/memory_machine_settings_store.dart';
+import '../helpers/test_de1.dart';
 import '../helpers/test_scale.dart';
+
+class _RecordingCalibrationDe1 extends TestDe1 {
+  final List<double> flowEstimationWrites = [];
+  final List<int> fanWrites = [];
+
+  @override
+  Future<void> setFanThreshhold(int temp) async {
+    fanWrites.add(temp);
+  }
+
+  @override
+  Future<void> setFlowEstimation(double multiplier) async {
+    flowEstimationWrites.add(multiplier);
+  }
+}
 
 List<int> _mmrWriteValues(FakeBleTransport transport, MmrAddress address) {
   return transport.writes
@@ -51,6 +70,74 @@ void main() {
     expect(_mmrWriteValues(transport, MMRItem.calFlowEst), isEmpty);
     expect(de1.cachedFlowEstimation, 1.2);
   });
+
+  for (final raw in [800, 1250, 1000]) {
+    test(
+      'machine reported raw $raw survives settings defaults without a write',
+      () async {
+        final transport = FakeBleTransport()
+          ..queueOnConnectResponses(calFlowEst: raw);
+        final de1 = UnifiedDe1(transport: transport);
+        addTearDown(de1.dispose);
+        await de1.onConnect();
+        transport.writes.clear();
+        expect(de1.cachedFlowEstimation, closeTo(raw / 1000, 1e-9));
+
+        final controller = De1Controller(
+          controller: DeviceController(const []),
+        );
+        await controller.applySettingsDefaults(de1);
+
+        expect(_mmrWriteValues(transport, MMRItem.calFlowEst), isEmpty);
+        expect(de1.cachedFlowEstimation, closeTo(raw / 1000, 1e-9));
+      },
+    );
+  }
+
+  test(
+    'deferred startup defaults never replay a legacy stored multiplier',
+    () async {
+      final de1 = _RecordingCalibrationDe1();
+      addTearDown(de1.dispose);
+      final settings = MemoryMachineSettingsStore();
+      await settings.update('serial:1', fanThreshold: 42, flowCalibration: 1.5);
+      final devices = DeviceController(const []);
+      await devices.initialize();
+      final controller = De1Controller(
+        controller: devices,
+        machineSettings: settings,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.connectToDe1(de1);
+      await Future<void>.delayed(
+        ConnectionTimings.initialShotSettingsTimeout +
+            const Duration(milliseconds: 100),
+      );
+      de1.emitShotSettings(
+        De1ShotSettings(
+          steamSetting: 0,
+          targetSteamTemp: 150,
+          targetSteamDuration: 30,
+          targetHotWaterTemp: 75,
+          targetHotWaterVolume: 50,
+          targetHotWaterDuration: 30,
+          targetShotVolume: 36,
+          groupTemp: 94,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+
+      expect(
+        de1.fanWrites,
+        [42],
+        reason:
+            'the deferred startup defaults must have run, otherwise the '
+            'absent calibration write proves nothing',
+      );
+      expect(de1.flowEstimationWrites, isEmpty);
+    },
+  );
 
   test(
     'calibration changes do not alter flow or weight telemetry consumers',

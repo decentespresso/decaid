@@ -1056,8 +1056,9 @@ paths:
         steam purge mode), and clears the retained fan/refill-kit overrides for the
         connected machine only. Flow calibration and the water refill threshold are
         left untouched: no calibration or water-levels packet is sent, neither machine
-        value is read or modified, and both saved per-machine overrides are preserved
-        for the next connection.
+        value is read or modified, and the saved refill-level override is preserved
+        for the next connection. A legacy per-machine flow estimation multiplier is
+        never replayed, so reset does not restore a calibration override.
         Profile and workflow are not touched. A reset acknowledgement is not evidence
         of factory restoration.
       tags: [Machine]
@@ -1074,7 +1075,9 @@ paths:
       summary: Get machine calibration settings
       description: |
         Returns the current flow estimation calibration multiplier from the DE1
-        (calFlowEst MMR). For DE1 sensor calibration (flow/pressure/temperature)
+        (calFlowEst MMR), read from the machine on every request. This read never
+        writes the MMR, and a read failure is reported as an error rather than a
+        fabricated 1.0. For DE1 sensor calibration (flow/pressure/temperature)
         see GET /api/v1/machine/calibration/{target}.
       tags: [Machine]
       responses:
@@ -1084,14 +1087,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/De1CalibrationResponse"
+        "500":
+          description: No machine was connected, or the machine did not report a flow estimation multiplier
     post:
       summary: Set machine calibration settings
       description: |
-        Updates the flow estimation calibration multiplier on the DE1 (calFlowEst MMR) and persists
-        the requested multiplier for this machine. The override is keyed by raw serial number, or
-        the device ID when no usable serial exists, and is reapplied on the next connection. A
-        settings reset preserves this machine's saved override. For DE1 sensor calibration
-        (flow/pressure/temperature) see PUT /api/v1/machine/calibration/{target}.
+        Writes the flow estimation calibration multiplier to the DE1 (calFlowEst MMR). The write is
+        explicit and applies to the current session only: the value is not persisted per machine and
+        is never replayed on reconnect, app restart, or settings reset. Every connection reads the
+        machine's own value, so the machine stays authoritative; whether the firmware retains the
+        written value across a DE1 power cycle is unverified and manual calibration may be needed
+        after power loss. For DE1 sensor calibration (flow/pressure/temperature) see
+        PUT /api/v1/machine/calibration/{target}.
       tags: [Machine]
       requestBody:
         required: true
