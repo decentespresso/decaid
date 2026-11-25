@@ -9,6 +9,7 @@ import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
+import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/data/shot_record.dart';
 import 'package:reaprime/src/models/data/shot_state_event.dart';
 import 'package:reaprime/src/models/data/steam_record.dart';
@@ -599,7 +600,7 @@ void main() {
       await settingsController.loadSettings();
 
       await startShotOnStuckScale();
-      await Future<void>.delayed(const Duration(milliseconds: 3300));
+      await pump();
 
       final aborts = events.where(
         (e) =>
@@ -652,10 +653,56 @@ void main() {
       );
     });
 
+    test('a machine-started blockOnNoScale shot with a silent connected '
+        'scale aborts without saving', () async {
+      await settingsService.setBlockOnNoScale(true);
+      await settingsController.loadSettings();
+
+      testDe1.emitStateAndSubstate(
+        MachineState.espresso,
+        MachineSubstate.preparingForShot,
+      );
+      await pump();
+      testDe1.emitStateAndSubstate(
+        MachineState.espresso,
+        MachineSubstate.pouring,
+      );
+      await pump();
+
+      final aborts = events.where(
+        (e) =>
+            e.event == 'decision' && e.decision?.kind == ShotDecisionKind.abort,
+      );
+      expect(aborts.map((e) => e.decision?.reason), [
+        ShotDecisionReason.tareUnconfirmed,
+      ]);
+      expect(testDe1.requestedStates, contains(MachineState.idle));
+      expect(storage.storedShots, isEmpty);
+    });
+
+    test('a cleaning shot is exempt from the tare requirement even with '
+        'blockOnNoScale on', () async {
+      await settingsService.setBlockOnNoScale(true);
+      await settingsController.loadSettings();
+      workflowController.updateWorkflow(
+        profile: workflowController.currentWorkflow.profile.copyWith(
+          beverageType: BeverageType.cleaning,
+        ),
+      );
+
+      await startShotOnStuckScale();
+
+      expect(
+        events.where((e) => e.decision?.kind == ShotDecisionKind.abort),
+        isEmpty,
+      );
+      expect(testDe1.requestedStates, isNot(contains(MachineState.idle)));
+    });
+
     test('an unconfirmed tare without blockOnNoScale keeps the shot running '
         'and saves it', () async {
       await startShotOnStuckScale();
-      await Future<void>.delayed(const Duration(milliseconds: 3300));
+      await pump();
 
       expect(
         events.where((e) => e.decision?.kind == ShotDecisionKind.abort),

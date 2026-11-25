@@ -1256,20 +1256,23 @@ See [`device-notes/de1.md`](device-notes/de1.md#legacy-identity-resolution).
 
 ### Espresso tare confirmation
 
-`ShotSequencer` tares the scale when the machine starts getting ready and again when the pour begins. Each tare must be confirmed: a scale reading at or below 3 g from the current scale connection that arrives after the tare was requested. Readings from before the request, or from a replaced scale, never confirm it. While the pour tare is unconfirmed the recorded weight and weight flow are held at 0, and stop-at-weight and weight step exits see nothing.
+`ShotSequencer` tares the scale only while the machine is getting ready (`preparingForShot`), and never once preinfusion or pouring has started. `preparingForShot` covers the DE1 heating and stabilising substates, the same before-flow phase in which de1app auto-tares. Sending no tare during flow means a tare cannot zero coffee that has already reached the cup.
 
-While a tare is unconfirmed the sequencer sends another one each second. The preheat tare allows six attempts, and aborts the shot if still unconfirmed when `blockOnNoScale` is enabled; otherwise the pour tare gets its own window. The pour tare allows three attempts (the request and two retries, about two seconds). Retries stop there so a re-tare cannot zero coffee that has already reached the cup.
+When the machine starts getting ready, the sequencer sends a tare whenever a scale is connected, even if the scale has not reported a fresh reading yet. The tare is confirmed by a reading within 0.5 g of zero that comes from the current scale connection and arrives after the request. Readings from before the request, or from a replaced scale, never confirm it. Until it is confirmed, recorded weight and weight flow are held at 0, and stop-at-weight and weight step exits see nothing.
 
-If the pour tare is still unconfirmed after the last attempt:
+While the tare is unconfirmed, the sequencer sends another one each second, up to six attempts. A reading more than 0.5 g from zero after confirmation (for example a cup placed during warm-up) clears the confirmation at once, so frames built after it are masked, and starts a new round of tares with the same one-second holdoff.
 
-- `blockOnNoScale` enabled: the shot is aborted with an `abort` decision, reason `tareUnconfirmed`, the machine is sent to idle, and no shot is saved. Losing or replacing the scale while a tare is pending aborts the same way.
-- `blockOnNoScale` disabled: stop-at-weight is disabled for the remainder of the shot, the same as losing the scale, and the target volume fallback applies when one is configured.
+The decision is made when flow starts:
 
-When a tare is confirmed the scale controller's flow estimators are reset and the confirming reading's flow is zeroed. A tare that lands on a cup still reading its weight otherwise leaves a large negative flow followed by a positive overshoot that lasts several seconds, which could trigger a weight step exit or stop-at-weight right after the tare.
+- Zero confirmed, and the latest reading still within 0.5 g: stop-at-weight is armed.
+- `blockOnNoScale` enabled and zero not confirmed: the shot is aborted with an `abort` decision, reason `tareUnconfirmed`, the machine is sent to idle, and no shot is saved. This includes a connected scale that never reports. If all six preheat attempts fail, the abort happens during preheat instead. Losing or replacing the scale while the tare is unconfirmed aborts the same way.
+- `blockOnNoScale` disabled and zero not confirmed: stop-at-weight is disabled for the shot, the same as losing the scale, and the target volume fallback applies when one is configured.
 
-Losing the scale after a tare was confirmed keeps the existing behaviour: the shot continues without stop-at-weight. Cleaning and calibration shots never enable `blockOnNoScale`.
+A tare sent during preheat can still land after flow starts. For two seconds after the last tare was sent, a reading that falls more than 1 g below the previous one during flow is treated as a late tare. It is handled like losing the scale after a confirmed tare: the shot continues without stop-at-weight. A late tare can therefore cost at most about 1 g without being noticed.
 
-Readings that arrived before the tare request never confirm it, because a scale reports its old weight until it has applied the tare. Without this check a cup left on the scale made the first post-tare reading look like an overweight shot and stopped it at the start of the pour. de1app handled the same case by re-taring until zero was seen and by clearing its weight history on a confirmed tare.
+When a tare is confirmed, the scale controller's flow estimators are reset and the confirming reading's flow is zeroed. Otherwise a tare that lands on a cup still reading its weight leaves a large negative flow followed by a positive overshoot lasting several seconds.
+
+Losing the scale after a confirmed tare keeps the existing behaviour: the shot continues without stop-at-weight. Full gateway mode never tares. Cleaning and calibration shots never enable `blockOnNoScale`.
 
 ### Hot water stop-at-weight
 
