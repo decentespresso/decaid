@@ -1105,9 +1105,13 @@ startup order is deliberate:
 1. The legacy shot-upload `AutoUpload` migration runs first, so it cannot
    swallow the re-armed shot-upload step.
 2. An armed replay clears `onboardingCompleted`, `accountStepSeen`,
-   `androidWarningDismissed` and `shotUploadStepSeen`, then the marker. A
-   failing write leaves the marker armed and the cached progress untouched so
-   the next launch retries.
+   `androidWarningDismissed` and `shotUploadStepSeen`, then the marker. The
+   cached progress is reset only after those four presentation writes succeed,
+   so a failed progress write leaves the cached progress untouched and the
+   marker armed for the next launch to retry. The marker is cleared last: a
+   marker-clear failure after a successful progress reset leaves the cached
+   progress already reset and the request still armed, so the next cold launch
+   replays again. That repetition is harmless; it is not an untouched cache.
 3. The CLI `--force-onboarding` / `--bypass-onboarding` flags keep the last word
    for the launch they were passed to.
 
