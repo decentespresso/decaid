@@ -24,12 +24,28 @@ authoritative.
 
 A replayed screen never invents an answer. It shows the real state in this
 order: a genuine pending decision, otherwise the plugin's persisted
-`AutoUpload` value whenever an answer was recorded before, otherwise a legacy
-`AutoUpload: true`. Continuing or skipping with that state unchanged writes
-only the `seen` flag, so a genuine pending decision stays pending until the
-loader applies it and an existing `AutoUpload` value is not rewritten. Only an
-explicitly changed toggle records a new pending decision, which keeps the
-existing validated apply and retry contract.
+`AutoUpload` value, otherwise a previously recorded onboarding answer whose
+plugin setting is absent. An explicit persisted `true` or `false` wins over a
+consumed record, so a plugin setting changed after onboarding still displays its
+current value. Continuing or skipping with that state unchanged writes only the
+`seen` flag, so a genuine pending decision stays pending until the loader applies
+it and an existing `AutoUpload` value is not rewritten. Only an explicitly
+changed toggle records a new pending decision, which keeps the existing validated
+apply and retry contract.
+
+The installation counts as first run, and the screen captures the answer, only
+when the plugin setting and any pending or recorded onboarding answer are all
+absent. The onboarding reader is strict: an absent setting is distinguishable
+from an explicit `false`, while malformed, wrongly typed or unreadable stored
+settings throw so the screen shows its retry action instead of presenting a
+fabricated off state and recording an answer from it. The legacy
+`AutoUpload: true` startup migration keeps its best-effort behavior and treats a
+failed read as not enabled.
+
+An installation with no linked account advances before the screen reads the
+plugin setting, so unreadable stored settings never trap it. A linked account
+then resolves the strict state before the choice is presented, and a failed
+read shows a retry distinct from the account-check retry.
 
 ## Persistence and retries
 

@@ -21,8 +21,8 @@ const shotUploadReversibleCopy = 'You can change this later in Settings.';
 OnboardingStep createShotUploadStep({
   required DecentAccountService accountService,
   required SettingsController settingsController,
-  Future<bool> Function() persistedAutoUpload =
-      persistedShotUploadAutoUploadEnabled,
+  Future<bool?> Function() persistedAutoUpload =
+      persistedShotUploadAutoUploadSetting,
 }) {
   return OnboardingStep(
     id: 'shot-upload',
@@ -74,7 +74,7 @@ class _ShotUploadStepView extends StatefulWidget {
   final OnboardingController onboardingController;
   final DecentAccountService accountService;
   final SettingsController settingsController;
-  final Future<bool> Function() persistedAutoUpload;
+  final Future<bool?> Function() persistedAutoUpload;
   const _ShotUploadStepView({
     required this.onboardingController,
     required this.accountService,
@@ -100,6 +100,21 @@ class _ShotUploadStepViewState extends State<_ShotUploadStepView> {
   }
 
   Future<void> _initialize() async {
+    final bool linked;
+    try {
+      linked = await widget.accountService.hasLinkedAccount();
+    } catch (e) {
+      _log.warning('failed to check linked account', e);
+      if (mounted) {
+        setState(() => _error = 'Could not check your account. Try again.');
+      }
+      return;
+    }
+    if (!mounted) return;
+    if (!linked) {
+      widget.onboardingController.advance();
+      return;
+    }
     bool? prior;
     try {
       prior = await _resolvePriorAnswer();
@@ -116,34 +131,16 @@ class _ShotUploadStepViewState extends State<_ShotUploadStepView> {
     setState(() {
       _priorAnswer = prior;
       _optedIn = prior ?? false;
+      _linkedAccount = true;
     });
-    await _checkAccount();
   }
 
   Future<bool?> _resolvePriorAnswer() async {
     final pending = widget.settingsController.shotUploadPendingDecision;
     if (pending != null) return pending;
     final persisted = await widget.persistedAutoUpload();
-    final recorded = widget.settingsController.shotUploadRecordedAnswer;
-    if (recorded == null) return persisted ? true : null;
-    return persisted;
-  }
-
-  Future<void> _checkAccount() async {
-    try {
-      final linked = await widget.accountService.hasLinkedAccount();
-      if (!mounted) return;
-      if (!linked) {
-        widget.onboardingController.advance();
-        return;
-      }
-      setState(() => _linkedAccount = true);
-    } catch (e) {
-      _log.warning('failed to check linked account', e);
-      if (mounted) {
-        setState(() => _error = 'Could not check your account. Try again.');
-      }
-    }
+    if (persisted != null) return persisted;
+    return widget.settingsController.shotUploadRecordedAnswer;
   }
 
   Future<void> _retry() async {
