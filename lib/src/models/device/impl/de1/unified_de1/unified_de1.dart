@@ -306,7 +306,7 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
     ++_flowEstimationEpoch;
     _cachedFlowEstimation = null;
     _cachedFlowEstimationGeneration = -1;
-    _recoveryStartEpoch = -1;
+    _recoveryStartOwner = null;
     _recoveredGeneration = -1;
   }
 
@@ -318,20 +318,19 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
     }
   }
 
-  bool _automaticObservationLive(int generation, int epoch) =>
+  bool _automaticObservationLive(Object? owner, int generation) =>
       _sessionActive &&
+      identical(_sessionOwner, owner) &&
       generation >= 0 &&
-      generation == _transport.connectionGeneration &&
-      epoch == _flowEstimationEpoch;
+      generation == _transport.connectionGeneration;
 
-  Future<bool> _observeFlowEstimationAutomatically(
-    int generation,
-    int epoch,
-  ) async {
-    if (!_automaticObservationLive(generation, epoch)) return false;
+  Future<bool> _observeFlowEstimationAutomatically() async {
+    if (!_sessionActive) return false;
+    final owner = _sessionOwner;
+    final generation = _recoveredGeneration;
     try {
       return await _firmwareMmrGate.runMmr(() async {
-        if (!_automaticObservationLive(generation, epoch)) return false;
+        if (!_automaticObservationLive(owner, generation)) return false;
         final List<int> response;
         try {
           response = await _mmrReadRawPermitted(
@@ -339,13 +338,13 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
             label: MMRItem.calFlowEst.name,
           );
         } catch (_) {
-          if (_automaticObservationLive(generation, epoch)) {
+          if (_automaticObservationLive(owner, generation)) {
             _cachedFlowEstimation = null;
             _cachedFlowEstimationGeneration = generation;
           }
           rethrow;
         }
-        if (!_automaticObservationLive(generation, epoch)) return false;
+        if (!_automaticObservationLive(owner, generation)) return false;
         _rememberFlowEstimation(
           _unpackMMRInt(response).toDouble() * MMRItem.calFlowEst.readScale,
           generation,
@@ -366,14 +365,13 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
   void _onTransportRecoveryStarted(int token) {
     if (!_sessionActive) return;
     _recoveryToken = token;
-    _recoveryStartEpoch = _flowEstimationEpoch;
+    _recoveryStartOwner = _sessionOwner;
     _recoveredGeneration = -1;
   }
 
   void _onTransportRecovered(int token) {
     if (token != _recoveryToken) return;
-    if (!_sessionActive || _recoveryStartEpoch != _flowEstimationEpoch) {
-      _recoveredGeneration = -1;
+    if (!_sessionActive || !identical(_sessionOwner, _recoveryStartOwner)) {
       return;
     }
     _recoveredGeneration = _transport.connectionGeneration;
@@ -382,25 +380,22 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
       _recoveryRefreshQueued = true;
       return;
     }
-    unawaited(_runRecoveryRefresh(_recoveryStartEpoch));
+    unawaited(_runRecoveryRefresh());
   }
 
-  Future<void> _runRecoveryRefresh(int epoch) async {
+  Future<void> _runRecoveryRefresh() async {
     _recoveryRefreshRunning = true;
-    var chainEpoch = epoch;
+    var owner = _sessionOwner;
     var attempt = 0;
     try {
       while (true) {
         _recoveryRefreshQueued = false;
         ++attempt;
-        final observed = await _observeFlowEstimationAutomatically(
-          _recoveredGeneration,
-          chainEpoch,
-        );
+        final observed = await _observeFlowEstimationAutomatically();
         if (observed) return;
         if (!_recoveryRefreshQueued) return;
-        if (_recoveryStartEpoch != chainEpoch) {
-          chainEpoch = _recoveryStartEpoch;
+        if (!identical(_sessionOwner, owner)) {
+          owner = _sessionOwner;
           attempt = 0;
           continue;
         }
@@ -543,7 +538,7 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
   int _flowEstimationEpoch = 0;
   Object? _sessionOwner;
   int _recoveryToken = 0;
-  int _recoveryStartEpoch = -1;
+  Object? _recoveryStartOwner;
   int _recoveredGeneration = -1;
   int _recoverySequence = 0;
   int? _connectedModelValue;
@@ -793,29 +788,28 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
   }
 
   Future<void> _setFlowEstimationLocked(double multiplier) async {
-    final generation = _transport.connectionGeneration;
     final epoch = _flowEstimationEpoch;
-    final recoverySequence = _recoverySequence;
-    final effective =
-        _scaledClampedMMRInt(MMRItem.calFlowEst, multiplier).toDouble() *
-        MMRItem.calFlowEst.readScale;
-    await _writeMMRScaled(MMRItem.calFlowEst, multiplier);
-    if (epoch != _flowEstimationEpoch) return;
-    final acknowledgedGeneration = _transport.connectionGeneration;
-    final acknowledgedEpoch = ++_flowEstimationEpoch;
-    final recovered =
-        _recoverySequence != recoverySequence &&
-        _recoveryStartEpoch == epoch &&
-        _recoveredGeneration == acknowledgedGeneration;
-    if (recovered) {
-      await _observeFlowEstimationAutomatically(
-        acknowledgedGeneration,
-        acknowledgedEpoch,
+    final rawValue = _scaledClampedMMRInt(MMRItem.calFlowEst, multiplier);
+    final effective = rawValue.toDouble() * MMRItem.calFlowEst.readScale;
+    var dispatchGeneration = -1;
+    var dispatchRecoverySequence = 0;
+    await _firmwareMmrGate.runMmr(() async {
+      dispatchGeneration = _transport.connectionGeneration;
+      dispatchRecoverySequence = _recoverySequence;
+      await _mmrWriteRawPermitted(
+        MMRItem.calFlowEst.address,
+        _packMMRInt(rawValue),
+        label: MMRItem.calFlowEst.name,
       );
+    });
+    if (epoch != _flowEstimationEpoch) return;
+    ++_flowEstimationEpoch;
+    if (dispatchRecoverySequence != _recoverySequence) {
+      await _observeFlowEstimationAutomatically();
       return;
     }
-    if (acknowledgedGeneration == generation) {
-      _rememberFlowEstimation(effective, generation);
+    if (dispatchGeneration == _transport.connectionGeneration) {
+      _rememberFlowEstimation(effective, dispatchGeneration);
     }
   }
 

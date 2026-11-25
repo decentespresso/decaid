@@ -36,6 +36,8 @@ class RecoveringFirmwareTransport extends FakeBleTransport {
   bool holdNextMmrWrite = false;
   bool holdNextConnect = false;
   bool timeoutNextRequestedStateWrite = false;
+  Object? nextCalFlowEstWriteError;
+  int calFlowEstWriteAttempts = 0;
   final Completer<void> calFlowEstReadEntered = Completer<void>();
   Completer<void>? _calFlowEstReadRelease;
   final Completer<void> mmrWriteDispatched = Completer<void>();
@@ -191,8 +193,17 @@ class RecoveringFirmwareTransport extends FakeBleTransport {
   Future<void> _writeMmr(Uint8List request) async {
     final address = _addressOf(request);
     final word = _wordOf(request);
+    final isCalFlowEst = address == MMRItem.calFlowEst.address;
+    if (isCalFlowEst) {
+      calFlowEstWriteAttempts++;
+      final error = nextCalFlowEstWriteError;
+      if (error != null) {
+        nextCalFlowEstWriteError = null;
+        throw error;
+      }
+    }
     writesByAddress.putIfAbsent(address, () => <int>[]).add(word);
-    if (address == MMRItem.calFlowEst.address) {
+    if (isCalFlowEst) {
       machineRawCalFlowEst = word;
     }
     await super.write(de1ServiceUUID, Endpoint.writeToMMR.uuid, request);

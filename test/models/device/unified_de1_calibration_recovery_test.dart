@@ -923,4 +923,366 @@ void main() {
     );
     expect(session.transport.calFlowEstWrites, isEmpty);
   });
+
+  test('a calibration write queued during a held recovery publishes the value '
+      'firmware acknowledged before any caller read', () async {
+    final transport = RecoveringFirmwareTransport()
+      ..machineRawCalFlowEst = 1000;
+    final de1 = _RecordingDe1(
+      transport: transport,
+      calibrationTimeout: const Duration(milliseconds: 200),
+    );
+    addTearDown(de1.dispose);
+    await _within(de1.onConnect(), 'connect');
+    transport.writes.clear();
+    expect(de1.cachedFlowEstimation, closeTo(1.0, 1e-9));
+    final callerReadsAtConnect = de1.getFlowEstimationCalls;
+
+    transport.firmwareWords[MMRItem.flushTimeout.address] = 50;
+    transport.holdNextConnect = true;
+    transport.timeoutNextMmrRead();
+    final unrelated = de1.getFlushTimeout();
+    await _within(transport.connectEntered.future, 'the reconnect to start');
+
+    final write = de1.setFlowEstimation(1.5);
+    transport.releaseConnect();
+
+    expect(
+      await _within(unrelated, 'the recovered MMR read'),
+      closeTo(5.0, 1e-9),
+    );
+    await _within(write, 'the calibration write queued during recovery');
+    await pumpEventQueue(times: 20);
+
+    expect(transport.reconnectAttempts, 1);
+    expect(transport.calFlowEstWrites, [1500]);
+    expect(
+      transport.firmwareWords[MMRItem.calFlowEst.address],
+      1500,
+      reason: 'the acknowledged write is the value the machine now reports',
+    );
+    expect(
+      de1.cachedFlowEstimation,
+      closeTo(1.5, 1e-9),
+      reason:
+          'the write acknowledged by the recovered session owns the cached '
+          'multiplier without waiting for a caller read',
+    );
+    expect(
+      de1.getFlowEstimationCalls,
+      callerReadsAtConnect,
+      reason: 'the cache is known before any caller GET',
+    );
+  });
+
+  test('a failed calibration write queued during a held recovery still leaves '
+      'the recovered session observing unchanged firmware', () async {
+    for (final raw in [1000, 800]) {
+      final transport = RecoveringFirmwareTransport()
+        ..machineRawCalFlowEst = raw;
+      final de1 = _RecordingDe1(
+        transport: transport,
+        calibrationTimeout: const Duration(milliseconds: 200),
+      );
+      addTearDown(de1.dispose);
+      await _within(de1.onConnect(), 'connect');
+      expect(de1.cachedFlowEstimation, closeTo(raw / 1000, 1e-9));
+      final readsAtConnect = transport.calFlowEstReads;
+      final callerReadsAtConnect = de1.getFlowEstimationCalls;
+
+      transport.firmwareWords[MMRItem.flushTimeout.address] = 50;
+      transport.holdNextConnect = true;
+      transport.timeoutNextMmrRead();
+      final unrelated = de1.getFlushTimeout();
+      await _within(transport.connectEntered.future, 'the reconnect to start');
+
+      transport.nextCalFlowEstWriteError = StateError(
+        'simulated calibration write failure',
+      );
+      final write = de1.setFlowEstimation(1.5);
+      final writeFailed = expectLater(
+        write,
+        throwsA(isA<StateError>()),
+        reason: 'the queued write fails at the wire',
+      );
+      transport.releaseConnect();
+
+      expect(
+        await _within(unrelated, 'the recovered MMR read'),
+        closeTo(5.0, 1e-9),
+      );
+      await _within(writeFailed, 'the failed calibration write');
+      await pumpEventQueue(times: 20);
+
+      expect(
+        transport.calFlowEstWriteAttempts,
+        1,
+        reason: 'the queued calibration write reached the wire once',
+      );
+      expect(
+        transport.calFlowEstWrites,
+        isEmpty,
+        reason: 'the failed write never reached firmware',
+      );
+      expect(
+        transport.firmwareWords[MMRItem.calFlowEst.address],
+        raw,
+        reason: 'firmware still reports its unchanged multiplier',
+      );
+      expect(transport.reconnectAttempts, 1);
+      expect(
+        transport.calFlowEstReads,
+        greaterThan(readsAtConnect),
+        reason:
+            'a live recovered session observes the multiplier it still '
+            'needs, instead of losing it with the competing write',
+      );
+      expect(
+        de1.cachedFlowEstimation,
+        closeTo(raw / 1000, 1e-9),
+        reason:
+            'the unchanged firmware value is cached from the fresh '
+            'observation, not from the failed write',
+      );
+      expect(
+        de1.getFlowEstimationCalls,
+        callerReadsAtConnect,
+        reason: 'the observation is not a caller GET',
+      );
+      expect(transport.calFlowEstWrites, isEmpty);
+    }
+  });
+
+  test('a calibration write queued after the recovery callback keeps both the '
+      'pending automatic observation and its acknowledged value', () async {
+    final transport = RecoveringFirmwareTransport()
+      ..machineRawCalFlowEst = 1000;
+    final de1 = _RecordingDe1(
+      transport: transport,
+      calibrationTimeout: const Duration(milliseconds: 200),
+    );
+    addTearDown(de1.dispose);
+    await _within(de1.onConnect(), 'connect');
+    expect(de1.cachedFlowEstimation, closeTo(1.0, 1e-9));
+    final readsAtConnect = transport.calFlowEstReads;
+
+    transport.holdCalFlowEstReads = true;
+    final heldGet = de1.getFlowEstimation();
+    await _within(
+      transport.calFlowEstReadEntered.future,
+      'the caller read that owns the MMR gate',
+    );
+    final callerReadsAtGate = de1.getFlowEstimationCalls;
+
+    transport.timeoutNextRequestedStateWrite = true;
+    await _within(
+      de1.requestState(MachineState.sleeping),
+      'the non-MMR BLE timeout recovery',
+    );
+    expect(transport.reconnectAttempts, 1);
+
+    final write = de1.setFlowEstimation(1.5);
+
+    transport.holdCalFlowEstReads = false;
+    transport.releaseCalFlowEstRead();
+    expect(
+      await _within(heldGet, 'the caller read that outlived the recovery'),
+      closeTo(1.0, 1e-9),
+    );
+    await _within(
+      write,
+      'the calibration write queued after the recovery callback',
+    );
+    await pumpEventQueue(times: 20);
+
+    expect(transport.calFlowEstWrites, [1500]);
+    expect(transport.firmwareWords[MMRItem.calFlowEst.address], 1500);
+    expect(
+      transport.calFlowEstReads,
+      readsAtConnect + 2,
+      reason:
+          'the caller read and the automatic observation of the recovered '
+          'session both dispatch, whichever of them the newer write '
+          'overtakes',
+    );
+    expect(de1.getFlowEstimationCalls, callerReadsAtGate);
+    expect(
+      de1.cachedFlowEstimation,
+      closeTo(1.5, 1e-9),
+      reason: 'the newer queued write owns the cached multiplier',
+    );
+  });
+
+  test('a calibration write that fails after the recovery callback leaves the '
+      'pending automatic observation publishing unchanged firmware', () async {
+    final transport = RecoveringFirmwareTransport()
+      ..machineRawCalFlowEst = 1000;
+    final de1 = _RecordingDe1(
+      transport: transport,
+      calibrationTimeout: const Duration(milliseconds: 200),
+    );
+    addTearDown(de1.dispose);
+    await _within(de1.onConnect(), 'connect');
+    expect(de1.cachedFlowEstimation, closeTo(1.0, 1e-9));
+    final readsAtConnect = transport.calFlowEstReads;
+
+    transport.holdCalFlowEstReads = true;
+    final heldGet = de1.getFlowEstimation();
+    await _within(
+      transport.calFlowEstReadEntered.future,
+      'the caller read that owns the MMR gate',
+    );
+    final callerReadsAtGate = de1.getFlowEstimationCalls;
+
+    transport.timeoutNextRequestedStateWrite = true;
+    await _within(
+      de1.requestState(MachineState.sleeping),
+      'the non-MMR BLE timeout recovery',
+    );
+    expect(transport.reconnectAttempts, 1);
+
+    transport.nextCalFlowEstWriteError = StateError(
+      'simulated calibration write failure',
+    );
+    final write = de1.setFlowEstimation(1.5);
+    final writeFailed = expectLater(
+      write,
+      throwsA(isA<StateError>()),
+      reason: 'the newer write fails at the wire',
+    );
+
+    transport.holdCalFlowEstReads = false;
+    transport.releaseCalFlowEstRead();
+    await _within(heldGet, 'the caller read that outlived the recovery');
+    await _within(writeFailed, 'the failed calibration write');
+    await pumpEventQueue(times: 20);
+
+    expect(transport.calFlowEstWriteAttempts, 1);
+    expect(transport.calFlowEstWrites, isEmpty);
+    expect(transport.firmwareWords[MMRItem.calFlowEst.address], 1000);
+    expect(
+      transport.calFlowEstReads,
+      readsAtConnect + 2,
+      reason:
+          'the automatic observation of the recovered session still '
+          'dispatches after the competing write failed',
+    );
+    expect(de1.getFlowEstimationCalls, callerReadsAtGate);
+    expect(
+      de1.cachedFlowEstimation,
+      closeTo(1.0, 1e-9),
+      reason:
+          'the fresh live observation, not the failed write, describes the '
+          'session',
+    );
+  });
+
+  test('an automatic observation queued by a recovery cannot adopt the '
+      'generation an unsolicited disconnect created', () async {
+    final session = await _connect();
+    expect(session.de1.cachedFlowEstimation, closeTo(1.0, 1e-9));
+    final readsAfterConnect = session.transport.calFlowEstReads;
+
+    session.transport.machineRawCalFlowEst = 800;
+    session.transport.holdNextMmrWrite = true;
+    final fanWrite = session.de1.setFanThreshhold(20);
+    await _within(
+      session.transport.mmrWriteDispatched.future,
+      'the ordinary MMR write that holds the gate',
+    );
+
+    session.transport.timeoutNextRequestedStateWrite = true;
+    await _within(
+      session.de1.requestState(MachineState.sleeping),
+      'the non-MMR BLE timeout recovery',
+    );
+    expect(session.transport.reconnectAttempts, 1);
+
+    session.transport.failCalFlowEstReads = true;
+    session.transport.emitConnectionState(ConnectionState.disconnected);
+    await _pumpUntil(
+      () => session.de1.cachedFlowEstimation == null,
+      'the unsolicited disconnect to fence the cached multiplier',
+    );
+    session.transport.emitConnectionState(ConnectionState.connected);
+    await pumpEventQueue(times: 5);
+
+    session.transport.releaseMmrWrite();
+    await _within(
+      fanWrite,
+      'the held MMR write acknowledged after the unsolicited disconnect',
+    );
+    await pumpEventQueue(times: 50);
+
+    expect(
+      session.transport.calFlowEstReads,
+      readsAfterConnect,
+      reason:
+          'an observation captured for the recovered session must not '
+          'dispatch a calibration read once the link was restored without a '
+          'model session change',
+    );
+    expect(session.de1.cachedFlowEstimation, isNull);
+    expect(session.transport.calFlowEstWrites, isEmpty);
+    expect(session.transport.reconnectAttempts, 1);
+  });
+
+  test('a post-write observation queued by a real recovery cannot adopt the '
+      'generation an unsolicited disconnect created', () async {
+    final session = await _connect();
+    expect(session.de1.cachedFlowEstimation, closeTo(1.0, 1e-9));
+
+    session.transport.holdCalFlowEstReads = true;
+    session.transport.holdNextMmrWrite = true;
+    session.transport.timeoutNextMmrWrite();
+    final write = session.de1.setFlowEstimation(1.5);
+    await _within(
+      session.transport.mmrWriteDispatched.future,
+      'the calibration write to be dispatched',
+    );
+    session.transport.releaseMmrWrite();
+    await _within(
+      session.transport.calFlowEstReadEntered.future,
+      'the recovered observation that holds the gate after the write',
+    );
+    await pumpEventQueue(times: 20);
+    final readsWhileHeld = session.transport.calFlowEstReads;
+    expect(session.transport.reconnectAttempts, 1);
+    expect(session.transport.calFlowEstWrites, [1500, 1500]);
+
+    session.transport.failReleasedCalFlowEstReads = true;
+    session.transport.failCalFlowEstReads = true;
+    session.transport.emitConnectionState(ConnectionState.disconnected);
+    await _pumpUntil(
+      () => session.de1.cachedFlowEstimation == null,
+      'the unsolicited disconnect to fence the cached multiplier',
+    );
+    session.transport.emitConnectionState(ConnectionState.connected);
+    await pumpEventQueue(times: 5);
+
+    session.transport.machineRawCalFlowEst = 800;
+    session.transport.holdCalFlowEstReads = false;
+    session.transport.releaseCalFlowEstRead();
+    await _within(
+      session.transport.heldCalFlowEstReadSettled.future,
+      'the released gate owner read',
+    );
+    await _within(
+      write,
+      'the calibration write whose follow-up observation is obsolete',
+    );
+    await pumpEventQueue(times: 50);
+
+    expect(
+      session.transport.calFlowEstReads,
+      readsWhileHeld,
+      reason:
+          'the follow-up observation of the superseded generation must not '
+          'dispatch a calibration read once the link was restored without a '
+          'model session change',
+    );
+    expect(session.de1.cachedFlowEstimation, isNull);
+    expect(session.transport.calFlowEstWrites, [1500, 1500]);
+    expect(session.transport.reconnectAttempts, 1);
+  });
 }
