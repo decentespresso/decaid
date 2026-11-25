@@ -228,6 +228,17 @@ class AdvancedPage extends StatelessWidget {
                     ),
                   ),
                 ),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                child: ShadSwitch(
+                  value: controller.mockDe1GhcPresent,
+                  onChanged: controller.setMockDe1GhcPresent,
+                  label: const Text('Mock DE1: GHC on'),
+                ),
+              ),
               if (Platform.isMacOS ||
                   Platform.isWindows ||
                   Platform.isLinux) ...[

@@ -24,12 +24,12 @@ class MockDe1 implements De1Interface, SimulatedDevice {
   MockDe1({
     this._deviceId = "MockDe1",
     this._simulationTickInterval = const Duration(milliseconds: 100),
-    this._groupHeadControllerPresent = const bool.fromEnvironment(
+    this.groupHeadControllerPresent = const bool.fromEnvironment(
       'MOCK_DE1_GHC',
     ),
   });
 
-  final bool _groupHeadControllerPresent;
+  bool groupHeadControllerPresent;
 
   /// Wall-clock cadence of the simulation tick. The simulation model still
   /// advances 100ms per tick, so shortening this makes simulated time run
@@ -113,7 +113,7 @@ class MockDe1 implements De1Interface, SimulatedDevice {
       'MOCK_DE1_SERIAL',
       defaultValue: 'mock-de1',
     ),
-    groupHeadControllerPresent: _groupHeadControllerPresent,
+    groupHeadControllerPresent: groupHeadControllerPresent,
     extra: {},
   );
 

@@ -33,6 +33,17 @@ class _SpySettingsService implements SettingsService {
     _simulatedDevices = value;
   }
 
+  int setMockDe1GhcPresentCallCount = 0;
+  bool _mockDe1GhcPresent = false;
+
+  @override
+  Future<bool> mockDe1GhcPresent() async => _mockDe1GhcPresent;
+  @override
+  Future<void> setMockDe1GhcPresent(bool value) async {
+    setMockDe1GhcPresentCallCount++;
+    _mockDe1GhcPresent = value;
+  }
+
   @override
   Future<bool> enableSimulatedWebViews() async => _enableSimulatedWebViews;
   @override
@@ -267,6 +278,22 @@ void main() {
 
       expect(controller.preferredMachineId, 'MockDe1');
       expect(controller.preferredScaleId, isNull);
+    });
+  });
+
+  group('SettingsController.setMockDe1GhcPresent', () {
+    test('persists, notifies, and skips no-op writes', () async {
+      final spy = _SpySettingsService();
+      final controller = SettingsController(spy);
+      var notified = 0;
+      controller.addListener(() => notified++);
+
+      await controller.setMockDe1GhcPresent(true);
+      await controller.setMockDe1GhcPresent(true);
+
+      expect(controller.mockDe1GhcPresent, isTrue);
+      expect(spy.setMockDe1GhcPresentCallCount, 1);
+      expect(notified, 1);
     });
   });
 
