@@ -78,6 +78,25 @@ duplicate a command; BlueZ does not report these property errors.
 `_handleGattError` logs an unmapped `UniversalBleException` before rethrowing.
 REST handlers that turn an exception into a 500 body log it too.
 
+## Eureka Precisa
+
+- Commands (write without response): tare `AA 02 31 31`, timer start
+  `AA 02 33 33`, stop `AA 02 34 34`, reset `AA 02 35 35`.
+
+A tare takes about a second to show in the weight stream. On one unit (Decent
+DE1XXL setup, November 2026), 20 REST-issued tares with a 152 g cup reached
+zero in 794 to 1230 ms, median about 950 ms, with none dropped. A timer reset
+sent immediately after the tare made no difference: medians were 947 ms for a
+tare alone and 956 ms for a tare followed by a reset. One tare followed by a
+reset took 4554 ms. That run cannot tell a 4.5 s delay apart from a dropped tare
+masked by the cup being moved, so treat multi-second delays as possible.
+
+Because the latency is close to the espresso tare retry interval (1 s), a retry
+is often sent just before the first tare lands; the second tare then lands on a
+zeroed scale. See "Espresso tare confirmation" in
+[`DeviceManagement.md`](../DeviceManagement.md) for how the sequencer bounds
+this.
+
 ## Scale maintenance
 
 Use self-scheduling one-shot timers and own each asynchronous operation before
