@@ -94,6 +94,8 @@ abstract class SettingsService {
   Future<void> setShowSkinExitInstructions(bool value);
   Future<bool> enableSimulatedWebViews();
   Future<void> setEnableSimulatedWebViews(bool value);
+  Future<bool> mockDe1GhcPresent();
+  Future<void> setMockDe1GhcPresent(bool value);
 
   Future<bool?> featureFlag(FeatureFlag flag);
   Future<void> setFeatureFlag(FeatureFlag flag, bool value);
@@ -633,6 +635,17 @@ class SharedPreferencesSettingsService extends SettingsService {
     await prefs.setBool(SettingsKeys.enableSimulatedWebViews.name, value);
   }
 
+  @override
+  Future<bool> mockDe1GhcPresent() async {
+    return await prefs.getBool(SettingsKeys.mockDe1GhcPresent.name) ??
+        const bool.fromEnvironment('MOCK_DE1_GHC');
+  }
+
+  @override
+  Future<void> setMockDe1GhcPresent(bool value) async {
+    await prefs.setBool(SettingsKeys.mockDe1GhcPresent.name, value);
+  }
+
   static const _featureFlagPrefix = 'featureFlag';
 
   @override
@@ -687,6 +700,7 @@ enum SettingsKeys {
   androidWarningDismissed,
   showSkinExitInstructions,
   enableSimulatedWebViews,
+  mockDe1GhcPresent,
   requireExtensionManagementAuthorization,
 }
 

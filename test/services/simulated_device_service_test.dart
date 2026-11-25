@@ -31,6 +31,20 @@ Profile _pourProfile() => Profile(
 
 void main() {
   group('SimulatedDeviceService', () {
+    test('MockDe1 reports GHC from mockDe1GhcPresent, live', () async {
+      final service = SimulatedDeviceService();
+      service.enabledDevices = {SimulatedDevicesTypes.machine};
+      service.mockDe1GhcPresent = true;
+
+      final emission = service.devices.first;
+      await service.scanForDevices();
+      final de1 = (await emission).whereType<MockDe1>().single;
+      expect(de1.machineInfo.groupHeadControllerPresent, isTrue);
+
+      service.mockDe1GhcPresent = false;
+      expect(de1.machineInfo.groupHeadControllerPresent, isFalse);
+    });
+
     test('emits a MockBengle when bengle is enabled', () async {
       final service = SimulatedDeviceService();
       service.enabledDevices = {SimulatedDevicesTypes.bengle};

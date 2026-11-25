@@ -80,6 +80,7 @@ class SettingsController with ChangeNotifier {
   bool _androidWarningDismissed = false;
   bool _showSkinExitInstructions = true;
   bool _enableSimulatedWebViews = false;
+  bool _mockDe1GhcPresent = false;
 
   final Map<FeatureFlag, bool> _featureFlags = {};
   Future<void> _featureFlagSave = Future.value();
@@ -125,6 +126,7 @@ class SettingsController with ChangeNotifier {
   bool get androidWarningDismissed => _androidWarningDismissed;
   bool get showSkinExitInstructions => _showSkinExitInstructions;
   bool get enableSimulatedWebViews => _enableSimulatedWebViews;
+  bool get mockDe1GhcPresent => _mockDe1GhcPresent;
 
   bool isFeatureFlagEnabled(FeatureFlag flag) =>
       _featureFlags[flag] ?? defaultFeatureFlagValues[flag]!;
@@ -180,6 +182,7 @@ class SettingsController with ChangeNotifier {
     _showSkinExitInstructions = await _settingsService
         .showSkinExitInstructions();
     _enableSimulatedWebViews = await _settingsService.enableSimulatedWebViews();
+    _mockDe1GhcPresent = await _settingsService.mockDe1GhcPresent();
 
     for (final flag in FeatureFlag.values) {
       final stored = await _settingsService.featureFlag(flag);
@@ -588,6 +591,13 @@ class SettingsController with ChangeNotifier {
     if (value == _enableSimulatedWebViews) return;
     _enableSimulatedWebViews = value;
     await _settingsService.setEnableSimulatedWebViews(value);
+    notifyListeners();
+  }
+
+  Future<void> setMockDe1GhcPresent(bool value) async {
+    if (value == _mockDe1GhcPresent) return;
+    _mockDe1GhcPresent = value;
+    await _settingsService.setMockDe1GhcPresent(value);
     notifyListeners();
   }
 

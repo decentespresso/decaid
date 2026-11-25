@@ -306,6 +306,12 @@ class MockSettingsService extends SettingsService {
   @override
   Future<void> setEnableSimulatedWebViews(bool value) async =>
       _enableSimulatedWebViews = value;
+  bool _mockDe1GhcPresent = false;
+  @override
+  Future<bool> mockDe1GhcPresent() async => _mockDe1GhcPresent;
+  @override
+  Future<void> setMockDe1GhcPresent(bool value) async =>
+      _mockDe1GhcPresent = value;
 
   @override
   Future<bool?> featureFlag(FeatureFlag flag) async => _featureFlags[flag.name];

@@ -286,6 +286,8 @@ Future<void> loadSettingsBeforeWebServer({
       ...dartDefineDevices,
       ...settingsController.simulatedDevices,
     };
+    simulatedDevicesService.mockDe1GhcPresent =
+        settingsController.mockDe1GhcPresent;
   });
   await settingsController.loadSettings();
   await startWebServer();
