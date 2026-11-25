@@ -20,6 +20,7 @@ import 'package:reaprime/src/services/storage/app_directories.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/settings/settings_service.dart';
 import 'package:reaprime/src/widgets/accessible_button.dart';
+import 'package:reaprime/src/services/telemetry/frame_profiler.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../onboarding_feature/widgets/scan_results_summary.dart';
@@ -257,8 +258,22 @@ class ScanFlowViewState extends State<ScanFlowView> {
     super.dispose();
   }
 
+  String _screenSegmentId() {
+    if (_status.pendingAmbiguity == AmbiguityReason.machinePicker ||
+        _status.pendingAmbiguity == AmbiguityReason.scalePicker) {
+      return 'scan:picker';
+    }
+    if (_status.error != null &&
+        _status.phase == ConnectionPhase.idle &&
+        !_showDevicePickerOverride) {
+      return 'scan:error';
+    }
+    return 'scan:${_status.phase.name}';
+  }
+
   @override
   Widget build(BuildContext context) {
+    FrameProfiler.mark(_screenSegmentId());
     final blockingCondition = _conditionWithDisposition(
       TransportConditionDisposition.blocking,
     );

@@ -112,6 +112,7 @@ import 'firebase_options.dart';
 import 'package:reaprime/src/services/telemetry/telemetry_service.dart';
 import 'package:reaprime/src/services/warmup_logger.dart';
 import 'package:reaprime/src/services/telemetry/boot_timing.dart';
+import 'package:reaprime/src/services/telemetry/frame_profiler.dart';
 import 'package:reaprime/src/services/telemetry/log_buffer.dart';
 import 'package:reaprime/src/services/telemetry/anonymization.dart';
 import 'package:reaprime/src/services/telemetry/error_report_throttle.dart';
@@ -353,12 +354,17 @@ void main(List<String> args) async {
 
   RotatingFileAppender(baseFilePath: '$logDir/log.txt')
       .attachToLogger(Logger.root);
+  FrameProfiler.attachReportDirectory(logDir);
 
   final webViewLogService = WebViewLogService(logDirectoryPath: logDir);
   await webViewLogService.initialize();
 
   Logger.root.info("==== Decent starting ====");
   BootTiming.start();
+  if (FrameProfiler.enabled) {
+    FrameProfiler.start();
+    FrameProfiler.mark('boot');
+  }
 
   unawaited(MulticastLockService().acquire());
 

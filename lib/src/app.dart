@@ -333,8 +333,15 @@ class _MyAppState extends State<MyApp> {
   );
 
   Future<void> _navigateAfterOnboarding() async {
+    _log.info('_navigateAfterOnboarding: start');
     final navigator = NavigationService.navigatorKey.currentState;
-    if (navigator == null) return;
+    if (navigator == null) {
+      _log.warning(
+        '_navigateAfterOnboarding: navigator is null - onboarding completion '
+        'dropped, staying on the onboarding route.',
+      );
+      return;
+    }
 
     navigator.pushNamedAndRemoveUntil(LauncherView.routeName, (_) => false);
 

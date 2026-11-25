@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:logging/logging.dart';
+import 'package:reaprime/src/services/telemetry/frame_profiler.dart';
 import 'package:reaprime/src/services/telemetry/telemetry_service.dart';
 
 class BootTiming {
@@ -25,6 +26,7 @@ class BootTiming {
     if (!_sw.isRunning) return;
     final now = _sw.elapsedMilliseconds;
     _log.info('[BOOT] $label: ${now}ms (Δ${now - _lastMs}ms)');
+    FrameProfiler.mark('boot:$label');
     _marks[_metricKey(label)] = now;
     _lastMs = now;
   }
