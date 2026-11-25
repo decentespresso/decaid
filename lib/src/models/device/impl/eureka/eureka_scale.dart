@@ -14,7 +14,7 @@ import 'package:reaprime/src/models/errors.dart';
 
 import '../../scale.dart';
 
-class EurekaScale implements Scale {
+class EurekaScale implements Scale, TareRetryIntervalScale {
   final Logger _log = Logger('EurekaScale');
 
   static final BleServiceIdentifier serviceIdentifier =
@@ -126,6 +126,9 @@ class EurekaScale implements Scale {
       // listener handles cleanup.
     }
   }
+
+  @override
+  Duration get tareRetryInterval => const Duration(milliseconds: 1500);
 
   @override
   Future<void> tare() async {

@@ -206,7 +206,6 @@ class ShotSequencer {
 
   bool _scaleTared = false;
   static const double _tareConfirmGrams = 0.5;
-  static const Duration _tareRetryInterval = Duration(seconds: 1);
   static const int _preheatTareMaxAttempts = 6;
   static const Duration _tareInFlightWindow = Duration(seconds: 2);
   static const double _lateTareDropGrams = 1.0;
@@ -218,6 +217,8 @@ class ShotSequencer {
   double? _lateTareGuardWeight;
   Timer? _tareRetryTimer;
   StreamSubscription<device.ConnectionState>? _scaleConnectionSubscription;
+
+  Duration get _tareRetryInterval => scaleController.tareRetryInterval;
 
   bool get _tareTracked => !_bypassSAW && !_continueScaleless && !_scaleLost;
 

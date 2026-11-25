@@ -36,6 +36,10 @@ abstract interface class DisconnectToSleepScale {
   bool get disconnectsToSleep;
 }
 
+abstract interface class TareRetryIntervalScale {
+  Duration get tareRetryInterval;
+}
+
 class ScaleSnapshot {
   final DateTime timestamp;
   final double weight;
