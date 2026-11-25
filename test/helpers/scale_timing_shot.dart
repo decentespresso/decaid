@@ -107,17 +107,15 @@ Future<int?> scaleTimingStopIndex(
   }
 
   try {
-    await emit(samples.first, MachineSubstate.preparingForShot);
-    await emit(samples.first, MachineSubstate.pouring);
-    await emit(
-      WeightSnapshot(
-        timestamp: samples.first.timestamp,
-        weight: 0,
-        weightFlow: 0,
-        connectionGeneration: samples.first.connectionGeneration,
-      ),
-      MachineSubstate.pouring,
+    final zero = WeightSnapshot(
+      timestamp: samples.first.timestamp,
+      weight: 0,
+      weightFlow: 0,
+      connectionGeneration: samples.first.connectionGeneration,
     );
+    await emit(samples.first, MachineSubstate.preparingForShot);
+    await emit(zero, MachineSubstate.preparingForShot);
+    await emit(zero, MachineSubstate.pouring);
     for (var i = 1; i < samples.length; i++) {
       await emit(samples[i], MachineSubstate.pouring);
       if (machine.requestedStates.contains(MachineState.idle)) return i;

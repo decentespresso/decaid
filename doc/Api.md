@@ -1432,8 +1432,8 @@ so a late joiner gets a coherent view from any single frame; `decision` is non-n
   (firmware-natural step exit), `apiStop` / `appStop` (stop command attributed to a REST client /
   the in-app Stop button), `machineEnded` (GHC stop or natural profile completion —
   indistinguishable), `noScale` (blocked by `blockOnNoScale`), `tareUnconfirmed` (with `blockOnNoScale`, the scale
-  never confirmed a zero reading after the tare request, so the shot was aborted and not saved),
-  `error` / `disconnected` (abnormal
+  had not confirmed a zero reading when flow started, so the shot was aborted before liquid reached the cup and
+  not saved), `error` / `disconnected` (abnormal
   endings, `event: "terminal"`), `stoppingBackstop` (post-stop settling window closed by the safety
   timer; never the stop reason itself).
 - Coverage: the feed reflects app-side sequencing only. In full gateway mode with the app

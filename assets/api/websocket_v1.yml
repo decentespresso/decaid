@@ -745,8 +745,8 @@ components:
               enum: [advance, stop, abort, terminal, finalize]
               description: >
                 advance = profile moved to the next step; stop = pour ended;
-                abort = shot blocked or cancelled before extraction (no scale, or the
-                scale tare could not be confirmed); terminal = abnormal end
+                abort = shot blocked or cancelled before extraction (no scale, or no
+                confirmed scale zero by the time flow started); terminal = abnormal end
                 (error/disconnect); finalize = post-stop settling window
                 closed (not why the shot stopped).
             reason:
