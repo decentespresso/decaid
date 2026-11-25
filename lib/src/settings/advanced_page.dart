@@ -311,6 +311,17 @@ class AdvancedPage extends StatelessWidget {
                     exit(0);
                   },
                 ),
+              const SettingsDivider(),
+              ListTile(
+                key: const Key('advanced-reset-onboarding'),
+                leading: const Icon(Icons.restart_alt),
+                title: const Text('Reset onboarding'),
+                subtitle: const Text(
+                  'Run the setup screens again on the next cold launch. Your '
+                  'account, consent, plugins, devices, skins and data are kept.',
+                ),
+                onTap: () => _confirmOnboardingReset(context),
+              ),
               if (credentials != null) ...[
                 const SettingsDivider(),
                 GithubTokenSection(credentials: credentials!),
@@ -318,6 +329,50 @@ class AdvancedPage extends StatelessWidget {
             ],
           );
         },
+      ),
+    );
+  }
+
+  Future<void> _confirmOnboardingReset(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Reset onboarding?'),
+        content: const Text(
+          'Setup screens will run on the next cold launch of Decaid. Your '
+          'account, consent choices, plugins, devices, skins, profiles and data '
+          'are kept, and this session keeps running until you close the app.',
+        ),
+        actions: [
+          TextButton(
+            key: const Key('advanced-reset-onboarding-cancel'),
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            key: const Key('advanced-reset-onboarding-confirm'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Reset onboarding'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    try {
+      await controller.requestOnboardingReplay();
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not save the onboarding reset. Try again.'),
+        ),
+      );
+      return;
+    }
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Setup screens will run on the next cold launch.'),
       ),
     );
   }

@@ -9,9 +9,27 @@ off or not configured remain eligible. Existing consent decisions and plugin
 settings are not changed by this migration. `--force-onboarding` re-arms the
 screen; `--bypass-onboarding` skips it unless force is also present.
 
+The native **Reset onboarding** action in Advanced replays the screen on the
+next cold launch. It only arms a one-shot marker, and startup runs the legacy
+`AutoUpload` migration before the replay so the migration cannot swallow it.
+The replay never clears the pending JSON decision, and the CLI flags still take
+precedence for the launch they were passed to. See `doc/DeviceManagement.md`
+(Reset Onboarding) for the full reset contract.
+
 The native screen captures a decision, the plugin loader hands it off before
 autoload, and after successful consumption the plugin's own settings are
 authoritative.
+
+## Displaying a prior choice during replay
+
+A replayed screen never invents an answer. It shows the real state in this
+order: a genuine pending decision, otherwise the plugin's persisted
+`AutoUpload` value whenever an answer was recorded before, otherwise a legacy
+`AutoUpload: true`. Continuing or skipping with that state unchanged writes
+only the `seen` flag, so a genuine pending decision stays pending until the
+loader applies it and an existing `AutoUpload` value is not rewritten. Only an
+explicitly changed toggle records a new pending decision, which keeps the
+existing validated apply and retry contract.
 
 ## Persistence and retries
 

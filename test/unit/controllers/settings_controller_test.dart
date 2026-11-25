@@ -486,7 +486,7 @@ void main() {
               : {'plugin.settings.shot-upload.reaplugin': raw},
         );
         final settings = await settingsWithSeen(false);
-        await prepareShotUploadStartup(
+        await prepareOnboardingStartup(
           settings,
           forceOnboarding: false,
           bypassOnboarding: false,
@@ -499,7 +499,7 @@ void main() {
             '{"AutoUpload":true,"autoload":false}',
       });
       final settings = await settingsWithSeen(false);
-      await prepareShotUploadStartup(
+      await prepareOnboardingStartup(
         settings,
         forceOnboarding: false,
         bypassOnboarding: false,
@@ -515,7 +515,7 @@ void main() {
         await service.setShotUploadStepSeen(false);
         final first = SettingsController(service);
         await first.loadSettings();
-        await prepareShotUploadStartup(
+        await prepareOnboardingStartup(
           first,
           forceOnboarding: false,
           bypassOnboarding: true,
@@ -524,13 +524,13 @@ void main() {
         await second.loadSettings();
         expect(second.shotUploadStepSeen, isTrue);
 
-        await prepareShotUploadStartup(
+        await prepareOnboardingStartup(
           second,
           forceOnboarding: true,
           bypassOnboarding: false,
         );
         expect(second.shotUploadStepSeen, isFalse);
-        await prepareShotUploadStartup(
+        await prepareOnboardingStartup(
           second,
           forceOnboarding: true,
           bypassOnboarding: true,
@@ -551,7 +551,7 @@ void main() {
         await service.setShotUploadOptIn(true);
         final settings = SettingsController(service);
         await settings.loadSettings();
-        await prepareShotUploadStartup(
+        await prepareOnboardingStartup(
           settings,
           forceOnboarding: false,
           bypassOnboarding: false,

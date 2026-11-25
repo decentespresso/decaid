@@ -256,7 +256,7 @@ Future<void> persistSkinPortAssignments(Map<String, int> assignments) async {
   );
 }
 
-Future<void> prepareShotUploadStartup(
+Future<void> prepareOnboardingStartup(
   SettingsController settings, {
   required bool forceOnboarding,
   required bool bypassOnboarding,
@@ -265,11 +265,28 @@ Future<void> prepareShotUploadStartup(
       await persistedShotUploadAutoUploadEnabled()) {
     await settings.setShotUploadStepSeen(true);
   }
+  await _applyOnboardingReplayRequest(settings);
   if (bypassOnboarding && !forceOnboarding) {
     await settings.setShotUploadStepSeen(true);
   }
   if (forceOnboarding) {
     await settings.setShotUploadStepSeen(false);
+  }
+}
+
+Future<void> _applyOnboardingReplayRequest(SettingsController settings) async {
+  try {
+    if (await settings.consumeOnboardingReplayRequest()) {
+      Logger('Main')
+          .info('Reset onboarding from Advanced applied for this cold launch');
+    }
+  } catch (e, st) {
+    Logger('Main').warning(
+      'Reset onboarding not applied; the request stays armed for the next '
+      'launch',
+      e,
+      st,
+    );
   }
 }
 
@@ -848,7 +865,7 @@ void main(List<String> args) async {
     return;
   }
   BootTiming.mark('webserver_up');
-  await prepareShotUploadStartup(
+  await prepareOnboardingStartup(
     settingsController,
     forceOnboarding: cliArgs.forceOnboarding,
     bypassOnboarding: cliArgs.bypassOnboarding,
