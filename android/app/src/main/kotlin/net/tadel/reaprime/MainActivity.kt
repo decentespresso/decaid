@@ -36,7 +36,6 @@ class MainActivity: FlutterFragmentActivity() {
 
     companion object {
         private const val MULTICAST_LOCK_TAG = "reaprime-multicast"
-        private const val PER_USER_RANGE = 100000
 
         private var multicastLock: WifiManager.MulticastLock? = null
     }
@@ -86,35 +85,21 @@ class MainActivity: FlutterFragmentActivity() {
         super.onDestroy()
     }
 
-    /**
-     * Detects if app is running in a cloned environment (Parallel Space, Island, etc.)
-     * Normal path: /data/user/<current user>/com.example.app/files
-     * Cloned path: /data/data/com.ludashi.dualspace/virtual/data/user/0/com.example.app/files
-     * OEM clone: /data/user/999/com.example.app/files (a profile, not a full user)
-     *
-     * The data path is compared with the user the app is actually running as.
-     * Devices in headless system user mode (for example Amazon's Alexa Tablet)
-     * keep user 0 for the system and run every person, including the owner, as
-     * user 10 or higher, so user 0 cannot be assumed.
-     */
     private fun isRunningInClonedEnvironment(): Boolean {
-        val userId = Process.myUid() / PER_USER_RANGE
-        val normalPath = "/data/user/$userId/$packageName"
-        val actualPath = filesDir.absolutePath
-        if (!actualPath.startsWith(normalPath)) {
-            Log.w(TAG, "Clone detected - expected: $normalPath, actual: $actualPath")
-            return true
-        }
-        if (userId == 0) {
-            return false
-        }
-        val isProfile = Build.VERSION.SDK_INT < Build.VERSION_CODES.R ||
-            getSystemService(UserManager::class.java).isProfile
-        if (isProfile) {
-            Log.w(TAG, "Clone detected - running in profile or non-primary user $userId")
-        }
-        return isProfile
+        val reason = cloneEnvironmentReason(
+            Process.myUid(),
+            filesDir.absolutePath,
+            packageName,
+            Build.VERSION.SDK_INT,
+            ::currentUserIsProfile,
+        ) ?: return false
+        Log.w(TAG, reason)
+        return true
     }
+
+    private fun currentUserIsProfile(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            getSystemService(UserManager::class.java).isProfile
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
