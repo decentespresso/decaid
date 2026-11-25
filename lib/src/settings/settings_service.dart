@@ -78,6 +78,8 @@ abstract class SettingsService {
   Future<void> setKeepAwake(bool value);
   Future<bool> onboardingCompleted();
   Future<void> setOnboardingCompleted(bool value);
+  Future<bool> onboardingReplayRequested();
+  Future<void> setOnboardingReplayRequested(bool value);
   Future<bool> accountStepSeen();
   Future<void> setAccountStepSeen(bool value);
   Future<bool> shotUploadStepSeen();
@@ -88,6 +90,7 @@ abstract class SettingsService {
   Future<bool?> shotUploadPendingDecision();
   Future<void> setShotUploadDecision(bool value);
   Future<void> clearShotUploadPendingDecision();
+  Future<bool?> shotUploadRecordedAnswer();
   Future<bool> androidWarningDismissed();
   Future<void> setAndroidWarningDismissed(bool value);
   Future<bool> showSkinExitInstructions();
@@ -516,6 +519,17 @@ class SharedPreferencesSettingsService extends SettingsService {
   }
 
   @override
+  Future<bool> onboardingReplayRequested() async {
+    return await prefs.getBool(SettingsKeys.onboardingReplayRequested.name) ??
+        false;
+  }
+
+  @override
+  Future<void> setOnboardingReplayRequested(bool value) async {
+    await prefs.setBool(SettingsKeys.onboardingReplayRequested.name, value);
+  }
+
+  @override
   Future<bool> shotUploadStepSeen() async {
     final decision = await _readShotUploadDecision();
     if (decision case final record? when record['seen'] is bool) {
@@ -578,6 +592,12 @@ class SharedPreferencesSettingsService extends SettingsService {
       SettingsKeys.shotUploadDecision.name,
       jsonEncode({...decision, 'pending': false, 'seen': true}),
     );
+  }
+
+  @override
+  Future<bool?> shotUploadRecordedAnswer() async {
+    final answer = (await _readShotUploadDecision())?['answer'];
+    return answer is bool ? answer : null;
   }
 
   Future<Map<String, dynamic>?> _readShotUploadDecision() async {
@@ -693,6 +713,7 @@ enum SettingsKeys {
   lowBatteryBrightnessLimit,
   keepAwake,
   onboardingCompleted,
+  onboardingReplayRequested,
   accountStepSeen,
   shotUploadStepSeen,
   shotUploadOptIn,

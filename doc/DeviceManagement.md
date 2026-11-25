@@ -1086,6 +1086,39 @@ never retain the disconnected instance beside its connected replacement.
 
 If multiple machines or scales are found without a preferred device set, ConnectionManager emits `pendingAmbiguity: machinePicker` or `scalePicker`, and the UI shows a picker dialog.
 
+### Reset Onboarding (Setup Replay)
+
+Advanced → **Reset onboarding** re-arms the setup presentation for the next cold
+launch without touching accounts, consent, plugin settings, preferences,
+profiles, data, devices, skins or OS permissions. The action only writes the
+one-shot `onboardingReplayRequested` preference, so the running session stays
+usable and a keyed `MyApp`/`AppRoot` restart cannot consume the request before
+the operator closes the app. Cancel writes nothing, a repeated request is
+idempotent, and a failed write is reported instead of acknowledged as success.
+
+`main()` applies an armed request once per process through
+`SettingsController.consumeOnboardingReplayRequest()`, which delegates the
+presentation-only reset to `resetOnboardingPresentationProgress()`. That entry
+point is the shared, non-destructive half a future new-owner reset reuses. The
+startup order is deliberate:
+
+1. The legacy shot-upload `AutoUpload` migration runs first, so it cannot
+   swallow the re-armed shot-upload step.
+2. An armed replay clears `onboardingCompleted`, `accountStepSeen`,
+   `androidWarningDismissed` and `shotUploadStepSeen`, then the marker. A
+   failing write leaves the marker armed and the cached progress untouched so
+   the next launch retries.
+3. The CLI `--force-onboarding` / `--bypass-onboarding` flags keep the last word
+   for the launch they were passed to.
+
+Eligibility is unchanged: welcome and import return through
+`onboardingCompleted`, account login only for an unlinked installation,
+shot-upload only after a successful link, and the platform warning only where
+it applies. When #1179 introduces versioned step progress, the replay has to
+reset that progress instead of the underlying settings, and a bundled-skin or
+device chooser must preselect the real current value so skipping or continuing
+it changes nothing.
+
 ### Live Discovery During Scanning
 
 While the scan is active, the onboarding scan lists the recognized Decent

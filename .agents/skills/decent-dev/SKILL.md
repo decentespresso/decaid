@@ -125,14 +125,17 @@ Two things that do work today:
   `flutter run --dart-entrypoint-args=--force-onboarding`. Usable for onboarding logic that is not
   platform-specific; the Android warning step still needs a tablet and manual taps.
 
-Adding a tablet-side way to force onboarding would be a code change, not a documentation update.
+A production tablet has a native onboarding-only reset: **Advanced → Reset onboarding** arms the setup
+screens for the next cold launch without clearing app data, accounts, consent, plugins, devices or
+skins. Reach for it before the `pm clear` above, which stays a full reset.
 
-`--force-onboarding` clears exactly three keys in `lib/main.dart` — `onboardingCompleted`,
-`accountStepSeen`, `androidWarningDismissed`. Other one-time prompts (for example
-`telemetryConsentDialogShown` or consent keys) keep their state. Because the flag re-arms every step it
-does clear, behaviour that depends on "already answered" — a step that must appear only once, an opt-in
-cleared after it has been applied — cannot be verified while the flag is on. Verify those with a plain
-start after completing the flow once.
+`--force-onboarding` clears four presentation keys in `lib/main.dart` — `onboardingCompleted`,
+`accountStepSeen`, `androidWarningDismissed`, and the shot-upload seen flag that
+`prepareOnboardingStartup` re-arms alongside the legacy `AutoUpload` migration. Other one-time prompts
+(for example `telemetryConsentDialogShown` or consent keys) keep their state. Because the flag re-arms
+every step it does clear, behaviour that depends on "already answered" — a step that must appear only
+once, an opt-in cleared after it has been applied — cannot be verified while the flag is on. Verify those
+with a plain start after completing the flow once.
 
 ## Simulated devices
 

@@ -166,6 +166,7 @@ Future<_Harness> _build({
   final step = createShotUploadStep(
     accountService: accountService,
     settingsController: settings,
+    persistedAutoUpload: () async => false,
   );
   final controller = OnboardingController(
     steps: [
