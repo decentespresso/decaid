@@ -74,7 +74,7 @@ rules if either logger gains new responsibilities.
 
 **Symptom:** `Activity did not call through to super.onCreate()` — Android launch crash.
 **Fix (PR #435):** `super.onCreate()` moved to top of `onCreate()` before early-return guards.
-**Follow-up (#1227):** `isRunningInClonedEnvironment()` compares `filesDir` with the data path of the user the process runs as, so a full secondary user, including the owner on a headless system user device such as the Alexa Tablet 8, is no longer reported as a clone. Profiles (work, clone, private space, OEM dual-app) and virtual-space paths are still rejected, and before Android 11 only user 0 is accepted.
+**Follow-up (#1227):** `cloneEnvironmentReason()` (`CloneEnvironment.kt`, called from `MainActivity`) compares `filesDir` with the data path of the user the process runs as, so a full secondary user, including the owner on a headless system user device such as the Alexa Tablet 8, is no longer reported as a clone. Profiles (work, clone, private space, OEM dual-app) and virtual-space paths are still rejected. Telling a full user from a profile needs `UserManager.isProfile()`, which is public SDK only from Android 13 (API 33); on Android 11 and 12 it is a hidden `@SystemApi`, so before Android 13 only user 0 is accepted and `isProfile()` is never called. The JVM unit tests in `android/app/src/test` cover this boundary (`cd android && ./gradlew :app:testDebugUnitTest`); CI does not run them.
 
 ## BLE Error Debugging
 
