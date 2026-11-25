@@ -1223,7 +1223,7 @@ See [`device-notes/de1.md`](device-notes/de1.md#legacy-identity-resolution).
 
 When the machine starts getting ready, the sequencer sends a tare whenever a scale is connected, even if the scale has not reported a fresh reading yet. The tare is confirmed by a reading within 0.5 g of zero that comes from the current scale connection and arrives after the request. Readings from before the request, or from a replaced scale, never confirm it. Until it is confirmed, recorded weight and weight flow are held at 0, and stop-at-weight and weight step exits see nothing.
 
-While the tare is unconfirmed, the sequencer sends another one each second, up to six attempts. A reading more than 0.5 g from zero after confirmation (for example a cup placed during warm-up) clears the confirmation at once, so frames built after it are masked, and starts a new round of tares with the same one-second holdoff.
+While the tare is unconfirmed, the sequencer sends another one at the scale's tare retry interval, up to six attempts. The interval is 1 s by default; a driver can declare its own by implementing `TareRetryIntervalScale`, and `EurekaScale` declares 1.5 s because the Eureka Precisa takes about a second to apply a tare. A reading more than 0.5 g from zero after confirmation (for example a cup placed during warm-up) clears the confirmation at once, so frames built after it are masked, and starts a new round of tares with the same interval as a holdoff.
 
 The decision is made when flow starts:
 
@@ -1231,7 +1231,7 @@ The decision is made when flow starts:
 - `blockOnNoScale` enabled and zero not confirmed: the shot is aborted with an `abort` decision, reason `tareUnconfirmed`, the machine is sent to idle, and no shot is saved. This includes a connected scale that never reports. If all six preheat attempts fail, the abort happens during preheat instead. Losing or replacing the scale while the tare is unconfirmed aborts the same way.
 - `blockOnNoScale` disabled and zero not confirmed: stop-at-weight is disabled for the shot, the same as losing the scale, and the target volume fallback applies when one is configured.
 
-A tare sent during preheat can still land after flow starts. For two seconds after the last tare was sent, a reading that falls more than 1 g below the previous one during flow is treated as a late tare. It is handled like losing the scale after a confirmed tare: the shot continues without stop-at-weight. A late tare can therefore cost at most about 1 g without being noticed.
+A tare sent during preheat can still land after flow starts, and the scales give no acknowledgement of when, or whether, a tare was applied. As best-effort detection, for two seconds after the last tare was sent, a reading that falls more than 1 g below the previous one during flow is treated as a late tare. It is handled like losing the scale after a confirmed tare: the shot continues without stop-at-weight. This does not bound the loss: a tare that lands later than that, or while less than 1 g is in the cup, is not detected and shifts the measured yield. The maintainer accepted this residual risk for #1243; a tare acknowledgement and shared confirmation contract are tracked in #1260.
 
 When a tare is confirmed, the scale controller's flow estimators are reset and the confirming reading's flow is zeroed. Otherwise a tare that lands on a cup still reading its weight leaves a large negative flow followed by a positive overshoot lasting several seconds.
 

@@ -91,11 +91,14 @@ tare alone and 956 ms for a tare followed by a reset. One tare followed by a
 reset took 4554 ms. That run cannot tell a 4.5 s delay apart from a dropped tare
 masked by the cup being moved, so treat multi-second delays as possible.
 
-Because the latency is close to the espresso tare retry interval (1 s), a retry
-is often sent just before the first tare lands; the second tare then lands on a
-zeroed scale. See "Espresso tare confirmation" in
-[`DeviceManagement.md`](../DeviceManagement.md) for how the sequencer bounds
-this.
+Because that latency is close to the default espresso tare retry interval
+(1 s), `EurekaScale` implements `TareRetryIntervalScale` with 1.5 s, so a retry
+is normally sent only when the first tare is slow or dropped. The same driver
+serves the Solo Barista (`LSJ-001`), so it uses 1.5 s too; its latency has not
+been measured. There is no
+acknowledgement and no established upper bound on the delay, so a tare can still
+land late. See "Espresso tare confirmation" in
+[`DeviceManagement.md`](../DeviceManagement.md).
 
 ## Scale maintenance
 

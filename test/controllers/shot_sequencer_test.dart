@@ -61,6 +61,11 @@ class _TestDe1Controller extends De1Controller {
   }
 }
 
+class _SlowTareScale extends TestScale implements TareRetryIntervalScale {
+  @override
+  Duration get tareRetryInterval => const Duration(milliseconds: 1500);
+}
+
 class _FailingTimerScale extends TestScale {
   final calls = <String>[];
 
@@ -2000,6 +2005,45 @@ void main() {
 
         expect(testDe1.requestedStates, contains(MachineState.idle));
         shotSequencer.dispose();
+      });
+    });
+
+    test('the preheat tare retries at the interval the scale declares', () {
+      fakeAsync((async) {
+        final slowScale = _SlowTareScale();
+        final slowController = _TestScaleController(slowScale);
+        slowController.emitWeight(170.7);
+        final shotSequencer = ShotSequencer(
+          scaleController: slowController,
+          de1controller: de1Controller,
+          persistenceController: persistenceController,
+          targetProfile: profile,
+          targetYield: 38.0,
+          bypassSAW: false,
+          blockOnNoScale: false,
+          weightFlowMultiplier: 1.0,
+          volumeFlowMultiplier: 0.0,
+          stepExitArbiterEnabled: true,
+        );
+        async.elapse(Duration(milliseconds: 10));
+
+        enterPreheat(async);
+        expect(slowScale.tareCallCount, 1);
+        slowController.emitWeight(170.7);
+        async.elapse(Duration(milliseconds: 1100));
+        expect(
+          slowScale.tareCallCount,
+          1,
+          reason: 'a 1.5 s scale must not be retried after one second',
+        );
+        async.elapse(Duration(milliseconds: 500));
+        expect(slowScale.tareCallCount, 2);
+        async.elapse(Duration(milliseconds: 1500));
+        expect(slowScale.tareCallCount, 3);
+
+        shotSequencer.dispose();
+        slowController.dispose();
+        slowScale.dispose();
       });
     });
 

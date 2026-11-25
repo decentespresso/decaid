@@ -5,6 +5,11 @@ import 'package:reaprime/src/models/device/scale.dart';
 
 import '../helpers/test_scale.dart';
 
+class _SlowTareScale extends TestScale implements TareRetryIntervalScale {
+  @override
+  Duration get tareRetryInterval => const Duration(milliseconds: 1500);
+}
+
 void main() {
   late TestScale scale;
   late ScaleController controller;
@@ -95,5 +100,36 @@ void main() {
     }
 
     expect(snapshots.last.controlWeightFlow, closeTo(2.0, 0.6));
+  });
+
+  group('tare retry interval', () {
+    test('defaults to one second for a scale without its own interval', () {
+      expect(controller.tareRetryInterval, const Duration(seconds: 1));
+    });
+
+    test('uses the interval the connected scale declares', () async {
+      final slow = _SlowTareScale();
+      final slowController = ScaleController();
+      addTearDown(() {
+        slowController.dispose();
+        slow.dispose();
+      });
+      await slowController.connectToScale(slow);
+      await slowController.connectionState.firstWhere(
+        (s) => s == ConnectionState.connected,
+      );
+
+      expect(
+        slowController.tareRetryInterval,
+        const Duration(milliseconds: 1500),
+      );
+    });
+
+    test('falls back to the default with no scale connected', () {
+      final idle = ScaleController();
+      addTearDown(idle.dispose);
+
+      expect(idle.tareRetryInterval, const Duration(seconds: 1));
+    });
   });
 }
