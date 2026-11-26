@@ -27,6 +27,86 @@ void main() {
     });
   }
 
+  test('requires the exact non-empty listener identity', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    server.listen((request) async {
+      await request.drain<void>();
+      request.response
+        ..statusCode = HttpStatus.ok
+        ..headers.contentType = ContentType.json;
+      await request.response.close();
+    });
+    try {
+      final uri = Uri.parse('http://127.0.0.1:${server.port}/');
+      expect(
+        await ListenerHealth.probe(
+          uri,
+          expectedStatus: HttpStatus.ok,
+          expectedListenerId: 'expected',
+        ),
+        isFalse,
+      );
+      expect(
+        await ListenerHealth.probe(
+          uri,
+          expectedStatus: HttpStatus.ok,
+          expectedListenerId: '',
+        ),
+        isFalse,
+      );
+    } finally {
+      await server.close(force: true);
+    }
+  });
+
+  test('accepts the exact listener identity', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    server.listen((request) async {
+      await request.drain<void>();
+      request.response
+        ..statusCode = HttpStatus.ok
+        ..headers.contentType = ContentType.json
+        ..headers.set(listenerIdentityHeader, 'expected');
+      await request.response.close();
+    });
+    try {
+      expect(
+        await ListenerHealth.probe(
+          Uri.parse('http://127.0.0.1:${server.port}/'),
+          expectedStatus: HttpStatus.ok,
+          expectedListenerId: 'expected',
+        ),
+        isTrue,
+      );
+    } finally {
+      await server.close(force: true);
+    }
+  });
+
+  test('rejects a wrong listener identity', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    server.listen((request) async {
+      await request.drain<void>();
+      request.response
+        ..statusCode = HttpStatus.ok
+        ..headers.contentType = ContentType.json
+        ..headers.set(listenerIdentityHeader, 'other');
+      await request.response.close();
+    });
+    try {
+      expect(
+        await ListenerHealth.probe(
+          Uri.parse('http://127.0.0.1:${server.port}/'),
+          expectedStatus: HttpStatus.ok,
+          expectedListenerId: 'expected',
+        ),
+        isFalse,
+      );
+    } finally {
+      await server.close(force: true);
+    }
+  });
+
   test(
     'times out after receiving a request without sending a response',
     () async {

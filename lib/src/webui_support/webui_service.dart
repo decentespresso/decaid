@@ -149,6 +149,7 @@ class WebUIService {
   HttpServer? _server;
   HttpServer? _entryServer;
   final Map<int, HttpServer> _aliasServers = {};
+  final Expando<String> _listenerIds = Expando<String>();
   int _lifecycleVersion = 0;
   Map<String, int>? _skinPortAssignments;
   int _entryPort = 3000;
@@ -160,6 +161,8 @@ class WebUIService {
   String _path = "";
   String? _localIP;
   String? _activeSkinIdentity;
+  String? _skinListenerId;
+  String? _entryListenerId;
   Handler? _handler;
   int? _servingVersion;
   Future<void>? _recovery;
@@ -412,6 +415,7 @@ class WebUIService {
         return;
       }
       _server = activeServer;
+      _skinListenerId = _listenerIds[activeServer];
       this.port = activeServer.port;
       await _serveEntryPoint(port);
       await _reconcileAliasServers();
@@ -431,6 +435,8 @@ class WebUIService {
         _server = null;
         _entryServer = null;
         _activeSkinIdentity = null;
+        _skinListenerId = null;
+        _entryListenerId = null;
         _handler = null;
         if (_servingVersion == version) _servingVersion = null;
         _revokeSkinProxyToken();
@@ -494,9 +500,23 @@ class WebUIService {
     return valid;
   }
 
+  Future<HttpServer> _serveIdentifiedSkinPort(Handler handler, int port) async {
+    final listenerId = newListenerIdentity();
+    Future<Response> boundHandler(Request request) async {
+      final response = await handler(request);
+      return response.change(
+        headers: {...response.headersAll, listenerIdentityHeader: listenerId},
+      );
+    }
+
+    final server = await shelf_io.serve(boundHandler, '0.0.0.0', port);
+    _listenerIds[server] = listenerId;
+    return server;
+  }
+
   Future<HttpServer?> _bindSkinPort(Handler handler, int port) async {
     try {
-      return await shelf_io.serve(handler, '0.0.0.0', port);
+      return await _serveIdentifiedSkinPort(handler, port);
     } on SocketException catch (e) {
       _log.fine('Skin port $port unavailable: $e');
       return null;
@@ -566,14 +586,14 @@ class WebUIService {
     Map<String, int> assignments,
   ) async {
     final avoid = {...assignments.values, ..._reservedSkinPorts};
-    var server = await shelf_io.serve(handler, '0.0.0.0', 0);
+    var server = await _serveIdentifiedSkinPort(handler, 0);
     for (
       var attempt = 1;
       attempt < _temporarySkinPortAttempts && avoid.contains(server.port);
       attempt++
     ) {
       await server.close(force: true);
-      server = await shelf_io.serve(handler, '0.0.0.0', 0);
+      server = await _serveIdentifiedSkinPort(handler, 0);
     }
     if (avoid.contains(server.port)) {
       _log.severe(
@@ -619,16 +639,22 @@ class WebUIService {
     if (version != _lifecycleVersion || (isCancelled?.call() ?? false)) return;
     await _entryServer?.close(force: true);
     if (version != _lifecycleVersion || (isCancelled?.call() ?? false)) return;
-    final server = await shelf_io.serve(
-      (request) => _redirectResponse(request, port),
-      '0.0.0.0',
-      requestedPort,
-    );
+    final listenerId = newListenerIdentity();
+    Future<Response> boundHandler(Request request) async {
+      final response = await _redirectResponse(request, port);
+      return response.change(
+        headers: {...response.headersAll, listenerIdentityHeader: listenerId},
+      );
+    }
+
+    final server = await shelf_io.serve(boundHandler, '0.0.0.0', requestedPort);
+    _listenerIds[server] = listenerId;
     if (version != _lifecycleVersion || (isCancelled?.call() ?? false)) {
       await server.close(force: true);
       return;
     }
     _entryServer = server;
+    _entryListenerId = listenerId;
     _entryPort = server.port;
     entryStartCount++;
   }
@@ -711,12 +737,21 @@ class WebUIService {
   Set<int> get browserOriginPorts => _server == null ? const {} : {port};
 
   Future<bool> checkHealth() async {
-    if (_server == null || _entryServer == null || _path.isEmpty) {
+    final skinListenerId = _skinListenerId;
+    final entryListenerId = _entryListenerId;
+    if (_server == null ||
+        _entryServer == null ||
+        _path.isEmpty ||
+        skinListenerId == null ||
+        skinListenerId.isEmpty ||
+        entryListenerId == null ||
+        entryListenerId.isEmpty) {
       return false;
     }
     final skinHealthy = await ListenerHealth.probe(
       Uri(scheme: 'http', host: '127.0.0.1', port: port, path: '/'),
       expectedStatus: HttpStatus.ok,
+      expectedListenerId: skinListenerId,
     );
     if (!skinHealthy) return false;
     return ListenerHealth.probe(
@@ -728,6 +763,7 @@ class WebUIService {
         port: port,
         path: '/',
       ).toString(),
+      expectedListenerId: entryListenerId,
     );
   }
 
@@ -751,11 +787,15 @@ class WebUIService {
     final previousAliases = Map<int, HttpServer>.from(_aliasServers);
     try {
       final skinServer = _server;
+      final skinListenerId = _skinListenerId;
       final skinHealthy =
           skinServer != null &&
+          skinListenerId != null &&
+          skinListenerId.isNotEmpty &&
           await ListenerHealth.probe(
             Uri(scheme: 'http', host: '127.0.0.1', port: port, path: '/'),
             expectedStatus: HttpStatus.ok,
+            expectedListenerId: skinListenerId,
           );
       if (version != _lifecycleVersion || (isCancelled?.call() ?? false)) {
         return;
@@ -775,13 +815,17 @@ class WebUIService {
           return;
         }
         _server = replacement;
+        _skinListenerId = _listenerIds[replacement];
         port = replacement.port;
         _pendingRecoveryGeneration = (version: version, identity: identity);
       }
 
       final entryServer = _entryServer;
+      final entryListenerId = _entryListenerId;
       final entryHealthy =
           entryServer != null &&
+          entryListenerId != null &&
+          entryListenerId.isNotEmpty &&
           await ListenerHealth.probe(
             Uri(scheme: 'http', host: '127.0.0.1', port: _entryPort, path: '/'),
             expectedStatus: HttpStatus.temporaryRedirect,
@@ -791,6 +835,7 @@ class WebUIService {
               port: port,
               path: '/',
             ).toString(),
+            expectedListenerId: entryListenerId,
           );
       if (version != _lifecycleVersion || (isCancelled?.call() ?? false)) {
         return;
@@ -894,6 +939,8 @@ class WebUIService {
     _entryServer = null;
     _path = "";
     _activeSkinIdentity = null;
+    _skinListenerId = null;
+    _entryListenerId = null;
     _handler = null;
     _servingVersion = null;
     if (server != null || entryServer != null || aliasServers.isNotEmpty) {

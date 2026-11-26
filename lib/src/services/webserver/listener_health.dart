@@ -1,4 +1,13 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
+
+const listenerIdentityHeader = 'x-decaid-listener-id';
+
+String newListenerIdentity() {
+  final random = Random.secure();
+  return base64UrlEncode(List<int>.generate(16, (_) => random.nextInt(256)));
+}
 
 class ListenerHealth {
   const ListenerHealth._();
@@ -9,7 +18,9 @@ class ListenerHealth {
     int? expectedStatus,
     String? expectedLocation,
     String? expectedContentType,
+    String? expectedListenerId,
   }) async {
+    if (expectedListenerId != null && expectedListenerId.isEmpty) return false;
     final client = HttpClient()
       ..connectionTimeout = timeout
       ..idleTimeout = timeout
@@ -31,6 +42,11 @@ class ListenerHealth {
           !(response.headers.value(HttpHeaders.contentTypeHeader) ?? '')
               .toLowerCase()
               .startsWith(expectedContentType.toLowerCase())) {
+        return false;
+      }
+      if (expectedListenerId != null &&
+          response.headers.value(listenerIdentityHeader) !=
+              expectedListenerId) {
         return false;
       }
       return expectedStatus != null ||

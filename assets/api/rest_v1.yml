@@ -6031,7 +6031,12 @@ paths:
       tags: [System]
       responses:
         "200":
-          description: Successful response
+          description: Successful response. The bound API listener also adds the diagnostic `x-decaid-listener-id` response header; clients must not treat it as a credential or requirement.
+          headers:
+            x-decaid-listener-id:
+              description: Cryptographically random diagnostic identity for this actual listener binding. It changes after a rebind and is not exposed through the API CORS header allowlist.
+              schema:
+                type: string
           content:
             application/json:
               schema:
