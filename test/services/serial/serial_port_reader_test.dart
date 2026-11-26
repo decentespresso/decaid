@@ -38,7 +38,11 @@ void main() {
       );
       addTearDown(() async {
         await subscription.cancel();
-        reader.close();
+        await reader.close();
+        await rx.close();
+        await tx.close();
+        rx.dispose();
+        tx.dispose();
       });
 
       Future<int> exchange(List<int> bytes, {int deadlineMs = 200}) async {
