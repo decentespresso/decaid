@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <!-- 
         Decent - A gateway application for Decent Espresso machines
         Copyright (C) 2025-2026 Decent Espresso
@@ -52,6 +53,10 @@
         android:networkSecurityConfig="@xml/network_security_config"
         android:fullBackupContent="@xml/github_pat_backup_rules"
         android:dataExtractionRules="@xml/github_pat_data_extraction_rules">
+
+        <provider
+            android:name="com.google.firebase.provider.FirebaseInitProvider"
+            tools:node="remove" />
         
         <!-- FileProvider for sharing APK files -->
         <provider

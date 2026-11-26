@@ -55,7 +55,11 @@ import 'package:reaprime/src/services/database/mappers/shot_mapper.dart';
 import 'package:reaprime/src/services/database/mappers/steam_mapper.dart';
 import 'package:reaprime/src/services/database/mappers/bean_mapper.dart';
 import 'package:reaprime/src/services/database/mappers/grinder_mapper.dart';
+import 'package:reaprime/src/new_owner_recovery_view.dart';
 import 'package:reaprime/src/services/storage/app_directories.dart';
+import 'package:reaprime/src/services/storage/native_plugin_admission.dart';
+import 'package:reaprime/src/services/storage/new_owner_recovery_owner.dart';
+import 'package:reaprime/src/ui/startup_failure_shell.dart';
 import 'package:reaprime/src/services/storage/windows_preferences.dart';
 import 'package:reaprime/src/services/storage/drift_bean_storage.dart';
 import 'package:reaprime/src/services/storage/drift_grinder_storage.dart';
@@ -311,6 +315,58 @@ Future<void> loadSettingsBeforeWebServer({
   await startWebServer();
 }
 
+class _NativePluginAdmissionFailureApp extends StatelessWidget {
+  const _NativePluginAdmissionFailureApp({
+    required this.detail,
+    required this.logFilePath,
+  });
+
+  final String detail;
+  final String logFilePath;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return StartupFailureShell(
+      child: Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  spacing: 12,
+                  children: [
+                    Text(
+                      'Decaid could not start its services',
+                      style: theme.textTheme.headlineSmall,
+                    ),
+                    Text(
+                      'The native plugins this app runs on were not '
+                      'registered, so Decaid stopped instead of starting in a '
+                      'reduced state. Restart Decaid; if this repeats, send '
+                      'the log file below.',
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                    SelectableText(detail),
+                    Text(
+                      'Log file: $logFilePath',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   if (Platform.isWindows) await initializeWindowsPreferences();
@@ -328,6 +384,74 @@ void main(List<String> args) async {
   PrintAppender(formatter: ColorFormatter()).attachToLogger(Logger.root);
 
   final log = Logger("Main");
+
+  final logDir = await AppDirectories.logs;
+  await Directory(logDir).create(recursive: true);
+
+  RotatingFileAppender(baseFilePath: '$logDir/log.txt')
+      .attachToLogger(Logger.root);
+
+  final webViewLogService = WebViewLogService(logDirectoryPath: logDir);
+  await webViewLogService.initialize();
+
+  Logger.root.info("==== Decent starting ====");
+  BootTiming.start();
+
+  Logger.root.info(
+    "build: ${BuildInfo.commitShort}, branch: ${BuildInfo.branch}",
+  );
+  Logger.root.info(
+    "version: ${BuildInfo.version}, platform: ${Platform.operatingSystem}",
+  );
+
+  final recoveryStartup = await NewOwnerRecoveryStartup.open(
+    recoveryDirectory: await AppDirectories.newOwnerRecovery,
+  );
+  await runNewOwnerRecoveryStartup(
+    startup: recoveryStartup,
+    startNormalServices: () => startDecaidNormalServices(
+      log: log,
+      logDir: logDir,
+      cliArgs: cliArgs,
+      webViewLogService: webViewLogService,
+    ),
+    presentBlocked: (admission) {
+      Logger.root.warning(
+        'new-owner recovery state "${admission.kind.name}" blocks normal '
+        'startup: ${admission.detail}',
+      );
+      runApp(
+        NewOwnerRecoveryApp(
+          admission: admission,
+          logFilePath: '$logDir/log.txt',
+        ),
+      );
+    },
+  );
+}
+
+Future<void> startDecaidNormalServices({
+  required Logger log,
+  required String logDir,
+  required CliArgs cliArgs,
+  required WebViewLogService webViewLogService,
+}) async {
+  try {
+    await admitNativePlugins();
+  } catch (error, stackTrace) {
+    log.severe(
+      'Plugin registration failed, so normal services stay blocked',
+      error,
+      stackTrace,
+    );
+    runApp(
+      _NativePluginAdmissionFailureApp(
+        detail: '$error',
+        logFilePath: '$logDir/log.txt',
+      ),
+    );
+    return;
+  }
 
   if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
     await WindowManager.instance.ensureInitialized();
@@ -348,26 +472,7 @@ void main(List<String> args) async {
     }
   }
 
-  final logDir = await AppDirectories.logs;
-  await Directory(logDir).create(recursive: true);
-
-  RotatingFileAppender(baseFilePath: '$logDir/log.txt')
-      .attachToLogger(Logger.root);
-
-  final webViewLogService = WebViewLogService(logDirectoryPath: logDir);
-  await webViewLogService.initialize();
-
-  Logger.root.info("==== Decent starting ====");
-  BootTiming.start();
-
   unawaited(MulticastLockService().acquire());
-
-  Logger.root.info(
-    "build: ${BuildInfo.commitShort}, branch: ${BuildInfo.branch}",
-  );
-  Logger.root.info(
-    "version: ${BuildInfo.version}, platform: ${Platform.operatingSystem}",
-  );
 
   final isDebugOrSimulate =
       kDebugMode || const String.fromEnvironment("simulate").isNotEmpty;
