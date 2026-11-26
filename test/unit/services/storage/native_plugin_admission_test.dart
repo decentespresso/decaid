@@ -6,6 +6,15 @@ import 'package:reaprime/src/services/storage/native_plugin_admission.dart';
 
 const _activityPath =
     'android/app/src/main/kotlin/net/tadel/reaprime/MainActivity.kt';
+const _admissionHelperPath =
+    'android/app/src/main/kotlin/net/tadel/reaprime/PluginRegistrationAdmission.kt';
+const _admissionHelperTestPath =
+    'android/app/src/test/kotlin/net/tadel/reaprime/PluginRegistrationAdmissionTest.kt';
+const _appBuildScriptPath = 'android/app/build.gradle.kts';
+const _guardSourcePath =
+    'android/buildSrc/src/main/java/net/tadel/reaprime/gradle/GuardedPluginRegistration.java';
+const _guardTestPath =
+    'android/buildSrc/src/test/java/net/tadel/reaprime/gradle/GuardedPluginRegistrationTest.java';
 const _manifestPath = 'android/app/src/main/AndroidManifest.xml';
 const _foregroundServicePath = 'lib/src/services/foreground_service.dart';
 const _mainPath = 'lib/main.dart';
@@ -154,10 +163,7 @@ void main() {
 
     test('the full generated set is registered through the engine call', () {
       expect(
-        _occurrences(
-          activity,
-          'GeneratedPluginRegister.registerGeneratedPlugins',
-        ),
+        _occurrences(activity, 'GeneratedPluginRegistrant.registerWith('),
         1,
         reason:
             'a second call site would duplicate engine attachment, and a '
@@ -203,27 +209,35 @@ void main() {
       );
     });
 
-    test('a missing generated registrant fails instead of fizzling', () {
+    test('registration faults cannot be swallowed by the embedding helper', () {
       final admit = _kotlinFunctionBody(activity, 'admitPlugins');
-      final presenceCheck = admit.indexOf('requireGeneratedRegistrant()');
-      final registration = admit.indexOf(
-        'GeneratedPluginRegister.registerGeneratedPlugins',
-      );
 
-      expect(presenceCheck, greaterThanOrEqualTo(0));
+      expect(admit, contains('GeneratedPluginRegistrant.registerWith('));
       expect(
-        presenceCheck,
-        lessThan(registration),
+        activity,
+        isNot(contains('GeneratedPluginRegister')),
         reason:
-            'GeneratedPluginRegister logs and returns when the generated '
-            'registrant cannot be found, which would leave every plugin '
-            'unregistered while admission reported success',
+            'GeneratedPluginRegister.registerGeneratedPlugins catches '
+            'Exception around the reflective invoke and only logs it, and '
+            'reflection wraps a plugin Error in InvocationTargetException, so '
+            'every plugin could stay unregistered while admission reported '
+            'success; a compile-time call lets the fault escape',
       );
       expect(
-        _kotlinFunctionBody(activity, 'requireGeneratedRegistrant'),
-        contains(
-          'Class.forName("io.flutter.plugins.GeneratedPluginRegistrant")',
-        ),
+        activity,
+        isNot(contains('Class.forName')),
+        reason:
+            'a generated-registrant method presence check is not evidence of '
+            'registration, and calling the registrant directly makes a '
+            'missing registrant a compile error',
+      );
+      expect(
+        activity,
+        isNot(contains('.plugins.has(')),
+        reason:
+            'the plugin registry records a plugin before onAttachedToEngine '
+            'runs, so membership is true for a plugin that failed to attach '
+            'and cannot be the admission postcondition',
       );
       expect(
         configure,
@@ -232,19 +246,96 @@ void main() {
       );
     });
 
-    test('registration is idempotent for one engine', () {
+    test('registration is admitted once per engine and stays failed once it failed', () {
       final admit = _kotlinFunctionBody(activity, 'admitPlugins');
-      final guard = admit.indexOf('admittedEngines.contains(flutterEngine)');
-      final registration = admit.indexOf(
-        'GeneratedPluginRegister.registerGeneratedPlugins',
-      );
-      final mark = admit.indexOf('admittedEngines.add(flutterEngine)');
+      final helper = File(_admissionHelperPath).readAsStringSync();
+      final latch = _kotlinFunctionBody(helper, 'admit');
 
-      expect(admit, contains('synchronized(admittedEngines)'));
-      expect(guard, greaterThanOrEqualTo(0));
-      expect(guard, lessThan(registration));
-      expect(registration, lessThan(mark));
-      expect(activity, contains('WeakHashMap'));
+      expect(admit, contains('pluginRegistration.admit(flutterEngine)'));
+      expect(
+        admit,
+        isNot(contains('admittedEngines')),
+        reason:
+            'the per-engine latch owns admission state, so a second flag in '
+            'the activity could admit an engine the latch refused',
+      );
+      expect(activity, contains('PluginRegistrationAdmission<FlutterEngine>'));
+      expect(File(_admissionHelperTestPath).existsSync(), isTrue);
+
+      final alreadyAdmitted = latch.indexOf('admitted.contains(engine)');
+      final alreadyFailed = latch.indexOf('failed.contains(engine)');
+      final register = latch.indexOf('register()');
+      final latchFailure = latch.indexOf('failed.add(engine)');
+      final advert = latch.indexOf('admitted.add(engine)');
+
+      expect(alreadyAdmitted, greaterThanOrEqualTo(0));
+      expect(alreadyFailed, greaterThan(alreadyAdmitted));
+      expect(register, greaterThan(alreadyFailed));
+      expect(
+        latchFailure,
+        greaterThan(register),
+        reason:
+            'any escaping constructor or attach failure must latch the engine '
+            'as failed before it can be considered registered',
+      );
+      expect(
+        advert,
+        greaterThan(register),
+        reason:
+            'an engine is admitted only after registration returned normally',
+      );
+      expect(
+        latch,
+        contains('catch (error: Throwable)'),
+        reason:
+            'a plugin Error (for example an unsatisfied native library) must '
+            'latch the engine just like an Exception',
+      );
+      expect(
+        RegExp(r'(val|var) \w+: Throwable').hasMatch(helper),
+        isFalse,
+        reason:
+            'a stored throwable would keep the engine alive through its own '
+            'stack trace; the latch records only the engine',
+      );
+    });
+
+    test('the build makes every generated plugin failure observable', () {
+      final buildScript = File(_appBuildScriptPath).readAsStringSync();
+      final guard = File(_guardSourcePath).readAsStringSync();
+
+      expect(buildScript, contains('guardGeneratedPluginRegistration'));
+      expect(
+        buildScript,
+        contains('GuardedPluginRegistration.guard('),
+        reason:
+            'Flutter still generates the authoritative plugin list; the '
+            'guard only makes its swallowed failures propagate',
+      );
+      expect(
+        buildScript,
+        contains('dependsOn(guardGeneratedPluginRegistration)'),
+        reason:
+            'a Kotlin or Java compile that runs before the guard would keep '
+            'the swallowing registrant',
+      );
+      expect(File(_guardTestPath).existsSync(), isTrue);
+      expect(guard, contains('catch (Exception e) {'));
+      expect(
+        guard,
+        contains('PINNED_FLUTTER_VERSION = "3.47.9"'),
+        reason:
+            'the generated registrant shape is pinned; a Flutter upgrade '
+            'must be reviewed against this guard instead of silently '
+            'instrumenting a different generator',
+      );
+      expect(
+        guard,
+        contains('partly instrumented'),
+        reason:
+            'an unsupported or partly instrumented registrant must fail the '
+            'build instead of degrading to an admission that cannot be trusted',
+      );
     });
 
     test('WebView provider loading waits for admission', () {
@@ -264,9 +355,7 @@ void main() {
         admit.indexOf('enableWebViewDebugging()'),
         allOf(
           greaterThanOrEqualTo(0),
-          lessThan(
-            admit.indexOf('GeneratedPluginRegister.registerGeneratedPlugins'),
-          ),
+          lessThan(admit.indexOf('GeneratedPluginRegistrant.registerWith(')),
         ),
         reason:
             'WebViews are created by plugins, so debugging is enabled first',

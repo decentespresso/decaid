@@ -36,6 +36,63 @@ class NewOwnerRecoveryApp extends StatelessWidget {
   }
 }
 
+/// Startup presentation for a failure that happens before normal startup.
+///
+/// It needs no plugin, resolved path or readable recovery record, so it still
+/// renders when diagnostic storage is unavailable, and it offers no reset
+/// action.
+class NewOwnerRecoveryStartupErrorApp extends StatelessWidget {
+  const NewOwnerRecoveryStartupErrorApp({
+    super.key,
+    required this.detail,
+    this.logFilePath,
+  });
+
+  final String detail;
+  final String? logFilePath;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return StartupFailureShell(
+      child: Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  spacing: 12,
+                  children: [
+                    Text(
+                      'Decaid could not start',
+                      style: theme.textTheme.headlineSmall,
+                    ),
+                    Text(
+                      'Decaid stopped before starting its normal services and '
+                      'did not fall back to a reduced start.',
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                    SelectableText(detail),
+                    if (logFilePath != null)
+                      Text(
+                        'Log file: $logFilePath',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _NewOwnerRecoveryView extends StatelessWidget {
   const _NewOwnerRecoveryView({
     required this.admission,

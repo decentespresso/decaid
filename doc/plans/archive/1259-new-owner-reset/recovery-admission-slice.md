@@ -16,11 +16,14 @@ remain prerequisites to enabling destructive reset and are not satisfied by this
 | Marker schema, file store, journal transitions, fault seam | `lib/src/services/storage/new_owner_reset_journal.dart` |
 | Process-session identity (kernel facts + native channel) | `lib/src/services/storage/process_session_identity.dart` |
 | Admission decision | `lib/src/services/storage/new_owner_recovery_admission.dart` |
-| Single owner: advisory lock, exclusive claim, startup seam | `lib/src/services/storage/new_owner_recovery_owner.dart` |
+| Single owner: advisory lock, exclusive claim | `lib/src/services/storage/new_owner_recovery_owner.dart` |
+| Startup composition and recovery diagnostics | `lib/src/services/storage/new_owner_recovery_startup.dart` |
 | Blocked/terminal presentation | `lib/src/new_owner_recovery_view.dart` |
 | Normal-startup composition + gate call | `lib/main.dart` |
 | Native plugin admission contract | `lib/src/services/storage/native_plugin_admission.dart` |
 | Deferred generated plugin registration | `android/app/src/main/kotlin/net/tadel/reaprime/MainActivity.kt` |
+| Per-engine plugin admission latch | `android/app/src/main/kotlin/net/tadel/reaprime/PluginRegistrationAdmission.kt` |
+| Generated-registration failure guard | `android/buildSrc/src/main/java/net/tadel/reaprime/gradle/GuardedPluginRegistration.java`, `android/app/build.gradle.kts` |
 | Native process identity channel (iOS, macOS) | `ios/Runner/AppDelegate.swift`, `macos/Runner/AppDelegate.swift`, `macos/Runner/MainFlutterWindow.swift` |
 
 ## Location and namespace boundary
@@ -189,14 +192,45 @@ not prove any store was erased or restored, and an injected fixture proves nothi
 Wiring a guarded customer startup needs the deletion/restoration/verification owners, which are
 explicit non-goals here.
 
-`runNewOwnerRecoveryStartup` is the production composition seam `main()` uses: it calls
-`startNormalServices` only when the admission permits normal startup and calls `presentBlocked`
-otherwise. `main()` passes its real normal-startup continuation
-(`startDecaidNormalServices`), so the branch that starts Firebase, telemetry, the multicast lock,
-Hive, the database, plugins, the web server, accounts and skins is chosen by production code rather
-than by test scaffolding. Tests assert with counters that `startNormalServices` runs zero times for
-every blocked or uncertain admission, and a structural test checks that `main()` reaches no sensitive
-initialisation outside `startDecaidNormalServices`.
+`runNewOwnerRecoveryStartup` (`new_owner_recovery_startup.dart`) is the production composition
+boundary `main()` uses. It owns the whole pre-normal-startup sequence, so exactly one branch runs and
+a failure cannot leave a partial app:
+
+| Step | Failure behaviour |
+| --- | --- |
+| resolve the recovery directory and open the journal | visible startup error; no normal diagnostics, no normal services |
+| blocked or uncertain admission | recovery presentation; normal diagnostics and normal services never run |
+| admitted startup | normal diagnostics (log directory, rotating appender, WebView log sink) initialise, then `startDecaidNormalServices` runs |
+| normal diagnostics initialisation throws | visible startup error; `startDecaidNormalServices` (and therefore native plugin admission) never runs |
+| normal services fail | the error propagates unchanged; it is never reported as a startup success or as a diagnostics failure |
+
+The normal rotating log and the WebView log sink (including its truncation) are initialised only for
+an admitted startup, so a blocked launch neither creates nor truncates them. Recovery diagnostics are
+best effort: the blocked or error presentation first appends one line to `recovery-startup.log`, a
+file separate from `log.txt` and `webview_console.log`, and a failure to write it (or to resolve its
+directory) leaves the presentation untouched and simply omits the log path. The presentation itself
+is a plain Flutter screen with no plugin, path or recovery-state dependency, so an unresolvable path
+provider or an unwritable log directory still shows a visible error instead of a blank or red screen.
+This file is an app-owned diagnostic, not recovery authority or retained reset state. Its displayed
+path is for manual collection; the existing support-package allowlist still exports only `log.txt`
+and `webview_console.log`. This slice adds no export, retention, rotation or deletion policy for it.
+
+`main()` therefore reaches Firebase, telemetry, the multicast lock, Hive, the database, plugins, the
+web server, accounts and skins only through `startDecaidNormalServices`, which it passes as the
+seam's normal-startup continuation. Tests assert with counters that the normal continuation runs zero
+times for every blocked or uncertain admission and for every pre-normal-startup failure, and a
+structural test checks that `main()` reaches no sensitive initialisation outside
+`startDecaidNormalServices`.
+
+Composition tests inject recovery-path, journal and normal-sink initialisation exceptions into the
+same function `main()` calls. An owned Android emulator also rendered uncertain recovery with the
+journal path and recovery diagnostic path each replaced by a directory. Nonempty normal log and
+WebView-log fingerprints stayed unchanged, and the installed throwing native plugin was never
+entered. Guest IPv4/IPv6 output filters were checked before and after the launch. This is actual
+blocked-startup evidence, not an on-device path-resolver exception test. A clean-admission experiment
+using a directory at `log.txt` did not fault initialisation: the existing rotating appender opens its
+sink lazily and catches asynchronous write errors. That experiment reached Welcome and is not a
+negative recovery test; this slice does not change that existing admitted logging behaviour.
 
 The blocked presentation (`NewOwnerRecoveryApp`) starts no account, upload, plugin, skin, API or
 database service, has no reset action, and tells the operator not to clear app data because that
@@ -303,13 +337,26 @@ explicit approval, and after that runtime counterexample, this slice also defers
 registrant: `MainActivity.configureFlutterEngine` overrides without `super`, attaches only the `jni`
 and `jni_flutter` FFI bridge that `path_provider` needs to resolve the marker directory, and answers a
 `com.reaprime/recovery_plugins`/`admitPlugins` channel with
-`GeneratedPluginRegister.registerGeneratedPlugins`. `startDecaidNormalServices` awaits that call as
-its first statement and renders a visible failure screen instead of starting if it is refused. The
-fence covers the activity engine of a fresh process only: a Dart hot restart keeps the registry, and
-the `flutter_foreground_task` engine is a separate engine that this change does not fence, whose
-current configuration makes it unreachable before admission. Mechanism, exact fence boundary,
-receiver gating and the remaining runtime requirement are in
+`GeneratedPluginRegistrant.registerWith` as a compile-time reference. `startDecaidNormalServices`
+awaits that call as its first statement and renders a visible failure screen instead of starting if
+it is refused. The fence covers the activity engine of a fresh process only: a Dart hot restart keeps
+the registry, and the `flutter_foreground_task` engine is a separate engine that this change does not
+fence, whose current configuration makes it unreachable before admission. Mechanism, exact fence
+boundary, receiver gating and the remaining runtime requirement are in
 [capabilities.md](capabilities.md#adopted-change-deferred-plugin-registration-operator-approved-r1).
+
+Deferring the call is not by itself a registration success postcondition, and an independent review
+said so. The pinned generator wraps every plugin in a per-plugin `catch (Exception e) { Log.e(…) }`,
+and `FlutterEngineConnectionRegistry.add` records a plugin before it calls `onAttachedToEngine`, so
+neither a normal return nor registry membership proves that the plugin attached. Under a second
+explicit approval the generated registrant stays the only plugin list and a project-local Gradle
+guard (`android/buildSrc`, wired from `android/app/build.gradle.kts`) removes exactly those per-plugin
+catch wrappers before every Kotlin and Java compile, failing the build on a different Flutter
+version, a changed generator template, an unrecognised or partly instrumented registrant, or a
+missing registrant. `PluginRegistrationAdmission` then latches a failed engine so a retry cannot skip
+the plugin the registry recorded before its attach threw. Pinned sources, guard contract, evidence
+classes and the exact boundary are in
+[capabilities.md](capabilities.md#correction-an-effective-registration-success-postcondition-operator-approved-guard).
 
 The same channel and authority also cover iOS and macOS: `didInitializeImplicitFlutterEngine` no
 longer calls `GeneratedPluginRegistrant.register(with:)` and `MainFlutterWindow.awakeFromNib` no
@@ -328,6 +375,8 @@ Focused suite (runs on the host filesystem; a real second process is used where 
 
 ```sh
 flutter test test/unit/services/storage/
+(cd android && ./gradlew -p buildSrc test)
+(cd android && ./gradlew :app:testDebugUnitTest)
 ```
 
 | Contract | Test group |
@@ -339,18 +388,23 @@ flutter test test/unit/services/storage/
 | ambiguous commit after a failed replace/delete | `ambiguous persistence outcomes` |
 | stale instances attempting conflicting operations | `competing journal owners` |
 | admission for every marker state, no normal service on blocked states | `admission states`, `production wiring` |
+| startup composition: normal diagnostics open only after admission and before normal services, a blocked marker never opens them, an unresolvable recovery directory, a journal that cannot be initialised and a failing normal diagnostic sink each present a visible error with no normal callback, a failing recovery diagnostic never suppresses presentation, ordinary normal-service errors still propagate, recovery diagnostics stay outside `log.txt`/`webview_console.log` | `startup composition` |
 | pending recovery without a process identity fails closed | `process identity requirement` |
 | cross-process lock, same-process second engine, refused contender keeping the lock, release interleaving against a real competing process, repeated/stale release, earlier-process claim | `ownership boundary` |
 | released owner retaining its handle, stale mutators after a successor owns the unchanged marker, reload never reissuing authority, no-op duplicate stage, revocation before the release window | `revocable owner lease` |
 | marker/decision mapping | `decision` |
 | Android manifest removes the automatic Firebase initialiser, and no sensitive initialisation precedes the gate in `main.dart` | `production wiring` |
-| Android defers the generated registrant: no `super.configureFlutterEngine`, one registrant call site, two FFI bootstrap plugins and no copied plugin list, registrant presence check, per-engine guard, WebView debugging after admission, no receiver-triggered second engine under the current foreground-service options, `admitNativePlugins()` before every sensitive initialisation, refused admission renders a failure screen and returns | `native_plugin_admission_test.dart` (`Android deferred registration wiring`, `normal startup admission wiring`) |
+| Android defers the generated registrant: no `super.configureFlutterEngine`, one registrant call site, two FFI bootstrap plugins and no copied plugin list, a per-engine latch instead of a local flag, WebView debugging after admission, no receiver-triggered second engine under the current foreground-service options, `admitNativePlugins()` before every sensitive initialisation, refused admission renders a failure screen and returns | `native_plugin_admission_test.dart` (`Android deferred registration wiring`, `normal startup admission wiring`) |
+| Android registration postcondition: the generated registrant is guarded before every Kotlin and Java compile, the guard is pinned to the Flutter 3.47.9 template, and the activity relies on neither a reflective registrant call nor registry membership | `native_plugin_admission_test.dart` (`Android deferred registration wiring`) |
+| Generated-registration guard: raw pinned input becomes one propagating statement per plugin, already guarded input is byte-identical, plugin counts come from the input, and drifted version/template/header/footer/catch shape/partial or duplicate blocks fail | `android/buildSrc` JUnit (`GuardedPluginRegistrationTest`) |
+| Per-engine plugin admission: one registration per engine, any escaping throwable latches, a retry never re-registers or admits, and a fresh engine is independent | `android/app/src/test` JUnit (`PluginRegistrationAdmissionTest`) |
 | Android admission channel: Android-only, one call per request, refusal and missing handler both fail closed with `NativePluginAdmissionException` | `native_plugin_admission_test.dart` (`plugin admission call`) |
 | Admission channel scope: Android, iOS and macOS defer registration; Linux, Windows and Fuchsia never open the channel; one call per request on every deferring platform | `native_plugin_admission_test.dart` (`platform deferral`) |
 | Apple deferral: neither engine callback reaches a registrant, one call site per platform inside `admitPlugins`, engine guard before registration and mark after it, app-owned channels still registered before admission, no copied plugin list, no second registration site, both generated registrants still carry Firebase and still contain no path provider | `native_plugin_admission_test.dart` (`Apple deferred registration wiring`) |
 | Plugin-dependent desktop window/preference setup and simulated-WebView restore run after admission and no longer in `main()`, while CLI parsing and path printing stay before the gate | `native_plugin_admission_test.dart` (`normal startup admission wiring`) |
 | identity from kernel facts, native channel contract, fail-closed sources | `process-level identity`, `native identity channel`, `host identity` |
 | blocked/terminal/error presentation, no reset action | `new_owner_recovery_view_test.dart` |
+| startup error presentation renders without a log path or any plugin | `new_owner_recovery_view_test.dart` (`startup failure view`) |
 
 Evidence classes: journal, injection and admission tests are host-filesystem and modelled filesystem
 platforms; the lock tests use a real second process (`python3` holding `fcntl` record locks); the
@@ -362,13 +416,28 @@ offline emulator run with synthetic markers. No test proves power-loss durabilit
 Android/iOS/Windows filesystem semantics, Apple native SDK ordering at runtime, the Dart-to-native
 identity channel end to end, on-device SDK transmission behaviour, or customer onboarding.
 
-The deferred-registration wiring tests are source assertions over the Kotlin activity, the manifest,
-the foreground-service options, the two Apple runner sources and `main.dart`; they model no native
-execution. Their guarantees come from three other places: the Kotlin compile (a removed or renamed
-`jni`/`jni_flutter` class fails `:app:assembleDebug` instead of failing at runtime), the packaged
-APK's dex (it contains `com.reaprime/recovery_plugins`, `admitPlugins`,
-`PLUGIN_REGISTRATION_FAILED` and `io.flutter.plugins.GeneratedPluginRegistrant`), and the runtime
-observation still outstanding. On Apple the comparable compile evidence is the Swift build itself:
+The deferred-registration wiring tests are source assertions over the Kotlin activity, the latch
+helper, the guard wiring, the manifest, the foreground-service options, the two Apple runner sources
+and `main.dart`; they model no native execution. Their guarantees come from four other places: the
+`android/buildSrc` guard tests (transformation and every rejection path, host JVM), the
+`android/app/src/test` latch tests (host JVM), the Kotlin and Java compiles (a removed or renamed
+`jni`/`jni_flutter` class or a missing generated registrant fails `:app:assembleDebug` instead of
+failing at runtime), and the packaged APK's dex (it contains `com.reaprime/recovery_plugins`,
+`admitPlugins`, `PLUGIN_REGISTRATION_FAILED` and `io.flutter.plugins.GeneratedPluginRegistrant`). The
+compiled `registerWith` is also inspected from a real `:app:compileDebugJavaWithJavac`: with the
+guard it carries no exception handler and no `Log.e` call, where the unguarded generator output
+carried 28 handlers. That is build evidence for the postcondition. Separate owned Android API 35 emulator runs installed
+fixture APKs with a real throwing constructor and a real throwing attach method. Each reached Dart
+as `PLUGIN_REGISTRATION_FAILED` and rendered the failure shell before the ordinary-service
+continuation. Attach logged registry membership as true before throwing. Invoking the existing
+production Dart admission function through the VM service retried that same engine and returned its
+latched failure without entering either fixture again; this was not a mocked channel or evaluated
+replacement function. A control APK reached Welcome. These repeated runs checked guest-only IPv4
+and IPv6 default-deny output enforcement before and after every launch. Earlier preliminary runs
+had only asynchronous airplane-mode toggles and cannot establish no egress or absence of cloud
+mutation. Registration is not transactional: earlier plugins in generated order can initialise SDKs
+before a later plugin fails; the latch does not undo those side effects. On Apple the comparable
+compile evidence is the Swift build itself:
 both runner sources reference `GeneratedPluginRegistrant`/`RegisterGeneratedPlugins` as direct
 symbols, so a missing generated registrant fails the link instead of reporting success at runtime;
 `flutter build macos --debug` and `flutter build ios --simulator --debug` both succeed on this host,
@@ -386,7 +455,10 @@ runtime evidence for the Apple fence.
    a cold start with a blocked marker must show the blocked screen and no app-PID `FA:`,
    `DynamiteModule` or `Phlogger` line, and an absent marker must still initialise the default app
    once after plugins are admitted; queued-payload and consent retention still need a retention
-   decision, because fencing initialisation is not erasure. The second engine
+   decision, because fencing initialisation is not erasure. The guard and latch now also have bounded Android debug runtime evidence: actual constructor
+   and attach failures reached the Dart failure shell and actual same-engine retries stayed refused
+   under enforced guest-only no-egress filters. This does not establish release-mode, physical-device
+   or queued-payload behaviour, nor rollback of partial native registration. The second engine
    (`flutter_foreground_task`) and its receiver gating are source facts, not runtime observations, and
    must be re-audited if that fork, its options or the foreground-service manifest entry change.
    On-device confirmation of the process-identity channel on iOS, macOS and Android is still

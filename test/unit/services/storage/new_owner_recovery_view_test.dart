@@ -120,4 +120,49 @@ void main() {
       expect(tester.takeException(), isA<ArgumentError>());
     });
   });
+
+  group('startup failure view', () {
+    testWidgets('a startup failure renders without a log path', (tester) async {
+      await tester.pumpWidget(
+        const NewOwnerRecoveryStartupErrorApp(
+          detail: 'the recovery directory could not be resolved',
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Decaid could not start'), findsOneWidget);
+      expect(
+        find.textContaining('the recovery directory could not be resolved'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('stopped before starting its normal services'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Log file:'), findsNothing);
+      expect(
+        find.byWidgetPredicate(
+          (widget) => widget is ButtonStyleButton || widget is MaterialButton,
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('a startup failure offers the recovery log when one exists', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const NewOwnerRecoveryStartupErrorApp(
+          detail: 'the log directory could not be created',
+          logFilePath: '/support/logs/recovery-startup.log',
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.textContaining('/support/logs/recovery-startup.log'),
+        findsOneWidget,
+      );
+    });
+  });
 }

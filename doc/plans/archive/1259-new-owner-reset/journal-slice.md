@@ -67,10 +67,16 @@ deleted. Failure cleanup only attempts the regular staged file. These checks are
 protection against hostile concurrent path swaps; the directory must be trusted and the
 single-writer boundary enforced.
 
-The in-memory record changes only after the store operation returns successfully. A persistence
-failure whose outcome cannot be established is reported as
+The in-memory record changes only after the store operation returns successfully. A failed replacement
+is classified only against both the record it tried to publish and the durable state observed before
+staging was opened: only the intended record is a commit, only the previous record (or continued
+absence with no prior marker) is a rejection, and any other readable record, a previously present
+marker that is now missing, or unreadable state is indeterminate, so an unrelated writer or a lost
+marker never reads as a clean failure. A store write also refuses to stage at all while the current
+marker is unreadable. A persistence failure whose outcome cannot be established is reported as
 `NewOwnerResetJournalIndeterminateWriteException` (a `NewOwnerResetJournalWriteException`) and leaves
-the instance refusing mutation until it reloads. On this host, Dart delete can report
+the instance refusing mutation until it reloads; that refusal is in-memory only and is never
+cross-restart or power-loss recovery. On this host, Dart delete can report
 PathNotFoundException under an inaccessible parent; absence confirmation therefore does not trust
 `typeSync`/`existsSync` alone.
 
@@ -91,10 +97,12 @@ established.
 `test/unit/services/storage/new_owner_reset_journal_test.dart` covers ordered transitions,
 duplicates, strict schema/payload rejection, invalid UTF-8, nested skin shape, missing/unreadable
 paths, outbound validation, isolated file replacement, staging/symlink sentinels, injected
-byte-write/flush/close/rename/delete faults, ambiguous commit classification, competing stale owner
-instances, failed acknowledgement/consume, ready without acknowledgement, rebuilt same-session
-owners, revoked-authority refusals for every mutator with a reload in between, and modelled
-later-session consumption. Non-root POSIX permission cases are platform-conditional.
+byte-write/flush/close/rename/delete faults, commit/rejection/indeterminate replacement
+classification for the intended record, an exact previous record, an absent marker, a missing marker,
+an unrelated third record and unreadable state, competing stale owner instances, failed
+acknowledgement/consume, ready without acknowledgement, rebuilt same-session owners,
+revoked-authority refusals for every mutator with a reload in between, and modelled later-session
+consumption. Non-root POSIX permission cases are platform-conditional.
 
 Focused check:
 

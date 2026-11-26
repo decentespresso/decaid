@@ -20,11 +20,9 @@ import com.github.dart_lang.jni.JniPlugin
 import com.github.dart_lang.jni_flutter.JniFlutterPlugin
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
-import io.flutter.embedding.engine.plugins.util.GeneratedPluginRegister
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugins.GeneratedPluginRegistrant
 import java.io.File
-import java.util.Collections
-import java.util.WeakHashMap
 
 class MainActivity: FlutterFragmentActivity() {
     private val CHANNEL = "com.reaprime.updater/apk_installer"
@@ -46,10 +44,7 @@ class MainActivity: FlutterFragmentActivity() {
 
         private var multicastLock: WifiManager.MulticastLock? = null
 
-        private val admittedEngines: MutableSet<FlutterEngine> =
-            Collections.synchronizedSet(
-                Collections.newSetFromMap(WeakHashMap<FlutterEngine, Boolean>())
-            )
+        private val pluginRegistration = PluginRegistrationAdmission<FlutterEngine>()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -224,22 +219,10 @@ class MainActivity: FlutterFragmentActivity() {
     }
 
     private fun admitPlugins(flutterEngine: FlutterEngine) {
-        synchronized(admittedEngines) {
-            if (admittedEngines.contains(flutterEngine)) {
-                Log.d(TAG, "Plugins already admitted for this engine")
-                return
-            }
-            requireGeneratedRegistrant()
+        pluginRegistration.admit(flutterEngine) {
             enableWebViewDebugging()
-            GeneratedPluginRegister.registerGeneratedPlugins(flutterEngine)
-            admittedEngines.add(flutterEngine)
-            Log.i(TAG, "Plugins admitted for this engine")
+            GeneratedPluginRegistrant.registerWith(flutterEngine)
         }
-    }
-
-    private fun requireGeneratedRegistrant() {
-        Class.forName("io.flutter.plugins.GeneratedPluginRegistrant")
-            .getDeclaredMethod("registerWith", FlutterEngine::class.java)
     }
 
     private fun enableWebViewDebugging() {
