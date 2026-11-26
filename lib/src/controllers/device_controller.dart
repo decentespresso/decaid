@@ -28,7 +28,11 @@ class DeviceStartupOutcome {
 }
 
 class DeviceController
-    implements DeviceScanner, DeviceAttachNotifier, UsbAttachProbe {
+    implements
+        DeviceScanner,
+        ScaleWatchHandoverScanner,
+        DeviceAttachNotifier,
+        UsbAttachProbe {
   final List<DeviceDiscoveryService> _services;
 
   late Map<DeviceDiscoveryService, List<Device>> _devices;
@@ -347,6 +351,22 @@ class DeviceController
   Future<void> stopScaleWatch() async {
     for (final service in _watchCapableServices) {
       await service.stopDeviceWatch();
+    }
+  }
+
+  @override
+  Object? claimScaleWatchHandover(Device device) {
+    for (final service in _services.whereType<ScaleWatchHandoverScanner>()) {
+      final claim = service.claimScaleWatchHandover(device);
+      if (claim != null) return claim;
+    }
+    return null;
+  }
+
+  @override
+  void cancelScaleWatchHandover(Object claim) {
+    for (final service in _services.whereType<ScaleWatchHandoverScanner>()) {
+      service.cancelScaleWatchHandover(claim);
     }
   }
 

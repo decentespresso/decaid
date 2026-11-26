@@ -642,6 +642,15 @@ decisions, and queued observation work. Watch stop and adapter recovery are
 generation boundaries too; otherwise fresh Apple quick-connect system evidence
 is rejected by the previous cache generation.
 
+A preferred plugin scale sighted by `ScaleWatch` uses a single-use handover claim.
+The claim retains only that physical identity, plugin registry revision, driver
+runtime generation, adapter generation and advertisement evidence across the
+watch stop; plugin admission still checks current registry and runtime ownership
+before consuming it. Foreground scans, plugin changes, adapter shutdown,
+cancellation and disposal invalidate the claim. Failed watch connects use bounded
+retry delays so sightings cannot churn Android scan ownership. Native candidates
+and auxiliary scale reservations do not use this seam.
+
 Real-JS integration fixtures are in `test/plugins/plugin_manager_ble_test.dart`,
 `plugin_ble_native_bridge_test.dart`, and `plugin_ble_sensor_api_test.dart`. The
 last drives actual HTTP/WebSocket clients through DeviceController, SensorController,

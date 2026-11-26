@@ -4827,7 +4827,7 @@ void main() {
         },
       );
 
-      test('failed watch connect re-arms the watch', () async {
+      test('failed watch connect re-arms only after backoff', () async {
         connectionManager = buildWatchManager();
         await settingsController.setPreferredScaleId(scaleId);
         mockScaleController.shouldFailConnect = true;
@@ -4839,11 +4839,14 @@ void main() {
         await Future<void>.delayed(Duration.zero);
         await Future<void>.delayed(Duration.zero);
 
-        expect(mockScaleController.connectCalls, isNotEmpty);
+        expect(mockScaleController.connectCalls, hasLength(1));
+        expect(mockScanner.startWatchCallCount, 1);
+        expect(mockScanner.watchActive, isFalse);
+        await Future<void>.delayed(const Duration(milliseconds: 1100));
         expect(
           mockScanner.startWatchCallCount,
           2,
-          reason: 'a failed connect must restart the watch',
+          reason: 'a failed connect restarts the watch after bounded backoff',
         );
         expect(mockScanner.watchActive, isTrue);
       });
