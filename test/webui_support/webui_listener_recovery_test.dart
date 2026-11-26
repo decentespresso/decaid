@@ -8,6 +8,16 @@ import 'package:reaprime/src/services/webserver/api_listener.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:shelf/shelf.dart';
 
+Future<HttpServer> _bindUnhealthyListener(int port) async {
+  final server = await HttpServer.bind('0.0.0.0', port);
+  server.listen((request) async {
+    await request.drain<void>();
+    request.response.statusCode = HttpStatus.serviceUnavailable;
+    await request.response.close();
+  });
+  return server;
+}
+
 Future<({int statusCode, String body, String? location})> _request(
   Uri uri,
 ) async {
@@ -367,12 +377,12 @@ void main() {
       final entryStarts = webUI.entryStartCount;
       await webUI.closeListenersForTesting();
       expect(webUI.isServing, isTrue);
-      final skinSquatter = await ServerSocket.bind('0.0.0.0', oldPort);
-      addTearDown(skinSquatter.close);
-      final entrySquatter = await ServerSocket.bind('0.0.0.0', entryPort);
+      final skinSquatter = await _bindUnhealthyListener(oldPort);
+      addTearDown(() => skinSquatter.close(force: true));
+      final entrySquatter = await _bindUnhealthyListener(entryPort);
       var entrySquatterClosed = false;
       addTearDown(() async {
-        if (!entrySquatterClosed) await entrySquatter.close();
+        if (!entrySquatterClosed) await entrySquatter.close(force: true);
       });
 
       await expectLater(
@@ -386,7 +396,7 @@ void main() {
       expect(webUI.entryStartCount, entryStarts);
       expect((await _request(skinUri())).body, skinBody());
 
-      await entrySquatter.close();
+      await entrySquatter.close(force: true);
       entrySquatterClosed = true;
       await coordinator.retry().timeout(const Duration(seconds: 15));
 
@@ -410,12 +420,12 @@ void main() {
     final oldPort = webUI.port;
     final generation = webUI.serveGeneration.value;
     await webUI.closeListenersForTesting();
-    final skinSquatter = await ServerSocket.bind('0.0.0.0', oldPort);
-    addTearDown(skinSquatter.close);
-    final entrySquatter = await ServerSocket.bind('0.0.0.0', entryPort);
+    final skinSquatter = await _bindUnhealthyListener(oldPort);
+    addTearDown(() => skinSquatter.close(force: true));
+    final entrySquatter = await _bindUnhealthyListener(entryPort);
     var entrySquatterClosed = false;
     addTearDown(() async {
-      if (!entrySquatterClosed) await entrySquatter.close();
+      if (!entrySquatterClosed) await entrySquatter.close(force: true);
     });
     await expectLater(
       coordinator.onResumed().timeout(const Duration(seconds: 15)),
@@ -435,7 +445,7 @@ void main() {
     expect(webUI.serveGeneration.value, generation);
     final released = await ServerSocket.bind('0.0.0.0', unpublishedPort);
     await released.close();
-    await entrySquatter.close();
+    await entrySquatter.close(force: true);
     entrySquatterClosed = true;
     await coordinator.retry().timeout(const Duration(seconds: 15));
     expect(await webUI.checkHealth(), isTrue);
@@ -461,10 +471,10 @@ void main() {
       await api.closeForTesting();
       final apiPort = api.port;
       final attempts = api.startAttemptCount;
-      final squatter = await ServerSocket.bind('0.0.0.0', apiPort);
+      final squatter = await _bindUnhealthyListener(apiPort);
       var squatterClosed = false;
       addTearDown(() async {
-        if (!squatterClosed) await squatter.close();
+        if (!squatterClosed) await squatter.close(force: true);
       });
 
       await expectLater(coordinator.onResumed(), throwsA(anything));
@@ -473,7 +483,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 30));
       expect(api.startAttemptCount, attempts + coordinator.maxAttempts);
 
-      await squatter.close();
+      await squatter.close(force: true);
       squatterClosed = true;
       await coordinator.retry();
 

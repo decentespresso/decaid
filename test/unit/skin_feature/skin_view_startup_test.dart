@@ -27,6 +27,16 @@ import '../../helpers/mock_settings_service.dart';
 
 class _RealHttpOverrides extends HttpOverrides {}
 
+Future<HttpServer> _bindUnhealthyListener(int port) async {
+  final server = await HttpServer.bind('0.0.0.0', port);
+  server.listen((request) async {
+    await request.drain<void>();
+    request.response.statusCode = HttpStatus.serviceUnavailable;
+    await request.response.close();
+  });
+  return server;
+}
+
 class _WebViewPlatform extends InAppWebViewPlatform {
   final Future<String?> version;
 
@@ -663,8 +673,8 @@ void main() {
         retryDelay: Duration.zero,
       );
       Directory? directory;
-      ServerSocket? skinSquatter;
-      ServerSocket? entrySquatter;
+      HttpServer? skinSquatter;
+      HttpServer? entrySquatter;
       Future<bool>? pendingRetry;
       try {
         await network(() async {
@@ -710,8 +720,8 @@ void main() {
         await network(() async {
           await webUI.closeListenersForTesting();
           expect(webUI.isServing, isTrue);
-          skinSquatter = await ServerSocket.bind('0.0.0.0', oldPort);
-          entrySquatter = await ServerSocket.bind('0.0.0.0', entryPort);
+          skinSquatter = await _bindUnhealthyListener(oldPort);
+          entrySquatter = await _bindUnhealthyListener(entryPort);
           await expectLater(
             recovery.onResumed().timeout(bound),
             throwsA(isA<SocketException>()),
@@ -744,7 +754,7 @@ void main() {
         );
         expect(oldController.disposed, isFalse);
         await network(() async {
-          await entrySquatter!.close();
+          await entrySquatter!.close(force: true);
           entrySquatter = null;
         });
         await tester.tap(find.text('Retry'));
@@ -808,8 +818,8 @@ void main() {
         await network(() async {
           await api.stop();
           await webUI.stopServing();
-          await entrySquatter?.close();
-          await skinSquatter?.close();
+          await entrySquatter?.close(force: true);
+          await skinSquatter?.close(force: true);
           if (directory != null) await directory!.delete(recursive: true);
         });
       }
