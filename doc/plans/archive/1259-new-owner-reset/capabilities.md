@@ -394,9 +394,9 @@ What the deferral consists of:
 | Piece | Mechanism |
 | --- | --- |
 | Early bootstrap | `flutterEngine.plugins.add(JniPlugin())` and `...add(JniFlutterPlugin())`, and nothing else. `path_provider_android` 2.3.1 is a Dart-FFI plugin (`dartPluginClass: PathProviderAndroid`, no Java plugin class) that resolves paths through `androidApplicationContext` (`lib/src/path_provider_android_real.dart:36-45`), which `JniFlutterPlugin.onAttachedToEngine` sets (`JniFlutterPlugin.java:44-49`) and whose class loader is set by `JniPlugin`'s static initialiser (`JniPlugin.java` static block → `dartjni.h` `load_class_platform`). The gate cannot read its own marker without them. |
-| Late registration | One app-owned channel `com.reaprime/recovery_plugins`, method `admitPlugins`, whose handler calls `GeneratedPluginRegister.registerGeneratedPlugins(flutterEngine)`. No plugin list is copied: the single generated call site stays authoritative, so adding a dependency needs no host change. |
-| Idempotency | A `WeakHashMap`-backed set of admitted engines inside `synchronized`; the engine is marked only after a successful call. Re-registration by the generated registrant of the two bootstrapped classes is a logged no-op, because `FlutterEngineConnectionRegistry.add` short-circuits on `has(plugin.getClass())` with `Log.w` (`FlutterEngineConnectionRegistry.java:129-141`). |
-| Fail closed | `requireGeneratedRegistrant()` resolves `io.flutter.plugins.GeneratedPluginRegistrant#registerWith(FlutterEngine)` before the call, because `GeneratedPluginRegister.registerGeneratedPlugins` catches `Exception`, logs and returns when the registrant is missing or not invokable (`GeneratedPluginRegister.java:74-88`). Any failure becomes `result.error("PLUGIN_REGISTRATION_FAILED", …)`; Dart converts a refusal or a missing handler into `NativePluginAdmissionException`, logs it and renders a visible failure screen instead of starting a reduced app. |
+| Late registration | One app-owned channel `com.reaprime/recovery_plugins`, method `admitPlugins`, whose handler calls `GeneratedPluginRegistrant.registerWith(flutterEngine)` as a compile-time reference. No plugin list is copied: the single generated call site stays authoritative, so adding a dependency needs no host change. |
+| Idempotency | A per-engine latch (`PluginRegistrationAdmission`) marks an engine admitted only after `registerWith` returned normally, and marks it failed for the rest of its life if registration threw. Re-registration by the generated registrant of the two bootstrapped classes is a logged no-op, because `FlutterEngineConnectionRegistry.add` short-circuits on `has(plugin.getClass())` with `Log.w` (`FlutterEngineConnectionRegistry.java:129-141`). |
+| Fail closed | The registrant is a compile-time link, so a missing generated registrant fails `:app:assembleDebug`; and a project-local build guard (`android/buildSrc/.../GuardedPluginRegistration.java`) rewrites the pinned generator's per-plugin `catch (Exception e)` wrappers into the bare `add` statement, so the first throwing plugin fails `registerWith` instead of being logged and skipped. Any failure becomes `result.error("PLUGIN_REGISTRATION_FAILED", …)`; Dart converts a refusal or a missing handler into `NativePluginAdmissionException`, logs it and renders a visible failure screen instead of starting a reduced app. Unsupported generator output fails the build rather than admitting a partly registered engine. |
 | Admission point | `await admitNativePlugins()` is the first statement of `startDecaidNormalServices`, i.e. after the recovery gate admitted normal startup and before the multicast lock, Firebase, telemetry, Hive, Drift, the web server, the plugin loader and the Android foreground service. Blocked and uncertain admissions never reach it. |
 
 `WebView.setWebContentsDebuggingEnabled(true)` moved from `MainActivity.onCreate` to the admission
@@ -430,8 +430,8 @@ What this fences, exactly:
   `flutter_foreground_task` options or the foreground-service manifest entry change.
 - Not fenced, generated registrant internals: the generated `GeneratedPluginRegistrant` wraps every
   plugin add in `try { … } catch (Exception e) { Log.e(…) }`, so one plugin's attach-time exception is
-  logged and skipped rather than failing admission. That is unchanged default embedding behaviour and
-  is not converted into a failure by this change.
+  logged and skipped rather than failing admission. A later operator-approved guard closes this for
+  constructor and `onAttachedToEngine` exceptions; see the correction below.
 - Unchanged: initialisation fencing is not erasure. Queued GMS/Firebase payloads and consent records
   from earlier runs are untouched, and no consent or collection default changed. The accepted
   tradeoff of option B still applies: crashes before admission are reported to nothing.
@@ -440,7 +440,7 @@ Evidence held for this change (host only): focused tests
 `test/unit/services/storage/native_plugin_admission_test.dart` cover the Dart channel contract
 (Android-only, one call per request, refusal and missing-handler both fail closed) and pin the native
 and startup wiring: no `super.configureFlutterEngine`, exactly one
-`GeneratedPluginRegister.registerGeneratedPlugins` call site, exactly two bootstrap `plugins.add`
+`GeneratedPluginRegistrant.registerWith` call site, exactly two bootstrap `plugins.add`
 calls and no copied plugin list, the registrant presence check before registration, the per-engine
 guard, WebView debugging after admission, the foreground-service options, and the ordering of
 `admitNativePlugins()` against every sensitive initialisation in `startDecaidNormalServices`. A debug
@@ -467,6 +467,75 @@ no `FA:`/`DynamiteModule`/`Phlogger` line for the app PID, the visible blocked s
 `Plugins admitted for this engine` before `firebase_done`, on a profile or release build so the full
 Firebase app is exercised. Debug and profile runs of that matrix now exist (see above); no run can
 prove the absence of an attempted send, and none of it covers Apple.
+
+### Correction: an effective registration-success postcondition (operator-approved guard)
+
+An independent review found that the deferral above proved only that the registrant was *called*, not
+that registration *succeeded*. The pinned generator wraps every plugin in
+`try { flutterEngine.getPlugins().add(new Plugin()); } catch (Exception e) { Log.e(…) }`
+(`packages/flutter_tools/lib/src/flutter_plugins.dart`,
+`_androidPluginRegistryTemplateNewEmbedding`, Flutter 3.47.9), so a plugin whose constructor or
+`onAttachedToEngine` throws is logged and skipped while `registerWith` returns normally.
+`FlutterEngineConnectionRegistry.add` cannot stand in as the postcondition either: it does
+`plugins.put(clazz, plugin)` **before** `plugin.onAttachedToEngine(pluginBinding)`, so `has()`/`get()`
+stay `true` for a plugin that failed to attach and a retry of that registrant is skipped.
+
+The operator approved a bounded correction that keeps the generated registrant authoritative:
+
+- `MainActivity` calls `GeneratedPluginRegistrant.registerWith(engine)` directly (no reflective
+  helper, no method-existence check), so a missing registrant is a compile error.
+- One project-local, non-cacheable Gradle task
+  (`android/buildSrc/src/main/java/net/tadel/reaprime/gradle/GuardedPluginRegistration.java`, wired in
+  `android/app/build.gradle.kts`) runs before every Kotlin and Java compile task and rewrites only the
+  per-plugin `catch (Exception e) { Log.e(…) }` wrappers into the bare `add` statement. `registerWith`
+  therefore returns normally only if every generated constructor and `add` completed; the plugin
+  list, its order and its classes stay exactly what Flutter generated.
+- The guard fails the build on a Flutter version other than 3.47.9, a changed generator template, a
+  missing, malformed, partly instrumented or duplicated registrant, and any body statement it does
+  not recognise. The plugin blocks are derived from the generated input, never from a checked-in
+  inventory, and only the gitignored generated file is edited, never the installed SDK.
+- `PluginRegistrationAdmission` latches a failed engine: a retry on that engine returns the channel
+  error and never marks admission, because a retry would skip the plugin the registry recorded before
+  its attach threw. No throwable is retained, and a fresh engine is the only recovery boundary.
+- Task ordering was checked against the real task graph for debug, profile and release: the guard
+  precedes `compile*Kotlin` and `compile*JavaWithJavac` in each variant. Flutter regenerates the
+  registrant in `verifyThenRunCommand` before Gradle starts and the guard re-instruments it on every
+  build; a direct `./gradlew` build with no generated registrant fails closed.
+
+Evidence (host only): 25 buildSrc JUnit tests over the transformation and every rejection path, 6 JVM
+latch tests, the Dart wiring tests, the `GeneratedPluginRegistrant.class` produced by a real
+`:app:compileDebugJavaWithJavac` (no exception handler and no `Log.e` call left in `registerWith`,
+against 28 handlers before the guard), the real task graph, and end-to-end `flutter build apk --debug`
+runs with 28 and with 29 plugins. The 29-plugin runs used a test-only local `path` plugin whose
+constructor, and separately whose `onAttachedToEngine`, throws `IllegalStateException`; they prove the
+block count is derived from generated input and that the fixture compiles. Those fixtures live outside
+the repository build under `.lane/evidence/p2-1/fixtures/` and are applied and reverted by scripts
+there.
+
+Subsequent bounded Android API 35 debug runtime observations used a newly owned emulator with
+inspected first-chain IPv4/IPv6 output drops, loopback and an exact host ADB exception only, and
+non-loopback interfaces down. Enforcement was checked before and after every repeated launch.
+Both fixture APKs reached the actual Dart `PLUGIN_REGISTRATION_FAILED` failure shell; the attach
+fixture observed registry membership as true before throwing. The VM service invoked the existing
+production Dart admission function, whose actual platform-channel retry returned the engine's
+latched failure without entering either fixture a second time. A control APK reached Welcome.
+An uncertain-journal launch with unavailable recovery diagnostics rendered recovery without entering
+the installed fault plugin or changing nonempty normal log/WebView-log fingerprints.
+
+Preliminary runs used asynchronous airplane-mode toggles without inspected enforcement at launch;
+they are native-behaviour observations only, not no-egress evidence. No absence of cloud mutation can
+be established for that interval. Repeated filtered observations supersede their isolation claim,
+not that uncertainty. No credentials or account interactions were used. Owned AVDs and the newly
+installed rootable image were removed; original AVDs were preserved.
+
+Failure is not rollback: plugins earlier in generated order can initialise native SDKs before a later
+constructor or attach throws. These runs observed native measurement initialisation during partial
+registration. Ordinary Dart services stay blocked, but native side effects are not undone and no
+absence-of-attempts, purge, release-mode or physical-device claim follows.
+
+Boundary of the guard, exactly: it makes a constructor, `onAttachedToEngine`, class-initialisation or
+other escaping throwable fail admission. It cannot detect a plugin that catches its own error and
+returns normally, and it changes no other platform and no other lifecycle behaviour.
 
 ## Adopted change: deferred plugin registration on iOS and macOS
 

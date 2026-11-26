@@ -215,24 +215,6 @@ final class _NewOwnerRecoveryOwnership {
   final NewOwnerResetJournalLease lease;
 }
 
-/// Runs exactly one startup branch for [startup].
-///
-/// This is the production composition boundary `main()` uses: no normal service
-/// callback can run unless the admission permits normal startup, and every other
-/// admission presents the blocked recovery state instead.
-Future<void> runNewOwnerRecoveryStartup({
-  required NewOwnerRecoveryStartup startup,
-  required Future<void> Function() startNormalServices,
-  required void Function(NewOwnerRecoveryAdmissionDecision admission)
-  presentBlocked,
-}) async {
-  if (startup.admission.permitsNormalStartup) {
-    await startNormalServices();
-    return;
-  }
-  presentBlocked(startup.admission);
-}
-
 final class NewOwnerRecoveryClaim {
   NewOwnerRecoveryClaim._(this.path, this._token);
 

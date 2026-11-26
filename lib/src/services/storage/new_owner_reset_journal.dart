@@ -395,6 +395,7 @@ final class NewOwnerResetJournalFileStore implements NewOwnerResetJournalStore {
     final staged = File('${file.path}.tmp');
     _requireReplaceablePath(file, 'journal');
     _requireReplaceablePath(staged, 'journal staging');
+    final previous = _capturePriorState();
 
     FileSystemException? failure;
     NewOwnerResetJournalStagedWrite? open;
@@ -420,14 +421,14 @@ final class NewOwnerResetJournalFileStore implements NewOwnerResetJournalStore {
       }
     }
     _discardStagedQuietly(staged);
-    switch (_observeReplacement(record)) {
+    switch (_observeReplacement(record, previous)) {
       case _JournalWriteOutcome.committed:
         return;
       case _JournalWriteOutcome.rejected:
         throw NewOwnerResetJournalWriteException(
           'journal could not be written: ${_describe(failure)}',
         );
-      case _JournalWriteOutcome.unknown:
+      case _JournalWriteOutcome.indeterminate:
         throw NewOwnerResetJournalIndeterminateWriteException(
           'journal write outcome is unknown: ${_describe(failure)}',
         );
@@ -470,21 +471,51 @@ final class NewOwnerResetJournalFileStore implements NewOwnerResetJournalStore {
     }
   }
 
-  /// Whether the canonical file already holds the record a failed replace
-  /// tried to publish.
+  /// The durable record this owner observed immediately before staging a
+  /// replacement.
+  ///
+  /// Returns `null` for an absent journal and never stages anything when the
+  /// current marker cannot be read, so unknown recovery state is not
+  /// overwritten.
+  NewOwnerResetJournalRecord? _capturePriorState() {
+    switch (read()) {
+      case NewOwnerResetJournalAbsent():
+        return null;
+      case NewOwnerResetJournalPresent(:final record):
+        return record;
+      case NewOwnerResetJournalUnreadable(:final reason):
+        throw NewOwnerResetJournalWriteException(
+          'journal state cannot be read ($reason); refusing to overwrite '
+          'unknown recovery state',
+        );
+    }
+  }
+
+  /// Classifies a failed replace against the record it tried to publish and
+  /// the durable state captured before staging.
+  ///
+  /// Only the intended record is a commit; only the prior record, or continued
+  /// absence with no prior marker, is a rejection. Any other readable content,
+  /// a lost marker, or unreadable state is indeterminate.
   _JournalWriteOutcome _observeReplacement(
     NewOwnerResetJournalRecord intended,
+    NewOwnerResetJournalRecord? previous,
   ) {
-    final observed = read();
-    switch (observed) {
+    switch (read()) {
       case NewOwnerResetJournalPresent(:final record):
-        return _encodeRecord(record) == _encodeRecord(intended)
-            ? _JournalWriteOutcome.committed
-            : _JournalWriteOutcome.rejected;
+        if (_matchesRecord(record, intended)) {
+          return _JournalWriteOutcome.committed;
+        }
+        if (previous != null && _matchesRecord(record, previous)) {
+          return _JournalWriteOutcome.rejected;
+        }
+        return _JournalWriteOutcome.indeterminate;
       case NewOwnerResetJournalAbsent():
-        return _JournalWriteOutcome.rejected;
+        return previous == null
+            ? _JournalWriteOutcome.rejected
+            : _JournalWriteOutcome.indeterminate;
       case NewOwnerResetJournalUnreadable():
-        return _JournalWriteOutcome.unknown;
+        return _JournalWriteOutcome.indeterminate;
     }
   }
 
@@ -500,7 +531,7 @@ final class NewOwnerResetJournalFileStore implements NewOwnerResetJournalStore {
   }
 }
 
-enum _JournalWriteOutcome { committed, rejected, unknown }
+enum _JournalWriteOutcome { committed, rejected, indeterminate }
 
 enum _JournalPresence { absent, present, unknown }
 
@@ -673,8 +704,7 @@ final class NewOwnerResetJournal {
     final result = _store.read();
     switch (result) {
       case NewOwnerResetJournalPresent(:final record):
-        if (expected != null &&
-            _encodeRecord(record) == _encodeRecord(expected)) {
+        if (expected != null && _matchesRecord(record, expected)) {
           return;
         }
       case NewOwnerResetJournalAbsent():
@@ -728,6 +758,11 @@ final class NewOwnerResetJournal {
 
 String _encodeRecord(NewOwnerResetJournalRecord record) =>
     jsonEncode(record.toJson());
+
+bool _matchesRecord(
+  NewOwnerResetJournalRecord candidate,
+  NewOwnerResetJournalRecord expected,
+) => _encodeRecord(candidate) == _encodeRecord(expected);
 
 FileSystemEntityType _requireReplaceablePath(File target, String label) {
   final type = FileSystemEntity.typeSync(target.path, followLinks: false);

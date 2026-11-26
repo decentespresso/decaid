@@ -994,7 +994,12 @@ void main() {
 
       expect(
         () => journal.completeStage(NewOwnerResetStage.deletion),
-        throwsA(isA<NewOwnerResetJournalWriteException>()),
+        throwsA(
+          allOf(
+            isA<NewOwnerResetJournalWriteException>(),
+            isNot(isA<NewOwnerResetJournalIndeterminateWriteException>()),
+          ),
+        ),
       );
 
       expect(journal.record!.stage, NewOwnerResetStage.deletion);
@@ -1078,6 +1083,140 @@ void main() {
       expect(nextProcess.record!.state, NewOwnerResetState.handoffArmed);
       expect(nextProcess.durableStateUnknown, isTrue);
       expect(open().load(), isA<NewOwnerResetJournalUnreadable>());
+    });
+  });
+
+  group('replacement outcome classification', () {
+    late _FaultyFileOperations operations;
+
+    setUp(() {
+      operations = _FaultyFileOperations();
+    });
+
+    NewOwnerResetJournal faultyJournal({String session = 'process-1'}) =>
+        NewOwnerResetJournal(
+          NewOwnerResetJournalFileStore(journalFile, operations: operations),
+          processSessionId: session,
+          authority: NewOwnerResetJournalLease(),
+        )..load();
+
+    test(
+      'an unrelated third record after a failed replace is indeterminate',
+      () {
+        final journal = faultyJournal();
+        journal.beginReset(retained: _retained);
+        operations
+          ..thirdRecord = const NewOwnerResetJournalRecord.resetting(
+            stage: NewOwnerResetStage.verification,
+            retained: _retained,
+          )
+          ..writeThirdRecordOnRenameFailure = true;
+
+        expect(
+          () => journal.completeStage(NewOwnerResetStage.deletion),
+          throwsA(isA<NewOwnerResetJournalIndeterminateWriteException>()),
+        );
+
+        expect(journal.record!.stage, NewOwnerResetStage.deletion);
+        expect(journal.durableStateUnknown, isTrue);
+        expect(
+          () => journal.completeStage(NewOwnerResetStage.deletion),
+          throwsA(isA<NewOwnerResetJournalStateException>()),
+        );
+        final observed = store().read();
+        expect(
+          (observed as NewOwnerResetJournalPresent).record.stage,
+          NewOwnerResetStage.verification,
+        );
+        final reloaded = open(session: 'process-2')..load();
+        expect(reloaded.record!.stage, NewOwnerResetStage.verification);
+      },
+    );
+
+    test('a lost marker after a failed replace is indeterminate', () {
+      final journal = faultyJournal();
+      journal.beginReset(retained: _retained);
+      operations.loseMarkerOnRenameFailure = true;
+
+      expect(
+        () => journal.completeStage(NewOwnerResetStage.deletion),
+        throwsA(isA<NewOwnerResetJournalIndeterminateWriteException>()),
+      );
+
+      expect(journal.record!.stage, NewOwnerResetStage.deletion);
+      expect(journal.durableStateUnknown, isTrue);
+      expect(journalFile.existsSync(), isFalse);
+      expect(File('${journalFile.path}.tmp').existsSync(), isFalse);
+      expect(
+        () => journal.completeStage(NewOwnerResetStage.deletion),
+        throwsA(isA<NewOwnerResetJournalStateException>()),
+      );
+    });
+
+    test(
+      'the lost-marker latch is in-memory and a reload re-reads durably',
+      () {
+        final journal = faultyJournal();
+        journal.beginReset(retained: _retained);
+        operations.loseMarkerOnRenameFailure = true;
+        expect(
+          () => journal.completeStage(NewOwnerResetStage.deletion),
+          throwsA(isA<NewOwnerResetJournalIndeterminateWriteException>()),
+        );
+
+        final rebuilt = open(session: 'process-2');
+
+        expect(rebuilt.load(), isA<NewOwnerResetJournalAbsent>());
+        expect(rebuilt.record, isNull);
+        expect(rebuilt.durableStateUnknown, isFalse);
+        expect(journal.durableStateUnknown, isTrue);
+
+        expect(journal.load(), isA<NewOwnerResetJournalAbsent>());
+        expect(journal.record, isNull);
+        expect(journal.durableStateUnknown, isFalse);
+      },
+    );
+
+    test('a replace that never staged stays a definite rejection', () {
+      final journal = faultyJournal();
+      operations.failRename = true;
+
+      expect(
+        () => journal.beginReset(retained: _retained),
+        throwsA(
+          allOf(
+            isA<NewOwnerResetJournalWriteException>(),
+            isNot(isA<NewOwnerResetJournalIndeterminateWriteException>()),
+          ),
+        ),
+      );
+
+      expect(journal.record, isNull);
+      expect(journal.durableStateUnknown, isFalse);
+      expect(journalFile.existsSync(), isFalse);
+    });
+
+    test('an unreadable marker is never overwritten by a store write', () {
+      const corrupt = '{not json';
+      journalFile.writeAsStringSync(corrupt);
+
+      expect(
+        () => store().write(
+          const NewOwnerResetJournalRecord.resetting(
+            stage: NewOwnerResetStage.deletion,
+            retained: _retained,
+          ),
+        ),
+        throwsA(
+          allOf(
+            isA<NewOwnerResetJournalWriteException>(),
+            isNot(isA<NewOwnerResetJournalIndeterminateWriteException>()),
+          ),
+        ),
+      );
+
+      expect(journalFile.readAsStringSync(), corrupt);
+      expect(File('${journalFile.path}.tmp').existsSync(), isFalse);
     });
   });
 
@@ -1265,8 +1404,11 @@ class _FaultyFileOperations implements NewOwnerResetJournalFileOperations {
   bool failRename = false;
   bool renameCommitsThenFails = false;
   bool corruptOnRenameFailure = false;
+  bool loseMarkerOnRenameFailure = false;
+  bool writeThirdRecordOnRenameFailure = false;
   bool deleteCommitsThenFails = false;
   bool deleteCorruptsThenFails = false;
+  NewOwnerResetJournalRecord? thirdRecord;
 
   @override
   FileSystemEntityType typeSync(String path) => _inner.typeSync(path);
@@ -1290,6 +1432,18 @@ class _FaultyFileOperations implements NewOwnerResetJournalFileOperations {
     if (corruptOnRenameFailure) {
       File(to).writeAsBytesSync(const <int>[0xff, 0xfe, 0x00]);
       throw const FileSystemException('injected rename failure, state unknown');
+    }
+    if (loseMarkerOnRenameFailure) {
+      if (FileSystemEntity.typeSync(to) == FileSystemEntityType.file) {
+        _inner.deleteSync(to);
+      }
+      throw const FileSystemException('injected rename failure, marker lost');
+    }
+    if (writeThirdRecordOnRenameFailure) {
+      File(to).writeAsStringSync(jsonEncode(thirdRecord!.toJson()));
+      throw const FileSystemException(
+        'injected rename failure, unrelated record observed',
+      );
     }
     if (failRename) {
       throw const FileSystemException('injected rename failure');

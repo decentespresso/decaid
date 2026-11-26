@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/services/storage/new_owner_recovery_admission.dart';
 import 'package:reaprime/src/services/storage/new_owner_recovery_owner.dart';
+import 'package:reaprime/src/services/storage/new_owner_recovery_startup.dart';
 import 'package:reaprime/src/services/storage/new_owner_reset_journal.dart';
 import 'package:reaprime/src/services/storage/process_session_identity.dart';
 
@@ -77,13 +78,18 @@ void main() {
     final initialised = <String>[];
     var normalStarts = 0;
     await runNewOwnerRecoveryStartup(
-      startup: startup,
+      open: () async => startup,
+      openNormalDiagnostics: () async {},
       startNormalServices: () async {
         normalStarts++;
         initialised.addAll(_sensitiveInitialisations);
       },
-      presentBlocked: (admission) {
+      writeRecoveryDiagnostics: (message) async => null,
+      presentRecovery: (admission, logFilePath) {
         initialised.add('recovery-view:${admission.kind.name}');
+      },
+      presentFailure: (error, stackTrace, logFilePath) {
+        fail('a refused startup must present recovery, not a failure: $error');
       },
     );
     return _Boot(initialised: initialised, normalStarts: normalStarts);
@@ -658,6 +664,240 @@ void main() {
     );
   });
 
+  group('startup composition', () {
+    Future<_Composition> compose({
+      required Future<NewOwnerRecoveryStartup> Function() open,
+      Future<void> Function()? openNormalDiagnostics,
+      Future<void> Function()? startNormalServices,
+      Future<String?> Function(String message)? writeRecoveryDiagnostics,
+    }) async {
+      final result = _Composition();
+      await runNewOwnerRecoveryStartup(
+        open: open,
+        openNormalDiagnostics: () async {
+          result.events.add('normal-diagnostics');
+          await openNormalDiagnostics?.call();
+        },
+        startNormalServices: () async {
+          result.events.add('normal-services');
+          await startNormalServices?.call();
+        },
+        writeRecoveryDiagnostics: (message) async {
+          result.events.add('recovery-diagnostics');
+          result.diagnosticMessage = message;
+          return writeRecoveryDiagnostics == null
+              ? '/diagnostics/recovery-startup.log'
+              : await writeRecoveryDiagnostics(message);
+        },
+        presentRecovery: (admission, logFilePath) {
+          result.events.add('present-recovery:${admission.kind.name}');
+          result.admission = admission;
+          result.presentedLogFilePath = logFilePath;
+        },
+        presentFailure: (error, stackTrace, logFilePath) {
+          result.events.add('present-failure');
+          result.error = error;
+          result.stackTrace = stackTrace;
+          result.presentedLogFilePath = logFilePath;
+        },
+      );
+      return result;
+    }
+
+    Future<NewOwnerRecoveryStartup> openReal() => NewOwnerRecoveryStartup.open(
+      recoveryDirectory: recoveryDirectory.path,
+      processSessionId: 'process-1',
+    );
+
+    test(
+      'an absent marker opens normal diagnostics then normal services once',
+      () async {
+        final result = await compose(open: openReal);
+
+        expect(result.events, ['normal-diagnostics', 'normal-services']);
+        expect(result.admission, isNull);
+        expect(result.error, isNull);
+        expect(result.presentedLogFilePath, isNull);
+        expect(recoveryDirectory.existsSync(), isFalse);
+      },
+    );
+
+    test('a blocked marker never opens the normal diagnostics', () async {
+      recoveryDirectory.createSync(recursive: true);
+      final owner = journal()..load();
+      owner.beginReset(retained: _retained);
+
+      final result = await compose(open: openReal);
+
+      expect(result.events, [
+        'recovery-diagnostics',
+        'present-recovery:resetInProgress',
+      ]);
+      expect(result.presentedLogFilePath, '/diagnostics/recovery-startup.log');
+      expect(result.diagnosticMessage, contains('resetInProgress'));
+      expect(result.error, isNull);
+      expect(journalFile().existsSync(), isTrue);
+    });
+
+    test(
+      'a failed recovery diagnostic never suppresses the blocked view',
+      () async {
+        recoveryDirectory.createSync(recursive: true);
+        final owner = journal()..load();
+        owner.beginReset(retained: _retained);
+
+        final result = await compose(
+          open: openReal,
+          writeRecoveryDiagnostics: (message) async =>
+              throw const FileSystemException('log storage is unavailable'),
+        );
+
+        expect(result.events, [
+          'recovery-diagnostics',
+          'present-recovery:resetInProgress',
+        ]);
+        expect(result.presentedLogFilePath, isNull);
+      },
+    );
+
+    test(
+      'a recovery directory that cannot be resolved presents a failure',
+      () async {
+        const failure = FileSystemException('the path provider is unavailable');
+
+        final result = await compose(open: () async => throw failure);
+
+        expect(result.events, ['recovery-diagnostics', 'present-failure']);
+        expect(result.error, same(failure));
+        expect(result.stackTrace, isNotNull);
+        expect(
+          result.presentedLogFilePath,
+          '/diagnostics/recovery-startup.log',
+        );
+      },
+    );
+
+    test('a journal that cannot be initialised presents a failure', () async {
+      recoveryDirectory.createSync(recursive: true);
+      final owner = journal()..load();
+      owner.beginReset(retained: _retained);
+      final marker = journalFile().readAsBytesSync();
+
+      final result = await compose(
+        open: () => NewOwnerRecoveryStartup.open(
+          recoveryDirectory: recoveryDirectory.path,
+          identity: ProcessSessionIdentityResolver(
+            probe: _ThrowingProcessFacts(),
+            channel: _NoNativeIdentity(),
+          ),
+        ),
+      );
+
+      expect(result.events, ['recovery-diagnostics', 'present-failure']);
+      expect(result.error, isA<FileSystemException>());
+      expect(result.presentedLogFilePath, '/diagnostics/recovery-startup.log');
+      expect(journalFile().readAsBytesSync(), marker);
+    });
+
+    test('a normal diagnostic sink that fails stays fail-closed', () async {
+      final result = await compose(
+        open: openReal,
+        openNormalDiagnostics: () async =>
+            throw const FileSystemException('the log directory is unwritable'),
+      );
+
+      expect(result.events, [
+        'normal-diagnostics',
+        'recovery-diagnostics',
+        'present-failure',
+      ]);
+      expect(
+        result.error,
+        isA<FileSystemException>().having(
+          (error) => error.message,
+          'message',
+          contains('log directory is unwritable'),
+        ),
+      );
+      expect(result.events, isNot(contains('normal-services')));
+    });
+
+    test(
+      'a failed normal sink still presents when recovery diagnostics fail',
+      () async {
+        final result = await compose(
+          open: openReal,
+          openNormalDiagnostics: () async => throw const FileSystemException(
+            'the log directory is unwritable',
+          ),
+          writeRecoveryDiagnostics: (message) async =>
+              throw const FileSystemException('log storage is unavailable'),
+        );
+
+        expect(result.events, [
+          'normal-diagnostics',
+          'recovery-diagnostics',
+          'present-failure',
+        ]);
+        expect(result.presentedLogFilePath, isNull);
+        expect(result.events, isNot(contains('normal-services')));
+      },
+    );
+
+    test(
+      'an ordinary normal-service error is not presented as a failure',
+      () async {
+        await expectLater(
+          compose(
+            open: openReal,
+            startNormalServices: () async =>
+                throw StateError('an ordinary service failure'),
+          ),
+          throwsA(
+            isA<StateError>().having(
+              (error) => error.message,
+              'message',
+              'an ordinary service failure',
+            ),
+          ),
+        );
+      },
+    );
+
+    test('recovery diagnostics stay outside the normal log', () async {
+      final logDirectory = '${temp.path}/logs';
+
+      final path = await writeNewOwnerRecoveryDiagnostics(
+        logDirectory: logDirectory,
+        message: 'blocked: resetInProgress',
+        timestamp: DateTime.utc(2026, 1, 2, 3, 4, 5),
+      );
+
+      expect(path, '$logDirectory/$newOwnerRecoveryDiagnosticsFileName');
+      expect(
+        File(path!).readAsStringSync(),
+        '2026-01-02T03:04:05.000Z blocked: resetInProgress\n',
+      );
+      expect(File('$logDirectory/log.txt').existsSync(), isFalse);
+      expect(File('$logDirectory/webview_console.log').existsSync(), isFalse);
+    });
+
+    test(
+      'an unavailable recovery diagnostic location writes nothing',
+      () async {
+        final blocker = File('${temp.path}/blocked');
+        blocker.writeAsStringSync('not a directory');
+
+        final path = await writeNewOwnerRecoveryDiagnostics(
+          logDirectory: '${blocker.path}/logs',
+          message: 'blocked: resetInProgress',
+        );
+
+        expect(path, isNull);
+      },
+    );
+  });
+
   group('production wiring', () {
     test('main starts no sensitive service outside the recovery boundary', () {
       final source = File('lib/main.dart').readAsStringSync();
@@ -792,6 +1032,28 @@ final class _Boot {
 
   final List<String> initialised;
   final int normalStarts;
+}
+
+final class _Composition {
+  final List<String> events = <String>[];
+  NewOwnerRecoveryAdmissionDecision? admission;
+  Object? error;
+  StackTrace? stackTrace;
+  String? presentedLogFilePath;
+  String? diagnosticMessage;
+}
+
+class _ThrowingProcessFacts implements ProcessSessionProbe {
+  @override
+  String? readBootId() =>
+      throw const FileSystemException('the boot id could not be read');
+
+  @override
+  String? readProcessStartTicks() =>
+      throw const FileSystemException('the process start could not be read');
+
+  @override
+  int get processId => 0;
 }
 
 class _NoProcessFacts implements ProcessSessionProbe {

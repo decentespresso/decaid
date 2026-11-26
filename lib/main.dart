@@ -59,6 +59,7 @@ import 'package:reaprime/src/new_owner_recovery_view.dart';
 import 'package:reaprime/src/services/storage/app_directories.dart';
 import 'package:reaprime/src/services/storage/native_plugin_admission.dart';
 import 'package:reaprime/src/services/storage/new_owner_recovery_owner.dart';
+import 'package:reaprime/src/services/storage/new_owner_recovery_startup.dart';
 import 'package:reaprime/src/ui/startup_failure_shell.dart';
 import 'package:reaprime/src/services/storage/windows_preferences.dart';
 import 'package:reaprime/src/services/storage/drift_bean_storage.dart';
@@ -385,45 +386,57 @@ void main(List<String> args) async {
 
   final log = Logger("Main");
 
-  final logDir = await AppDirectories.logs;
-  await Directory(logDir).create(recursive: true);
+  late String logDir;
+  late WebViewLogService webViewLogService;
 
-  RotatingFileAppender(baseFilePath: '$logDir/log.txt')
-      .attachToLogger(Logger.root);
-
-  final webViewLogService = WebViewLogService(logDirectoryPath: logDir);
-  await webViewLogService.initialize();
-
-  Logger.root.info("==== Decent starting ====");
-  BootTiming.start();
-
-  Logger.root.info(
-    "build: ${BuildInfo.commitShort}, branch: ${BuildInfo.branch}",
-  );
-  Logger.root.info(
-    "version: ${BuildInfo.version}, platform: ${Platform.operatingSystem}",
-  );
-
-  final recoveryStartup = await NewOwnerRecoveryStartup.open(
-    recoveryDirectory: await AppDirectories.newOwnerRecovery,
-  );
   await runNewOwnerRecoveryStartup(
-    startup: recoveryStartup,
+    open: () async => NewOwnerRecoveryStartup.open(
+      recoveryDirectory: await AppDirectories.newOwnerRecovery,
+    ),
+    openNormalDiagnostics: () async {
+      logDir = await AppDirectories.logs;
+      await Directory(logDir).create(recursive: true);
+      RotatingFileAppender(baseFilePath: '$logDir/log.txt')
+          .attachToLogger(Logger.root);
+      webViewLogService = WebViewLogService(logDirectoryPath: logDir);
+      await webViewLogService.initialize();
+      Logger.root.info("==== Decent starting ====");
+      BootTiming.start();
+      Logger.root.info(
+        "build: ${BuildInfo.commitShort}, branch: ${BuildInfo.branch}",
+      );
+      Logger.root.info(
+        "version: ${BuildInfo.version}, platform: ${Platform.operatingSystem}",
+      );
+    },
     startNormalServices: () => startDecaidNormalServices(
       log: log,
       logDir: logDir,
       cliArgs: cliArgs,
       webViewLogService: webViewLogService,
     ),
-    presentBlocked: (admission) {
+    writeRecoveryDiagnostics: (message) async {
+      final logDirectory = await AppDirectories.logs;
+      return writeNewOwnerRecoveryDiagnostics(
+        logDirectory: logDirectory,
+        message: message,
+      );
+    },
+    presentRecovery: (admission, logFilePath) {
       Logger.root.warning(
         'new-owner recovery state "${admission.kind.name}" blocks normal '
         'startup: ${admission.detail}',
       );
       runApp(
-        NewOwnerRecoveryApp(
-          admission: admission,
-          logFilePath: '$logDir/log.txt',
+        NewOwnerRecoveryApp(admission: admission, logFilePath: logFilePath),
+      );
+    },
+    presentFailure: (error, stackTrace, logFilePath) {
+      log.severe('Decaid could not start', error, stackTrace);
+      runApp(
+        NewOwnerRecoveryStartupErrorApp(
+          detail: '$error',
+          logFilePath: logFilePath,
         ),
       );
     },
