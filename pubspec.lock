@@ -941,9 +941,9 @@ packages:
     dependency: "direct overridden"
     description:
       path: "."
-      ref: "fix/reader-isolate-uhandled-throw"
-      resolved-ref: "4df4db2334446fdb6fcb8f632f70841889b1353d"
-      url: "https://github.com/tadelv/libserialport.dart"
+      ref: db3ad7b61447bbd8aa28516aac2a3232294618c3
+      resolved-ref: db3ad7b61447bbd8aa28516aac2a3232294618c3
+      url: "https://github.com/rheasman/libserialport.dart"
     source: git
     version: "0.3.0+1"
   lints:
