@@ -85,6 +85,8 @@ import 'package:reaprime/src/services/simulated_device_service.dart';
 import 'package:reaprime/src/services/webserver/data_export/backup_data_sources.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
 import 'package:reaprime/src/services/webserver/port_binding.dart';
+import 'package:reaprime/src/services/webserver/api_listener.dart';
+import 'package:reaprime/src/services/listener_recovery_coordinator.dart';
 import 'package:reaprime/src/ui/webserver_port_conflict_app.dart';
 import 'package:reaprime/src/services/macos_updater.dart';
 import 'package:reaprime/src/services/update_check_service.dart';
@@ -777,13 +779,14 @@ void main(List<String> args) async {
       ? MacOSUpdater()
       : null;
 
+  ApiListener? apiListener;
   try {
     await loadSettingsBeforeWebServer(
       settingsController: settingsController,
       simulatedDevicesService: simulatedDevicesService,
       startWebServer: () async {
         try {
-          await startWebServer(
+          apiListener = await startWebServer(
             deviceController,
             de1Controller,
             scaleController,
@@ -865,6 +868,12 @@ void main(List<String> args) async {
     return;
   }
   BootTiming.mark('webserver_up');
+  final listenerRecoveryCoordinator = apiListener == null
+      ? null
+      : ListenerRecoveryCoordinator(
+          apiListener: apiListener!,
+          webUIService: webUIService,
+        );
   await prepareOnboardingStartup(
     settingsController,
     forceOnboarding: cliArgs.forceOnboarding,
@@ -944,6 +953,7 @@ void main(List<String> args) async {
       warmupLogger: warmupLogger,
       updateCheckService: updateCheckService,
       settingsController: settingsController,
+      listenerRecoveryCoordinator: listenerRecoveryCoordinator,
     ),
   );
 
@@ -982,6 +992,7 @@ void main(List<String> args) async {
         displayController: displayController,
         accountConsentStore: accountConsentStore,
         credentials: githubCredentials,
+        listenerRecoveryCoordinator: listenerRecoveryCoordinator,
       ),
     ),
   );
@@ -996,6 +1007,7 @@ class AppLifecycleObserver with WidgetsBindingObserver {
   final WarmupLogger? warmupLogger;
   final UpdateCheckService? updateCheckService;
   final SettingsController? settingsController;
+  final ListenerRecoveryCoordinator? listenerRecoveryCoordinator;
 
   late Timer _memTimer;
   Future<void>? _detachFuture;
@@ -1008,6 +1020,7 @@ class AppLifecycleObserver with WidgetsBindingObserver {
     this.warmupLogger,
     this.updateCheckService,
     this.settingsController,
+    this.listenerRecoveryCoordinator,
   }) {
     _memTimer = Timer.periodic(Duration(minutes: 5), (t) {
       final rss = ProcessInfo.currentRss / (1024 * 1024);
@@ -1028,6 +1041,19 @@ class AppLifecycleObserver with WidgetsBindingObserver {
       _log.info("state: resumed");
 
       updateCheckService?.onAppResumed();
+      final recoverListeners = listenerRecoveryCoordinator?.onResumed();
+      if (recoverListeners != null) {
+        unawaited(
+          recoverListeners.catchError((error, stackTrace) {
+            _log.warning(
+              'Listener recovery failed after resume',
+              error,
+              stackTrace,
+            );
+            return false;
+          }),
+        );
+      }
       unawaited(displayController?.onAppResumed() ?? Future<void>.value());
       final settings = settingsController;
       if (settings != null) {
@@ -1053,6 +1079,11 @@ class AppLifecycleObserver with WidgetsBindingObserver {
   }
 
   Future<void> _handleDetached() async {
+    try {
+      listenerRecoveryCoordinator?.dispose();
+    } catch (error, stackTrace) {
+      _log.warning('Listener recovery disposal failed', error, stackTrace);
+    }
     try {
       updateCheckService?.dispose();
     } catch (error, stackTrace) {
@@ -1105,6 +1136,7 @@ class AppRoot extends StatefulWidget {
   final DisplayController displayController;
   final AccountConsentStore? accountConsentStore;
   final GithubCredentialProvider credentials;
+  final ListenerRecoveryCoordinator? listenerRecoveryCoordinator;
 
   const AppRoot({
     super.key,
@@ -1135,6 +1167,7 @@ class AppRoot extends StatefulWidget {
     required this.displayController,
     this.accountConsentStore,
     required this.credentials,
+    this.listenerRecoveryCoordinator,
   });
 
   static void restart(BuildContext context) {
@@ -1161,6 +1194,7 @@ class _AppRootState extends State<AppRoot> {
       pluginLoaderService: widget.pluginLoaderService,
       webUIStorage: widget.webUIStorage,
       webUIService: widget.webUIService,
+      listenerRecoveryCoordinator: widget.listenerRecoveryCoordinator,
     );
     if (Platform.isWindows) {
       _windowChannel.setMethodCallHandler(_handleWindowMethod);
@@ -1238,6 +1272,7 @@ class _AppRootState extends State<AppRoot> {
         displayController: widget.displayController,
         accountConsentStore: widget.accountConsentStore,
         credentials: widget.credentials,
+        listenerRecoveryCoordinator: widget.listenerRecoveryCoordinator,
         startupCoordinator: _startupCoordinator,
       ),
     );

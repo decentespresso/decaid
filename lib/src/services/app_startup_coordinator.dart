@@ -7,6 +7,7 @@ import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/services/foreground_service.dart';
+import 'package:reaprime/src/services/listener_recovery_coordinator.dart';
 import 'package:reaprime/src/services/telemetry/boot_timing.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
@@ -52,6 +53,7 @@ class AppStartupCoordinator {
   final Future<void> Function()? _initializePlugins;
   final Future<void> Function()? _refreshRemoteSkins;
   final bool _isAndroid;
+  final ListenerRecoveryCoordinator? _listenerRecoveryCoordinator;
 
   final _stateController = BehaviorSubject<AppStartupState>.seeded(
     AppStartupState(status: AppStartupStatus.idle),
@@ -92,6 +94,7 @@ class AppStartupCoordinator {
     Future<void> Function()? initializePlugins,
     Future<void> Function()? refreshRemoteSkins,
     bool? isAndroid,
+    this._listenerRecoveryCoordinator,
   }) : assert(
          initializeDevices != null || deviceController != null,
          'Provide deviceController or initializeDevices',
@@ -154,6 +157,9 @@ class AppStartupCoordinator {
     }
     return ensureInitialized();
   }
+
+  Future<bool> onAppResumed() =>
+      _listenerRecoveryCoordinator?.onResumed() ?? Future<bool>.value(false);
 
   Future<void> retryForeground() {
     if (_disposed) return Future<void>.value();
