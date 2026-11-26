@@ -142,8 +142,15 @@ class MockSettingsService extends SettingsService {
       _preferredGrinderDeviceId = deviceId;
   @override
   Future<String> defaultSkinId() async => _defaultSkinId;
+  String? _persistedDefaultSkinId;
   @override
-  Future<void> setDefaultSkinId(String skinId) async => _defaultSkinId = skinId;
+  Future<String?> persistedDefaultSkinId() async => _persistedDefaultSkinId;
+  @override
+  Future<void> setDefaultSkinId(String skinId) async {
+    _defaultSkinId = skinId;
+    _persistedDefaultSkinId = skinId;
+  }
+
   @override
   Future<bool> automaticUpdateCheck() async => _automaticUpdateCheck;
   @override

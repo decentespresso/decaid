@@ -355,7 +355,9 @@ void main() {
     controller.defaultWorkflow = _workflow(steamDuration: 16);
     final serial = _QuietSerialDe1();
     final de1 = UnifiedDe1(transport: serial);
+    addTearDown(() => Future<void>.delayed(const Duration(seconds: 1)));
     addTearDown(de1.dispose);
+    addTearDown(controller.dispose);
 
     // A serial machine never pushes K; the transport seeds the subject
     // from its local mirror, so the controller can write defaults and

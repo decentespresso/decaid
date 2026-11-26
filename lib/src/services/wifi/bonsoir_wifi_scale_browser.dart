@@ -122,7 +122,8 @@ class BonsoirWifiScaleBrowser implements WifiScaleBrowser {
   }
 }
 
-class SharedPrefsWifiManualEndpointStore implements WifiManualEndpointStore {
+class SharedPrefsWifiManualEndpointStore
+    implements WifiManualEndpointStore, WifiManualEndpointLookup {
   static const String _key = 'wifi_scale_manual_hosts';
 
   @override
@@ -135,5 +136,21 @@ class SharedPrefsWifiManualEndpointStore implements WifiManualEndpointStore {
   Future<void> save(List<String> hosts) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(_key, hosts);
+  }
+
+  @override
+  Future<WifiManualEndpointMatch> findManualEndpoint(String host) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.get(_key);
+    if (raw == null) return const WifiManualEndpointAbsent();
+    if (raw is! List) return const WifiManualEndpointMalformed();
+    var matches = 0;
+    for (final entry in raw) {
+      if (entry is! String) return const WifiManualEndpointMalformed();
+      if (entry == host) matches++;
+    }
+    if (matches == 0) return const WifiManualEndpointAbsent();
+    if (matches > 1) return const WifiManualEndpointAmbiguous();
+    return const WifiManualEndpointFound();
   }
 }
