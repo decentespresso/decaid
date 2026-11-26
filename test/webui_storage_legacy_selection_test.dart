@@ -327,4 +327,62 @@ void main() {
       '<html>0.2.27</html>',
     );
   });
+
+  test('an ordinary scan is not bounded by a manifest size limit', () async {
+    final dir = Directory('${root.path}/large-skin')..createSync();
+    File('${dir.path}/skin-manifest.json').writeAsStringSync(
+      jsonEncode({
+        'id': 'large.skin',
+        'name': 'Large skin',
+        'description': 'x' * (300 * 1024),
+      }),
+    );
+    File('${dir.path}/index.html').writeAsStringSync('<html>large</html>');
+
+    final storage = await scan();
+
+    expect(storage.getSkin('large.skin')?.path, dir.path);
+    expect(storage.defaultSkin?.path, dir.path);
+  });
+
+  test('an ordinary scan reads a manifest through an external link', () async {
+    final outside = Directory.systemTemp.createTempSync('webui_scan_outside_');
+    addTearDown(() => outside.deleteSync(recursive: true));
+    final external = File('${outside.path}/manifest.json')
+      ..writeAsStringSync(
+        jsonEncode({'id': 'linked.skin', 'name': 'Linked skin'}),
+      );
+    final dir = Directory('${root.path}/linked-dir')..createSync();
+    File('${dir.path}/index.html').writeAsStringSync('<html>linked</html>');
+    Link('${dir.path}/skin-manifest.json').createSync(external.path);
+
+    final storage = await scan();
+
+    expect(storage.getSkin('linked.skin')?.path, dir.path);
+  });
+
+  test(
+    'an ordinary scan keeps a package whose manifest path is a directory',
+    () async {
+      final dir = Directory('${root.path}/dir-manifest-skin')..createSync();
+      Directory('${dir.path}/skin-manifest.json').createSync();
+      File('${dir.path}/index.html').writeAsStringSync('<html>dir</html>');
+
+      final storage = await scan();
+
+      expect(storage.getSkin('dir-manifest-skin')?.path, dir.path);
+    },
+  );
+
+  test('an ordinary scan skips a manifest that is not a JSON object', () async {
+    final broken = Directory('${root.path}/broken-skin')..createSync();
+    File('${broken.path}/skin-manifest.json').writeAsStringSync('[1, 2, 3]');
+    File('${broken.path}/index.html').writeAsStringSync('<html>broken</html>');
+    final canonical = seed('streamline.js', '0.2.28');
+
+    final storage = await scan();
+
+    expect(storage.installedSkins, hasLength(1));
+    expect(storage.defaultSkin?.path, canonical.path);
+  });
 }

@@ -39,6 +39,7 @@ abstract class SettingsService {
   Future<String?> preferredGrinderDeviceId();
   Future<void> setPreferredGrinderDeviceId(String? deviceId);
   Future<String> defaultSkinId();
+  Future<String?> persistedDefaultSkinId();
   Future<void> setDefaultSkinId(String skinId);
   Future<bool> requireExtensionManagementAuthorization();
   Future<void> setRequireExtensionManagementAuthorization(bool value);
@@ -295,6 +296,11 @@ class SharedPreferencesSettingsService extends SettingsService {
       return 'streamline.js';
     }
     return stored ?? 'streamline.js';
+  }
+
+  @override
+  Future<String?> persistedDefaultSkinId() async {
+    return await prefs.getString(SettingsKeys.defaultSkinId.name);
   }
 
   @override
