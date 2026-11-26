@@ -29,7 +29,12 @@ void main() {
   NewOwnerResetJournal open({
     NewOwnerResetJournalStore? backing,
     String session = 'process-1',
-  }) => NewOwnerResetJournal(backing ?? store(), processSessionId: session);
+    NewOwnerResetJournalLease? lease,
+  }) => NewOwnerResetJournal(
+    backing ?? store(),
+    processSessionId: session,
+    authority: lease ?? NewOwnerResetJournalLease(),
+  );
 
   group('missing journal', () {
     test('is an explicit no-reset result and creates nothing', () {
@@ -283,6 +288,7 @@ void main() {
           final journal = NewOwnerResetJournal(
             NewOwnerResetJournalFileStore(lockedJournal),
             processSessionId: 'process-1',
+            authority: NewOwnerResetJournalLease(),
           );
 
           final result = journal.load();
@@ -624,6 +630,7 @@ void main() {
         final arming = NewOwnerResetJournal(
           NewOwnerResetJournalFileStore(lockedJournal),
           processSessionId: 'process-1',
+          authority: NewOwnerResetJournalLease(),
         )..load();
         _driveToReady(arming);
         arming.acknowledgeHandoff();
@@ -631,6 +638,7 @@ void main() {
         final nextProcess = NewOwnerResetJournal(
           NewOwnerResetJournalFileStore(lockedJournal),
           processSessionId: 'process-2',
+          authority: NewOwnerResetJournalLease(),
         )..load();
         Process.runSync('chmod', ['000', locked.path]);
         try {
@@ -801,6 +809,424 @@ void main() {
       expect(raw, isNot(contains('password')));
     });
   });
+
+  group('marker encoding', () {
+    test('invalid UTF-8 content is unreadable, not absent', () {
+      final raw = <int>[0x7b, 0x22, 0xff, 0xfe, 0x22, 0x7d];
+      journalFile.writeAsBytesSync(raw);
+
+      final journal = open();
+      final result = journal.load();
+
+      expect(result, isA<NewOwnerResetJournalUnreadable>());
+      expect(
+        (result as NewOwnerResetJournalUnreadable).reason,
+        contains('UTF-8'),
+      );
+      expect(journal.record, isNull);
+      expect(
+        () => journal.beginReset(retained: _retained),
+        throwsA(isA<NewOwnerResetJournalStateException>()),
+      );
+      expect(journalFile.readAsBytesSync(), raw);
+    });
+
+    test('a truncated multi-byte sequence is unreadable too', () {
+      journalFile.writeAsBytesSync(<int>[
+        ...utf8.encode('{"state":"resetting"'),
+        0xe2,
+        0x82,
+      ]);
+
+      final journal = open();
+
+      expect(journal.load(), isA<NewOwnerResetJournalUnreadable>());
+      expect(
+        () => journal.consumeHandoff(),
+        throwsA(isA<NewOwnerResetJournalStateException>()),
+      );
+    });
+  });
+
+  group('retained skin shape', () {
+    final invalidSkins = <String, Object?>{
+      'a missing packageId': {'skinId': 'default'},
+      'a missing skinId': {'packageId': 'bundled:default'},
+      'an unexpected nested field': {
+        'skinId': 'default',
+        'packageId': 'bundled:default',
+        'personalState': 'factory',
+      },
+      'a blank nested value': {'skinId': '   ', 'packageId': 'bundled:default'},
+      'a list': ['default', 'bundled:default'],
+      'a bare string': 'default',
+    };
+
+    invalidSkins.forEach((label, skin) {
+      test('$label is unreadable and never overwritten', () {
+        final raw = jsonEncode({
+          ..._validResettingMap(),
+          'retained': {
+            'preferredMachineId': 'synthetic-machine-a',
+            'preferredScaleId': 'usb-hds:any',
+            'skin': skin,
+          },
+        });
+        journalFile.writeAsStringSync(raw);
+
+        final journal = open();
+
+        expect(journal.load(), isA<NewOwnerResetJournalUnreadable>());
+        expect(
+          () => journal.completeStage(NewOwnerResetStage.deletion),
+          throwsA(isA<NewOwnerResetJournalStateException>()),
+        );
+        expect(journalFile.readAsStringSync(), raw);
+      });
+    });
+
+    test('a retained configuration without the skin field is unreadable', () {
+      journalFile.writeAsStringSync(
+        jsonEncode({
+          ..._validResettingMap(),
+          'retained': {
+            'preferredMachineId': 'synthetic-machine-a',
+            'preferredScaleId': 'usb-hds:any',
+          },
+        }),
+      );
+
+      expect(open().load(), isA<NewOwnerResetJournalUnreadable>());
+    });
+  });
+
+  group('unreadable owner', () {
+    test('the instance that loaded unreadable state cannot mutate it', () {
+      Directory(journalFile.path).createSync();
+      final journal = open();
+
+      expect(journal.load(), isA<NewOwnerResetJournalUnreadable>());
+      expect(
+        () => journal.beginReset(retained: _retained),
+        throwsA(isA<NewOwnerResetJournalStateException>()),
+      );
+      expect(journal.record, isNull);
+      expect(Directory(journalFile.path).existsSync(), isTrue);
+    });
+
+    test('the same instance cannot acknowledge or consume it', () {
+      journalFile.writeAsBytesSync(const <int>[0xff, 0xfe]);
+      final journal = open();
+
+      expect(journal.load(), isA<NewOwnerResetJournalUnreadable>());
+      expect(
+        () => journal.acknowledgeHandoff(),
+        throwsA(isA<NewOwnerResetJournalStateException>()),
+      );
+      expect(
+        () => journal.consumeHandoff(),
+        throwsA(isA<NewOwnerResetJournalStateException>()),
+      );
+      expect(journalFile.readAsBytesSync(), const <int>[0xff, 0xfe]);
+    });
+  });
+
+  group('staged write faults', () {
+    late _FaultyFileOperations operations;
+
+    setUp(() {
+      operations = _FaultyFileOperations();
+    });
+
+    NewOwnerResetJournal faultyJournal() => NewOwnerResetJournal(
+      NewOwnerResetJournalFileStore(journalFile, operations: operations),
+      processSessionId: 'process-1',
+      authority: NewOwnerResetJournalLease(),
+    )..load();
+
+    test('a byte-write fault publishes nothing', () {
+      final journal = faultyJournal();
+      operations.failBytes = true;
+
+      expect(
+        () => journal.beginReset(retained: _retained),
+        throwsA(isA<NewOwnerResetJournalWriteException>()),
+      );
+
+      expect(journal.record, isNull);
+      expect(journalFile.existsSync(), isFalse);
+      expect(File('${journalFile.path}.tmp').existsSync(), isFalse);
+    });
+
+    test('a flush fault publishes nothing and leaves no staging file', () {
+      final journal = faultyJournal();
+      operations.failFlush = true;
+
+      expect(
+        () => journal.beginReset(retained: _retained),
+        throwsA(isA<NewOwnerResetJournalWriteException>()),
+      );
+
+      expect(journal.record, isNull);
+      expect(journalFile.existsSync(), isFalse);
+      expect(File('${journalFile.path}.tmp').existsSync(), isFalse);
+    });
+
+    test('a close fault publishes nothing and leaves no staging file', () {
+      final journal = faultyJournal();
+      operations.failClose = true;
+
+      expect(
+        () => journal.beginReset(retained: _retained),
+        throwsA(isA<NewOwnerResetJournalWriteException>()),
+      );
+
+      expect(journal.record, isNull);
+      expect(journalFile.existsSync(), isFalse);
+      expect(File('${journalFile.path}.tmp').existsSync(), isFalse);
+    });
+
+    test('a rename fault keeps the previous record and cleans staging', () {
+      final journal = faultyJournal();
+      journal.beginReset(retained: _retained);
+      final raw = journalFile.readAsStringSync();
+      operations.failRename = true;
+
+      expect(
+        () => journal.completeStage(NewOwnerResetStage.deletion),
+        throwsA(isA<NewOwnerResetJournalWriteException>()),
+      );
+
+      expect(journal.record!.stage, NewOwnerResetStage.deletion);
+      expect(journal.durableStateUnknown, isFalse);
+      expect(journalFile.readAsStringSync(), raw);
+      expect(File('${journalFile.path}.tmp').existsSync(), isFalse);
+    });
+  });
+
+  group('ambiguous persistence outcomes', () {
+    late _FaultyFileOperations operations;
+
+    setUp(() {
+      operations = _FaultyFileOperations();
+    });
+
+    NewOwnerResetJournal faultyJournal({String session = 'process-1'}) =>
+        NewOwnerResetJournal(
+          NewOwnerResetJournalFileStore(journalFile, operations: operations),
+          processSessionId: session,
+          authority: NewOwnerResetJournalLease(),
+        )..load();
+
+    test('a replace that committed before failing is a success', () {
+      final journal = faultyJournal();
+      journal.beginReset(retained: _retained);
+      operations.renameCommitsThenFails = true;
+
+      journal.completeStage(NewOwnerResetStage.deletion);
+
+      expect(journal.record!.stage, NewOwnerResetStage.restoration);
+      expect(journal.durableStateUnknown, isFalse);
+      final reloaded = open()..load();
+      expect(reloaded.record!.stage, NewOwnerResetStage.restoration);
+    });
+
+    test('a replace that left unreadable state fails closed', () {
+      final journal = faultyJournal();
+      journal.beginReset(retained: _retained);
+      operations.corruptOnRenameFailure = true;
+
+      expect(
+        () => journal.completeStage(NewOwnerResetStage.deletion),
+        throwsA(isA<NewOwnerResetJournalIndeterminateWriteException>()),
+      );
+
+      expect(journal.durableStateUnknown, isTrue);
+      expect(
+        () => journal.completeStage(NewOwnerResetStage.deletion),
+        throwsA(isA<NewOwnerResetJournalStateException>()),
+      );
+      expect(open().load(), isA<NewOwnerResetJournalUnreadable>());
+    });
+
+    test('a delete that removed the marker before failing consumes', () {
+      final arming = open()..load();
+      _driveToReady(arming);
+      arming.acknowledgeHandoff();
+      final nextProcess = faultyJournal(session: 'process-2');
+      operations.deleteCommitsThenFails = true;
+
+      nextProcess.consumeHandoff();
+
+      expect(nextProcess.record, isNull);
+      expect(nextProcess.durableStateUnknown, isFalse);
+      expect(journalFile.existsSync(), isFalse);
+    });
+
+    test('a delete that left unreadable state fails closed', () {
+      final arming = open()..load();
+      _driveToReady(arming);
+      arming.acknowledgeHandoff();
+      final nextProcess = faultyJournal(session: 'process-2');
+      operations.deleteCorruptsThenFails = true;
+
+      expect(
+        () => nextProcess.consumeHandoff(),
+        throwsA(isA<NewOwnerResetJournalIndeterminateWriteException>()),
+      );
+
+      expect(nextProcess.record!.state, NewOwnerResetState.handoffArmed);
+      expect(nextProcess.durableStateUnknown, isTrue);
+      expect(open().load(), isA<NewOwnerResetJournalUnreadable>());
+    });
+  });
+
+  group('competing journal owners', () {
+    test('a stale instance cannot overwrite a created journal', () {
+      final first = open(session: 'process-1')..load();
+      final stale = open(session: 'process-2')..load();
+      first.beginReset(retained: _retained);
+
+      expect(
+        () => stale.beginReset(retained: _retained),
+        throwsA(isA<NewOwnerResetJournalWriteException>()),
+      );
+
+      expect(stale.record, isNull);
+      final reloaded = open()..load();
+      expect(reloaded.record!.stage, NewOwnerResetStage.deletion);
+    });
+
+    test('a stale instance cannot rewind an advanced stage', () {
+      final first = open()..load();
+      first.beginReset(retained: _retained);
+      final stale = open()..load();
+      first.completeStage(NewOwnerResetStage.deletion);
+
+      expect(
+        () => stale.completeStage(NewOwnerResetStage.deletion),
+        throwsA(isA<NewOwnerResetJournalWriteException>()),
+      );
+
+      expect(stale.record!.stage, NewOwnerResetStage.deletion);
+      final reloaded = open()..load();
+      expect(reloaded.record!.stage, NewOwnerResetStage.restoration);
+    });
+
+    test('only one of two later processes consumes the handoff', () {
+      final arming = open()..load();
+      _driveToReady(arming);
+      arming.acknowledgeHandoff();
+      final firstLater = open(session: 'process-2')..load();
+      final secondLater = open(session: 'process-3')..load();
+
+      firstLater.consumeHandoff();
+
+      expect(
+        () => secondLater.consumeHandoff(),
+        throwsA(isA<NewOwnerResetJournalWriteException>()),
+      );
+      expect(journalFile.existsSync(), isFalse);
+    });
+
+    test('a stale instance stays refused until it reloads', () {
+      final first = open()..load();
+      final stale = open()..load();
+      first.beginReset(retained: _retained);
+
+      expect(
+        () => stale.beginReset(retained: _retained),
+        throwsA(isA<NewOwnerResetJournalWriteException>()),
+      );
+      expect(
+        () => stale.beginReset(retained: _retained),
+        throwsA(isA<NewOwnerResetJournalWriteException>()),
+      );
+
+      stale.load();
+      expect(stale.record!.stage, NewOwnerResetStage.deletion);
+      stale.completeStage(NewOwnerResetStage.deletion);
+      final reloaded = open()..load();
+      expect(reloaded.record!.stage, NewOwnerResetStage.restoration);
+    });
+  });
+
+  group('revoked authority', () {
+    test('every mutator refuses a revoked handle and writes nothing', () {
+      final lease = NewOwnerResetJournalLease();
+      final journal = open(lease: lease)..load();
+      journal.beginReset(retained: _retained);
+      final marker = journalFile.readAsStringSync();
+
+      lease.revoke();
+
+      expect(
+        () => journal.completeStage(NewOwnerResetStage.deletion),
+        throwsA(isA<NewOwnerResetJournalLeaseRevokedException>()),
+      );
+      expect(
+        () => journal.beginReset(retained: _retained),
+        throwsA(isA<NewOwnerResetJournalLeaseRevokedException>()),
+      );
+      expect(
+        journal.acknowledgeHandoff,
+        throwsA(isA<NewOwnerResetJournalLeaseRevokedException>()),
+      );
+      expect(
+        journal.consumeHandoff,
+        throwsA(isA<NewOwnerResetJournalLeaseRevokedException>()),
+      );
+      expect(journalFile.readAsStringSync(), marker);
+    });
+
+    test('a reload never reissues authority', () {
+      final lease = NewOwnerResetJournalLease();
+      final journal = open(lease: lease)..load();
+      _driveToReady(journal);
+      journal.acknowledgeHandoff();
+      final marker = journalFile.readAsStringSync();
+
+      lease.revoke();
+      journal.load();
+
+      expect(
+        () => journal.beginReset(retained: _retained),
+        throwsA(isA<NewOwnerResetJournalLeaseRevokedException>()),
+      );
+      expect(
+        journal.consumeHandoff,
+        throwsA(isA<NewOwnerResetJournalLeaseRevokedException>()),
+      );
+      expect(journalFile.readAsStringSync(), marker);
+      expect(lease.isRevoked, isTrue);
+    });
+
+    test('a no-op duplicate stage cannot pass a revoked lease', () {
+      final lease = NewOwnerResetJournalLease();
+      final journal = open(lease: lease)..load();
+      journal.beginReset(retained: _retained);
+      journal.completeStage(NewOwnerResetStage.deletion);
+      final marker = journalFile.readAsStringSync();
+
+      lease.revoke();
+
+      expect(
+        () => journal.completeStage(NewOwnerResetStage.deletion),
+        throwsA(isA<NewOwnerResetJournalLeaseRevokedException>()),
+      );
+      expect(journalFile.readAsStringSync(), marker);
+    });
+
+    test('an unrevoked lease keeps the standalone handle usable', () {
+      final lease = NewOwnerResetJournalLease();
+      final journal = open(lease: lease)..load();
+
+      _driveToReady(journal);
+
+      expect(lease.isRevoked, isFalse);
+      expect(journal.record!.state, NewOwnerResetState.ready);
+    });
+  });
 }
 
 void _driveToReady(NewOwnerResetJournal journal) {
@@ -827,6 +1253,94 @@ bool _mayRestrictPermissions() {
   if (Platform.isWindows) return false;
   final result = Process.runSync('id', ['-u']);
   return result.exitCode == 0 && result.stdout.toString().trim() != '0';
+}
+
+class _FaultyFileOperations implements NewOwnerResetJournalFileOperations {
+  final NewOwnerResetJournalFileOperations _inner =
+      const IoNewOwnerResetJournalFileOperations();
+
+  bool failBytes = false;
+  bool failFlush = false;
+  bool failClose = false;
+  bool failRename = false;
+  bool renameCommitsThenFails = false;
+  bool corruptOnRenameFailure = false;
+  bool deleteCommitsThenFails = false;
+  bool deleteCorruptsThenFails = false;
+
+  @override
+  FileSystemEntityType typeSync(String path) => _inner.typeSync(path);
+
+  @override
+  List<int> readBytesSync(String path) => _inner.readBytesSync(path);
+
+  @override
+  int lengthSync(String path) => _inner.lengthSync(path);
+
+  @override
+  NewOwnerResetJournalStagedWrite openStaged(String path) =>
+      _FaultyStagedWrite(this, _inner.openStaged(path));
+
+  @override
+  void renameSync(String from, String to) {
+    if (renameCommitsThenFails) {
+      _inner.renameSync(from, to);
+      throw const FileSystemException('injected rename failure after commit');
+    }
+    if (corruptOnRenameFailure) {
+      File(to).writeAsBytesSync(const <int>[0xff, 0xfe, 0x00]);
+      throw const FileSystemException('injected rename failure, state unknown');
+    }
+    if (failRename) {
+      throw const FileSystemException('injected rename failure');
+    }
+    _inner.renameSync(from, to);
+  }
+
+  @override
+  void deleteSync(String path) {
+    if (deleteCommitsThenFails) {
+      _inner.deleteSync(path);
+      throw const FileSystemException('injected delete failure after commit');
+    }
+    if (deleteCorruptsThenFails) {
+      File(path).writeAsBytesSync(const <int>[0xff]);
+      throw const FileSystemException('injected delete failure, state unknown');
+    }
+    _inner.deleteSync(path);
+  }
+}
+
+class _FaultyStagedWrite implements NewOwnerResetJournalStagedWrite {
+  _FaultyStagedWrite(this._owner, this._inner);
+
+  final _FaultyFileOperations _owner;
+  final NewOwnerResetJournalStagedWrite _inner;
+
+  @override
+  void writeBytes(List<int> bytes) {
+    if (_owner.failBytes) {
+      throw const FileSystemException('injected byte-write failure');
+    }
+    _inner.writeBytes(bytes);
+  }
+
+  @override
+  void flush() {
+    if (_owner.failFlush) {
+      throw const FileSystemException('injected flush failure');
+    }
+    _inner.flush();
+  }
+
+  @override
+  void close() {
+    if (_owner.failClose) {
+      _inner.close();
+      throw const FileSystemException('injected close failure');
+    }
+    _inner.close();
+  }
 }
 
 class _FaultyStore implements NewOwnerResetJournalStore {

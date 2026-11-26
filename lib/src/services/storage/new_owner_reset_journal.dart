@@ -3,6 +3,8 @@ import 'dart:io';
 
 const int newOwnerResetJournalSchemaVersion = 1;
 
+const String newOwnerResetJournalFileName = 'new-owner-reset-journal.json';
+
 enum NewOwnerResetState { resetting, ready, handoffArmed }
 
 enum NewOwnerResetStage { deletion, restoration, verification }
@@ -213,6 +215,31 @@ final class NewOwnerResetJournalStateException implements Exception {
   String toString() => 'NewOwnerResetJournalStateException: $message';
 }
 
+/// Revocable authority to mutate one journal handle.
+///
+/// The owning composition creates exactly one lease, attaches it to the handle
+/// it publishes, and revokes it before dropping the ownership that makes the
+/// handle authoritative. Revocation is monotonic: nothing restores it, and
+/// [NewOwnerResetJournal.load] never reissues authority.
+final class NewOwnerResetJournalLease {
+  bool get isRevoked => _revoked;
+
+  var _revoked = false;
+
+  void revoke() {
+    _revoked = true;
+  }
+}
+
+final class NewOwnerResetJournalLeaseRevokedException implements Exception {
+  const NewOwnerResetJournalLeaseRevokedException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => 'NewOwnerResetJournalLeaseRevokedException: $message';
+}
+
 final class NewOwnerResetJournalWriteException implements Exception {
   const NewOwnerResetJournalWriteException(this.message);
 
@@ -222,29 +249,109 @@ final class NewOwnerResetJournalWriteException implements Exception {
   String toString() => 'NewOwnerResetJournalWriteException: $message';
 }
 
+/// A persistence failure whose durable outcome is unknown: the previous state,
+/// the requested state, and an unreadable file are all still possible.
+///
+/// Callers must treat this as uncertain, never as absent or as a clean failure.
+final class NewOwnerResetJournalIndeterminateWriteException
+    extends NewOwnerResetJournalWriteException {
+  const NewOwnerResetJournalIndeterminateWriteException(super.message);
+
+  @override
+  String toString() =>
+      'NewOwnerResetJournalIndeterminateWriteException: $message';
+}
+
 abstract interface class NewOwnerResetJournalStore {
   NewOwnerResetJournalReadResult read();
   void write(NewOwnerResetJournalRecord record);
   void delete();
 }
 
+/// Filesystem seam for [NewOwnerResetJournalFileStore].
+///
+/// Production uses [IoNewOwnerResetJournalFileOperations]; tests inject staged
+/// write, flush, close, rename and delete faults at the exact syscall boundary
+/// the store depends on.
+abstract interface class NewOwnerResetJournalFileOperations {
+  FileSystemEntityType typeSync(String path);
+  List<int> readBytesSync(String path);
+  int lengthSync(String path);
+  NewOwnerResetJournalStagedWrite openStaged(String path);
+  void renameSync(String from, String to);
+  void deleteSync(String path);
+}
+
+abstract interface class NewOwnerResetJournalStagedWrite {
+  void writeBytes(List<int> bytes);
+  void flush();
+  void close();
+}
+
+final class IoNewOwnerResetJournalFileOperations
+    implements NewOwnerResetJournalFileOperations {
+  const IoNewOwnerResetJournalFileOperations();
+
+  @override
+  FileSystemEntityType typeSync(String path) =>
+      FileSystemEntity.typeSync(path, followLinks: false);
+
+  @override
+  List<int> readBytesSync(String path) => File(path).readAsBytesSync();
+
+  @override
+  int lengthSync(String path) => File(path).lengthSync();
+
+  @override
+  NewOwnerResetJournalStagedWrite openStaged(String path) =>
+      _IoNewOwnerResetJournalStagedWrite(
+        File(path).openSync(mode: FileMode.writeOnly),
+      );
+
+  @override
+  void renameSync(String from, String to) => File(from).renameSync(to);
+
+  @override
+  void deleteSync(String path) => File(path).deleteSync();
+}
+
+final class _IoNewOwnerResetJournalStagedWrite
+    implements NewOwnerResetJournalStagedWrite {
+  _IoNewOwnerResetJournalStagedWrite(this._handle);
+
+  final RandomAccessFile _handle;
+
+  @override
+  void writeBytes(List<int> bytes) => _handle.writeFromSync(bytes);
+
+  @override
+  void flush() => _handle.flushSync();
+
+  @override
+  void close() => _handle.closeSync();
+}
+
 final class NewOwnerResetJournalFileStore implements NewOwnerResetJournalStore {
-  NewOwnerResetJournalFileStore(this.file);
+  NewOwnerResetJournalFileStore(
+    this.file, {
+    this.operations = const IoNewOwnerResetJournalFileOperations(),
+  });
 
   final File file;
+  final NewOwnerResetJournalFileOperations operations;
 
   @override
   NewOwnerResetJournalReadResult read() {
-    final type = FileSystemEntity.typeSync(file.path, followLinks: false);
+    final type = operations.typeSync(file.path);
     if (type != FileSystemEntityType.file &&
         type != FileSystemEntityType.notFound) {
       return NewOwnerResetJournalUnreadable(
         'journal path is a $type, not a readable regular file',
       );
     }
-    final String raw;
+    final List<int> bytes;
     try {
-      raw = file.readAsStringSync();
+      bytes = operations.readBytesSync(file.path);
     } on PathNotFoundException {
       if (type == FileSystemEntityType.notFound) {
         return const NewOwnerResetJournalAbsent();
@@ -255,6 +362,14 @@ final class NewOwnerResetJournalFileStore implements NewOwnerResetJournalStore {
     } on FileSystemException catch (error) {
       return NewOwnerResetJournalUnreadable(
         'journal file could not be read: ${error.message}',
+      );
+    }
+    final String raw;
+    try {
+      raw = utf8.decode(bytes);
+    } on FormatException catch (error) {
+      return NewOwnerResetJournalUnreadable(
+        'journal content is not valid UTF-8: ${error.message}',
       );
     }
     final Object? decoded;
@@ -280,56 +395,125 @@ final class NewOwnerResetJournalFileStore implements NewOwnerResetJournalStore {
     final staged = File('${file.path}.tmp');
     _requireReplaceablePath(file, 'journal');
     _requireReplaceablePath(staged, 'journal staging');
+
+    FileSystemException? failure;
+    NewOwnerResetJournalStagedWrite? open;
     try {
-      final handle = staged.openSync(mode: FileMode.writeOnly);
-      try {
-        handle.writeFromSync(payload);
-        handle.flushSync();
-      } finally {
-        handle.closeSync();
-      }
-      staged.renameSync(file.path);
+      open = operations.openStaged(staged.path);
+      open.writeBytes(payload);
+      open.flush();
+      open.close();
+      open = null;
+      operations.renameSync(staged.path, file.path);
+      return;
     } on FileSystemException catch (error) {
-      _discardStagedQuietly(staged);
-      throw NewOwnerResetJournalWriteException(
-        'journal could not be written: ${error.message}',
-      );
+      failure = error;
+    } finally {
+      if (open != null) {
+        try {
+          open.close();
+        } on FileSystemException {
+          failure ??= const FileSystemException(
+            'journal staging file could not be closed',
+          );
+        }
+      }
+    }
+    _discardStagedQuietly(staged);
+    switch (_observeReplacement(record)) {
+      case _JournalWriteOutcome.committed:
+        return;
+      case _JournalWriteOutcome.rejected:
+        throw NewOwnerResetJournalWriteException(
+          'journal could not be written: ${_describe(failure)}',
+        );
+      case _JournalWriteOutcome.unknown:
+        throw NewOwnerResetJournalIndeterminateWriteException(
+          'journal write outcome is unknown: ${_describe(failure)}',
+        );
     }
   }
 
   @override
   void delete() {
     _requireReplaceablePath(file, 'journal');
+    FileSystemException? failure;
     try {
-      file.deleteSync();
-    } on PathNotFoundException {
-      _requireJournalGone();
+      operations.deleteSync(file.path);
+      return;
+    } on PathNotFoundException catch (error) {
+      failure = error;
     } on FileSystemException catch (error) {
-      throw NewOwnerResetJournalWriteException(
-        'journal could not be deleted: ${error.message}',
-      );
+      failure = error;
+    }
+    switch (_observePresence()) {
+      case _JournalPresence.absent:
+        return;
+      case _JournalPresence.unknown:
+        throw NewOwnerResetJournalIndeterminateWriteException(
+          'journal deletion outcome is unknown: ${_describe(failure)}',
+        );
+      case _JournalPresence.present:
+        break;
+    }
+    switch (read()) {
+      case NewOwnerResetJournalPresent():
+        throw NewOwnerResetJournalWriteException(
+          'journal could not be deleted: ${_describe(failure)}',
+        );
+      case NewOwnerResetJournalAbsent():
+      case NewOwnerResetJournalUnreadable():
+        throw NewOwnerResetJournalIndeterminateWriteException(
+          'journal deletion left unreadable recovery state: '
+          '${_describe(failure)}',
+        );
     }
   }
 
-  void _requireJournalGone() {
-    try {
-      file.lengthSync();
-    } on PathNotFoundException {
-      return;
-    } on FileSystemException catch (error) {
-      throw NewOwnerResetJournalWriteException(
-        'journal could not be deleted: ${error.message}',
-      );
+  /// Whether the canonical file already holds the record a failed replace
+  /// tried to publish.
+  _JournalWriteOutcome _observeReplacement(
+    NewOwnerResetJournalRecord intended,
+  ) {
+    final observed = read();
+    switch (observed) {
+      case NewOwnerResetJournalPresent(:final record):
+        return _encodeRecord(record) == _encodeRecord(intended)
+            ? _JournalWriteOutcome.committed
+            : _JournalWriteOutcome.rejected;
+      case NewOwnerResetJournalAbsent():
+        return _JournalWriteOutcome.rejected;
+      case NewOwnerResetJournalUnreadable():
+        return _JournalWriteOutcome.unknown;
     }
-    throw const NewOwnerResetJournalWriteException(
-      'journal could not be deleted: the journal file is still present',
-    );
+  }
+
+  _JournalPresence _observePresence() {
+    try {
+      operations.lengthSync(file.path);
+    } on PathNotFoundException {
+      return _JournalPresence.absent;
+    } on FileSystemException {
+      return _JournalPresence.unknown;
+    }
+    return _JournalPresence.present;
   }
 }
 
+enum _JournalWriteOutcome { committed, rejected, unknown }
+
+enum _JournalPresence { absent, present, unknown }
+
+String _describe(FileSystemException? error) =>
+    error?.message ?? 'no filesystem error was reported';
+
 final class NewOwnerResetJournal {
-  NewOwnerResetJournal(this._store, {required String processSessionId})
-    : _processSessionId = processSessionId {
+  NewOwnerResetJournal(
+    this._store, {
+    required String processSessionId,
+    required NewOwnerResetJournalLease authority,
+  }) : _processSessionId = processSessionId,
+       _lease = authority {
     if (processSessionId.trim().isEmpty) {
       throw ArgumentError.value(
         processSessionId,
@@ -341,11 +525,17 @@ final class NewOwnerResetJournal {
 
   final NewOwnerResetJournalStore _store;
   final String _processSessionId;
+  final NewOwnerResetJournalLease _lease;
   var _loaded = false;
   var _unreadable = false;
+  var _durableStateUnknown = false;
   NewOwnerResetJournalRecord? _record;
 
   NewOwnerResetJournalRecord? get record => _record;
+
+  /// True when a persistence operation failed without establishing whether it
+  /// committed. No further mutation is allowed until [load] succeeds again.
+  bool get durableStateUnknown => _durableStateUnknown;
 
   String get processSessionId => _processSessionId;
 
@@ -363,6 +553,7 @@ final class NewOwnerResetJournal {
         _unreadable = true;
     }
     _loaded = true;
+    _durableStateUnknown = false;
     return result;
   }
 
@@ -440,7 +631,13 @@ final class NewOwnerResetJournal {
         'the acknowledging process session must not consume its own handoff',
       );
     }
-    _store.delete();
+    _requireUndisputedDurableState();
+    try {
+      _store.delete();
+    } on NewOwnerResetJournalIndeterminateWriteException {
+      _durableStateUnknown = true;
+      rethrow;
+    }
     _record = null;
   }
 
@@ -460,14 +657,56 @@ final class NewOwnerResetJournal {
         'journal record is not losslessly representable',
       );
     }
-    _store.write(record);
+    _requireUndisputedDurableState();
+    try {
+      _store.write(record);
+    } on NewOwnerResetJournalIndeterminateWriteException {
+      _durableStateUnknown = true;
+      rethrow;
+    }
     _record = record;
   }
 
+  /// Refuses to advance state this owner can no longer prove it owns.
+  void _requireUndisputedDurableState() {
+    final expected = _record;
+    final result = _store.read();
+    switch (result) {
+      case NewOwnerResetJournalPresent(:final record):
+        if (expected != null &&
+            _encodeRecord(record) == _encodeRecord(expected)) {
+          return;
+        }
+      case NewOwnerResetJournalAbsent():
+        if (expected == null) return;
+      case NewOwnerResetJournalUnreadable(:final reason):
+        throw NewOwnerResetJournalWriteException(
+          'the journal on disk cannot be read ($reason); refusing to change '
+          'recovery state',
+        );
+    }
+    throw const NewOwnerResetJournalWriteException(
+      'the journal changed on disk since this owner loaded it; refusing to '
+      'change recovery state without reloading it',
+    );
+  }
+
   void _requireModifiable() {
+    if (_lease.isRevoked) {
+      throw const NewOwnerResetJournalLeaseRevokedException(
+        'the owning composition released this journal handle, so it cannot '
+        'change recovery state',
+      );
+    }
     if (!_loaded) {
       throw const NewOwnerResetJournalStateException(
         'load() must succeed before the journal is modified',
+      );
+    }
+    if (_durableStateUnknown) {
+      throw const NewOwnerResetJournalStateException(
+        'the durable journal state is unknown; reload before changing '
+        'recovery state',
       );
     }
     if (_unreadable) {
@@ -486,6 +725,9 @@ final class NewOwnerResetJournal {
     return current;
   }
 }
+
+String _encodeRecord(NewOwnerResetJournalRecord record) =>
+    jsonEncode(record.toJson());
 
 FileSystemEntityType _requireReplaceablePath(File target, String label) {
   final type = FileSystemEntity.typeSync(target.path, followLinks: false);
