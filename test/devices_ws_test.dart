@@ -79,8 +79,13 @@ void main() {
     final app = Router().plus;
     devicesHandler.addRoutes(app);
 
-    server = await io.serve(app.call, 'localhost', 0);
-    wsUri = Uri.parse('ws://localhost:${server.port}/ws/v1/devices');
+    server = await io.serve(app.call, InternetAddress.loopbackIPv4, 0);
+    wsUri = Uri(
+      scheme: 'ws',
+      host: server.address.address,
+      port: server.port,
+      path: '/ws/v1/devices',
+    );
   });
 
   tearDown(() async {
@@ -117,6 +122,120 @@ void main() {
   }
 
   group('Devices WebSocket', () {
+    test(
+      'connectWs reaches the fixture with an opposite-family same-port decoy',
+      () async {
+        const limit = Duration(seconds: 2);
+        expect(server.address.isLoopback, isTrue);
+        expect(
+          server.address.type,
+          isIn([InternetAddressType.IPv4, InternetAddressType.IPv6]),
+          reason: 'The dual-family regression requires an IP loopback fixture',
+        );
+        final decoyAddress = server.address.type == InternetAddressType.IPv4
+            ? InternetAddress.loopbackIPv6
+            : InternetAddress.loopbackIPv4;
+        late final HttpServer decoy;
+        try {
+          decoy = await HttpServer.bind(
+            decoyAddress,
+            server.port,
+            v6Only: decoyAddress.type == InternetAddressType.IPv6,
+          ).timeout(limit);
+        } on SocketException catch (error) {
+          fail(
+            'Dual-family same-port loopback is required; could not bind '
+            '${decoyAddress.address}:${server.port}: $error',
+          );
+        }
+
+        final sockets = <WebSocket>[];
+        final drains = <Future<void>>[];
+        final decoyErrors = <Object>[];
+        final requestPaths = <String>[];
+        final serving =
+            (() async {
+              await for (final request in decoy) {
+                requestPaths.add(request.uri.path);
+                final socket = await WebSocketTransformer.upgrade(request)
+                    .timeout(limit);
+                sockets.add(socket);
+                drains.add(
+                  socket.drain<void>().catchError((Object error) {
+                    decoyErrors.add(error);
+                  }),
+                );
+                socket.add(jsonEncode(['opposite-family decoy']));
+              }
+            })().catchError((Object error) {
+              decoyErrors.add(error);
+            });
+
+        WebSocket? probe;
+        IOWebSocketChannel? channel;
+        try {
+          expect(decoy.port, server.port);
+          expect(decoy.address.type, isNot(server.address.type));
+          final decoyUri = Uri(
+            scheme: 'ws',
+            host: decoy.address.address,
+            port: decoy.port,
+            path: '/ws/v1/devices',
+          );
+          probe = await WebSocket.connect(decoyUri.toString()).timeout(limit);
+          final probeFrame = Completer<dynamic>();
+          drains.add(
+            probe
+                .forEach((frame) {
+                  if (!probeFrame.isCompleted) probeFrame.complete(frame);
+                })
+                .catchError((Object error) {
+                  decoyErrors.add(error);
+                }),
+          );
+          expect(
+            jsonDecode((await probeFrame.future.timeout(limit)).toString()),
+            ['opposite-family decoy'],
+          );
+          await probe.close().timeout(limit);
+
+          final (actualChannel, messages) = connectWs();
+          channel = actualChannel;
+          Map<String, dynamic>? state;
+          await Future.wait<void>([
+            actualChannel.ready.timeout(limit),
+            waitForState(messages).then((value) {
+              state = value;
+            }),
+          ]);
+
+          expect(state, containsPair('scanning', false));
+          expect(state, containsPair('devices', isList));
+          expect(state, containsPair('devices', isEmpty));
+          expect(state, containsPair('timestamp', isA<String>()));
+        } finally {
+          try {
+            await decoy.close(force: true).timeout(limit);
+            await serving.timeout(limit);
+          } finally {
+            try {
+              await Future.wait<dynamic>([
+                if (channel != null) channel.sink.close().timeout(limit),
+                if (probe != null) probe.close().timeout(limit),
+                for (final socket in sockets) socket.close().timeout(limit),
+              ]);
+            } finally {
+              await Future.wait<void>(drains).timeout(limit);
+            }
+          }
+          expect(decoyErrors, isEmpty);
+          expect(requestPaths, isNotEmpty);
+          expect(requestPaths, everyElement('/ws/v1/devices'));
+        }
+      },
+      timeout: Timeout(Duration(seconds: 20)),
+    );
+
     test('sends initial state on connect', () async {
       final (channel, messages) = connectWs();
 
