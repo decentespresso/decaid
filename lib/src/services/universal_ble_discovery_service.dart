@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
+import 'package:clock/clock.dart';
 import 'package:reaprime/src/models/adapter_state.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/remembered_device.dart';
@@ -16,6 +17,7 @@ import 'package:reaprime/src/services/ble/universal_ble_transport.dart';
 import 'package:reaprime/src/services/device_factory.dart';
 import 'package:reaprime/src/services/device_matcher.dart';
 import 'package:reaprime/src/models/device/device_watch.dart';
+import 'package:reaprime/src/models/device/device_scanner.dart';
 import 'package:reaprime/src/models/device/watch_filter.dart';
 import 'package:reaprime/src/models/device/watch_state.dart';
 import 'package:reaprime/src/models/device/ble_scan_state.dart';
@@ -42,8 +44,28 @@ class _AdvertisementStats {
   String? name;
 }
 
+class _ScaleWatchHandover {
+  _ScaleWatchHandover({
+    required this.physicalId,
+    required this.scanGeneration,
+    required this.registryRevision,
+    required this.adapterGeneration,
+    required this.driver,
+    required this.evidence,
+  }) : expiresAt = clock.now().add(const Duration(seconds: 5));
+
+  final String physicalId;
+  final int scanGeneration;
+  final int registryRevision;
+  final int adapterGeneration;
+  final PluginBleDriver driver;
+  final BleAdvertisementEvidence evidence;
+  final DateTime expiresAt;
+  bool consumed = false;
+}
+
 class UniversalBleDiscoveryService extends BleDiscoveryService
-    implements DeviceWatchCapable {
+    implements DeviceWatchCapable, ScaleWatchHandoverScanner {
   UniversalBleDiscoveryService({
     bool Function()? watchSupportGate,
     bool Function()? requiresSystemDevice,
@@ -85,8 +107,14 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
   StreamSubscription<int>? _registrySubscription;
   Future<void> _registryReconciliation = Future.value();
   bool _watchIncludesPluginDrivers = false;
+  _ScaleWatchHandover? _scaleWatchHandover;
 
-  void _advanceScanGeneration() {
+  void _invalidateScaleWatchHandover() {
+    _scaleWatchHandover = null;
+  }
+
+  void _advanceScanGeneration({bool preserveScaleWatchHandover = false}) {
+    if (!preserveScaleWatchHandover) _invalidateScaleWatchHandover();
     _scanGeneration++;
     _bleEvidence.beginGeneration(_scanGeneration);
     _bleObservations.clear();
@@ -224,6 +252,54 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
   DeviceWatchState get currentDeviceWatchState => _watchStateSubject.value;
   bool get watchDeviceSubscriptionInstalled => _watchScanSub != null;
   int get scanFailureCount => _scanFailureCount;
+
+  @override
+  Object? claimScaleWatchHandover(Device device) {
+    if (!_watchScanActive ||
+        _disposed ||
+        _adapterStateSubject.value != AdapterState.poweredOn ||
+        _scaleWatchHandover != null) {
+      return null;
+    }
+    final entry = _devices.entries
+        .where((entry) => identical(entry.value, device))
+        .firstOrNull;
+    if (entry == null) return null;
+    final physicalId = entry.key;
+    final decision = _pluginOwnership[physicalId];
+    final plugins = _plugins;
+    final evidence = _bleEvidence.get(physicalId);
+    if (plugins == null ||
+        evidence == null ||
+        decision == null ||
+        decision.kind != PluginBleOwnership.plugin ||
+        decision.drivers.length != 1 ||
+        !plugins.matchesCandidate(device, decision.drivers.single) ||
+        plugins.registry.isClaimed(physicalId) ||
+        decision.registryRevision != plugins.registry.revision ||
+        !plugins.registry.isCurrent(decision.drivers.single) ||
+        !plugins.runtimeAlive(decision.drivers.single)) {
+      return null;
+    }
+    final claim = _ScaleWatchHandover(
+      physicalId: physicalId,
+      scanGeneration: _scanGeneration,
+      registryRevision: decision.registryRevision,
+      adapterGeneration: _watchAdapterGeneration,
+      driver: decision.drivers.single,
+      evidence: evidence,
+    );
+    _scaleWatchHandover = claim;
+    return claim;
+  }
+
+  @override
+  void cancelScaleWatchHandover(Object claim) {
+    if (identical(_scaleWatchHandover, claim)) {
+      _invalidateScaleWatchHandover();
+    }
+  }
+
   String? get latestScanFailure => _latestScanFailure;
   DateTime? get latestScanFailureAt => _latestScanFailureAt;
 
@@ -325,7 +401,9 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     _cancelWatchScanSub();
     if (_scanOwner == BleScanOwner.watch) {
       _scanPhase = stopOsScan ? BleScanPhase.stopping : BleScanPhase.idle;
-      _advanceScanGeneration();
+      _advanceScanGeneration(
+        preserveScaleWatchHandover: _scaleWatchHandover != null,
+      );
     }
     if (stopOsScan) {
       try {
@@ -532,6 +610,7 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     _lastWatchAdapterState = state;
     _watchAdapterGeneration++;
     if (state == AdapterState.poweredOff) {
+      _invalidateScaleWatchHandover();
       _adapterOffBoundaryPending = true;
       if (_watchScanActive) {
         unawaited(
@@ -676,6 +755,7 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     if (_availabilitySubscription != null) return;
     _disposed = false;
     _registrySubscription ??= _plugins?.registry.changes.listen((_) {
+      _invalidateScaleWatchHandover();
       if (_disposed) return;
       _registryReconciliation = _registryReconciliation
           .then((_) => _reconcilePluginCandidates())
@@ -1041,6 +1121,51 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     }
   }
 
+  bool _admitPluginCandidate(String deviceId, PluginBleDriver driver) {
+    if (_disposed || _adapterStateSubject.value != AdapterState.poweredOn) {
+      return false;
+    }
+    final plugins = _plugins;
+    if (plugins == null ||
+        !plugins.registry.acceptingConnections ||
+        !plugins.registry.isCurrent(driver) ||
+        !plugins.runtimeAlive(driver)) {
+      return false;
+    }
+    final handover = _scaleWatchHandover;
+    if (handover != null) {
+      if (handover.consumed ||
+          clock.now().isAfter(handover.expiresAt) ||
+          handover.physicalId != deviceId ||
+          handover.driver != driver ||
+          handover.scanGeneration + 1 != _scanGeneration ||
+          _scanOwner != BleScanOwner.none ||
+          handover.adapterGeneration != _watchAdapterGeneration ||
+          handover.registryRevision != plugins.registry.revision ||
+          plugins.registry.isClaimed(deviceId) ||
+          !plugins.registry.isCurrent(handover.driver)) {
+        return false;
+      }
+      final decision = plugins.registry.decide(handover.evidence);
+      if (decision.kind != PluginBleOwnership.plugin ||
+          decision.registryRevision != handover.registryRevision ||
+          decision.drivers.length != 1 ||
+          decision.drivers.single != handover.driver) {
+        return false;
+      }
+      handover.consumed = true;
+      _scaleWatchHandover = null;
+      return true;
+    }
+    final evidence = _bleEvidence.get(deviceId);
+    if (evidence == null) return false;
+    final owner = plugins.registry.decide(evidence);
+    return owner.kind == PluginBleOwnership.plugin &&
+        owner.registryRevision == plugins.registry.revision &&
+        owner.drivers.length == 1 &&
+        owner.drivers.single == driver;
+  }
+
   Future<void> _processBleObservation(String deviceId, int generation) async {
     final device = _bleObservations[deviceId];
     if (device == null || generation != _scanGeneration || _disposed) return;
@@ -1133,17 +1258,8 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
                 physicalId: deviceId,
                 evidence: evidence,
                 createTransport: () => _createTransport(device),
-                admit: () {
-                  if (_disposed ||
-                      _adapterStateSubject.value != AdapterState.poweredOn) {
-                    return false;
-                  }
-                  final current = _bleEvidence.get(deviceId);
-                  if (current == null) return false;
-                  final owner = plugins.registry.decide(current);
-                  return owner.kind == PluginBleOwnership.plugin &&
-                      identical(owner.drivers.single, decision.drivers.single);
-                },
+                admit: () =>
+                    _admitPluginCandidate(deviceId, decision.drivers.single),
               )
             : DeviceMatcher.match(
                 transport: _nativeTransport(device),
@@ -1315,6 +1431,7 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
 
   Future<void> dispose() async {
     if (_disposed) return;
+    _invalidateScaleWatchHandover();
     _disposed = true;
     await _registrySubscription?.cancel();
     _registrySubscription = null;

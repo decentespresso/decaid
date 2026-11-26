@@ -9,6 +9,14 @@ explicit API client selects a discovered device and supplies the auxiliary
 connection role. Primary automatic selection excludes reserved auxiliary IDs.
 Disconnect releases only that auxiliary reservation after transport cleanup.
 
+A preferred plugin-driver scale found by the background watch receives a bounded,
+single-use handover claim while its watch advertisement is stopped for GATT. The
+claim remains bound to the physical BLE identity, plugin registry/runtime and
+adapter generations; foreground scan ownership changes, cancellation, plugin
+replacement or adapter shutdown invalidate it. Failed watch connections back off
+before re-arming, while native-driver reconnection and auxiliary reservations
+retain their existing paths.
+
 When a Bengle is primary, automatic external primary-scale selection remains
 disabled and the integrated Bengle scale remains the ScaleController scale.
 Explicit auxiliary discovery and connection still use the normal device scanner

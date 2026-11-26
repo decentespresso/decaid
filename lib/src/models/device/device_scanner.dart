@@ -8,6 +8,12 @@ import 'package:reaprime/src/models/device/watch_state.dart';
 
 export 'package:reaprime/src/models/device/scan_result.dart';
 
+abstract interface class ScaleWatchHandoverScanner {
+  Object? claimScaleWatchHandover(Device device);
+
+  void cancelScaleWatchHandover(Object claim);
+}
+
 abstract class DeviceScanner {
   Stream<List<Device>> get deviceStream;
   Stream<bool> get scanningStream;
