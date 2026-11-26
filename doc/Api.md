@@ -1201,7 +1201,7 @@ The **proxy** lets clients *use* the account without ever seeing the credentials
 
 | Method | Path | Description | Handler |
 |--------|------|-------------|---------|
-| GET | `/api/v1/info` | Build metadata (version, commit, branch) + gateway LAN IP (`localIp`) | `info_handler.dart` |
+| GET | `/api/v1/info` | Build metadata (version, commit, branch) + gateway LAN IP (`localIp`); responses also carry the additive `x-decaid-listener-id` diagnostic header while this listener is bound | `info_handler.dart` |
 | GET | `/api/v1/diagnostics/ble` | Read-only BLE adapter, scan/watch ownership, reconnect policy, cache, and advertisement diagnostics | `ble_diagnostics_handler.dart` |
 | GET | `/api/v1/update` | App-update state snapshot (`phase`, `latestVersion`, `releaseNotes`, `releaseUrl`, `installable`). Pure read — no network call; force a re-check via `/ws/v1/update`. | `update_handler.dart` |
 | POST | `/api/v1/feedback` | Submit feedback with an authenticated Decent account (creates GitHub issue; optional Support-link status) | `feedback_handler.dart` |

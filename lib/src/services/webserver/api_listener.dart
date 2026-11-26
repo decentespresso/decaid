@@ -20,6 +20,7 @@ class ApiListener {
   final String healthPath;
   int _port;
   HttpServer? _server;
+  String? _listenerId;
   bool _stopped = false;
   int _lifecycleVersion = 0;
   Future<void>? _startOperation;
@@ -63,7 +64,15 @@ class ApiListener {
     _server = null;
 
     startAttemptCount++;
-    final server = await serveOrReportPortInUse(handler, address, _port);
+    final listenerId = newListenerIdentity();
+    Future<Response> boundHandler(Request request) async {
+      final response = await handler(request);
+      return response.change(
+        headers: {...response.headersAll, listenerIdentityHeader: listenerId},
+      );
+    }
+
+    final server = await serveOrReportPortInUse(boundHandler, address, _port);
     final barrier = bindBarrier;
     if (barrier != null) await barrier();
     if (version != _lifecycleVersion ||
@@ -73,17 +82,22 @@ class ApiListener {
       return;
     }
     _server = server;
+    _listenerId = listenerId;
     _port = server.port;
     _boundAddress = server.address.address;
     startCount++;
   }
 
   Future<bool> checkHealth() async {
-    if (_server == null) return false;
+    final listenerId = _listenerId;
+    if (_server == null || listenerId == null || listenerId.isEmpty) {
+      return false;
+    }
     return ListenerHealth.probe(
       Uri(scheme: 'http', host: '127.0.0.1', port: _port, path: healthPath),
       expectedStatus: HttpStatus.ok,
       expectedContentType: 'application/json',
+      expectedListenerId: listenerId,
     );
   }
 
@@ -100,6 +114,7 @@ class ApiListener {
     _lifecycleVersion++;
     final server = _server;
     _server = null;
+    _listenerId = null;
     await server?.close(force: true);
   }
 

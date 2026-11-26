@@ -3,10 +3,13 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/services/webserver/api_listener.dart';
+import 'package:reaprime/src/services/webserver/listener_health.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_web_socket/shelf_web_socket.dart' as sws;
 
-Future<int> _statusCode(Uri uri) async {
+Future<({int statusCode, String? contentType, String? listenerId})> _response(
+  Uri uri,
+) async {
   final client = HttpClient();
   try {
     final request = await client
@@ -14,11 +17,17 @@ Future<int> _statusCode(Uri uri) async {
         .timeout(const Duration(seconds: 1));
     final response = await request.close().timeout(const Duration(seconds: 1));
     await response.drain<void>();
-    return response.statusCode;
+    return (
+      statusCode: response.statusCode,
+      contentType: response.headers.value(HttpHeaders.contentTypeHeader),
+      listenerId: response.headers.value(listenerIdentityHeader),
+    );
   } finally {
     client.close(force: true);
   }
 }
+
+Future<int> _statusCode(Uri uri) async => (await _response(uri)).statusCode;
 
 Future<bool> _responds(Uri uri) async {
   try {
@@ -68,17 +77,46 @@ void main() {
     },
   );
 
+  test(
+    'rejects a responsive replacement listener on the retained port',
+    () async {
+      await listener.start();
+      final port = listener.port;
+      await listener.closeForTesting();
+      final replacement = await HttpServer.bind('0.0.0.0', port);
+      addTearDown(() => replacement.close(force: true));
+      replacement.listen((request) async {
+        await request.drain<void>();
+        request.response
+          ..statusCode = HttpStatus.ok
+          ..headers.contentType = ContentType.json;
+        await request.response.close();
+      });
+
+      final response = await _response(
+        Uri.parse('http://127.0.0.1:$port/api/v1/info'),
+      );
+      expect(response.statusCode, HttpStatus.ok);
+      expect(response.contentType, startsWith('application/json'));
+      expect(await listener.checkHealth(), isFalse);
+    },
+  );
+
   test('health checks actual listener responsiveness', () async {
     await listener.start();
 
     expect(listener.isStarted, isTrue);
-    expect(
-      await _statusCode(
-        Uri.parse('http://127.0.0.1:${listener.port}/api/v1/info'),
-      ),
-      HttpStatus.ok,
+    final first = await _response(
+      Uri.parse('http://127.0.0.1:${listener.port}/api/v1/info'),
     );
+    expect(first.statusCode, HttpStatus.ok);
+    expect(first.listenerId, isNotNull);
     expect(await listener.checkHealth(), isTrue);
+    final second = await _response(
+      Uri.parse('http://127.0.0.1:${listener.port}/api/v1/info'),
+    );
+    expect(second.listenerId, first.listenerId);
+    expect(listener.startCount, 1);
 
     await listener.closeForTesting();
 
@@ -90,6 +128,47 @@ void main() {
       ),
       isFalse,
     );
+  });
+
+  test('a fresh binding gets a fresh listener identity', () async {
+    await listener.start();
+    final port = listener.port;
+    final first = await _response(
+      Uri.parse('http://127.0.0.1:$port/api/v1/info'),
+    );
+    expect(first.listenerId, isNotNull);
+    await listener.closeForTesting();
+
+    await listener.recover();
+
+    final second = await _response(
+      Uri.parse('http://127.0.0.1:$port/api/v1/info'),
+    );
+    expect(second.listenerId, isNotNull);
+    expect(second.listenerId, isNot(first.listenerId));
+    expect(await listener.checkHealth(), isTrue);
+  });
+
+  test('rejects another Decaid listener on the retained port', () async {
+    await listener.start();
+    final port = listener.port;
+    await listener.closeForTesting();
+    final other = ApiListener(
+      handler: (request) =>
+          Response.ok('{}', headers: {'content-type': 'application/json'}),
+      port: port,
+    );
+    addTearDown(other.stop);
+    await other.start();
+
+    final response = await _response(
+      Uri.parse('http://127.0.0.1:$port/api/v1/info'),
+    );
+    expect(response.statusCode, HttpStatus.ok);
+    expect(response.contentType, startsWith('application/json'));
+    expect(response.listenerId, isNotNull);
+    expect(await listener.checkHealth(), isFalse);
+    expect(await other.checkHealth(), isTrue);
   });
 
   test('recovery rebinds the configured port after listener loss', () async {

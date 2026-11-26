@@ -5,6 +5,8 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/services/listener_recovery_coordinator.dart';
 import 'package:reaprime/src/services/webserver/api_listener.dart';
+import 'package:reaprime/src/services/webserver/listener_health.dart';
+import 'package:reaprime/src/services/webserver/port_binding.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:shelf/shelf.dart';
 
@@ -18,9 +20,38 @@ Future<HttpServer> _bindUnhealthyListener(int port) async {
   return server;
 }
 
-Future<({int statusCode, String body, String? location})> _request(
-  Uri uri,
-) async {
+Future<HttpServer> _bindCounterfeitListener(
+  int port, {
+  required int statusCode,
+  required ContentType contentType,
+  required String body,
+  String? location,
+}) async {
+  final server = await HttpServer.bind('0.0.0.0', port);
+  server.listen((request) async {
+    await request.drain<void>();
+    request.response
+      ..statusCode = statusCode
+      ..headers.contentType = contentType;
+    if (location != null) {
+      request.response.headers.set(HttpHeaders.locationHeader, location);
+    }
+    request.response.write(body);
+    await request.response.close();
+  });
+  return server;
+}
+
+Future<
+  ({
+    int statusCode,
+    String body,
+    String? location,
+    String? contentType,
+    String? listenerId,
+  })
+>
+_request(Uri uri) async {
   final client = HttpClient();
   try {
     final request = await client
@@ -36,6 +67,8 @@ Future<({int statusCode, String body, String? location})> _request(
       statusCode: response.statusCode,
       body: body,
       location: response.headers.value(HttpHeaders.locationHeader),
+      contentType: response.headers.value(HttpHeaders.contentTypeHeader),
+      listenerId: response.headers.value(listenerIdentityHeader),
     );
   } finally {
     client.close(force: true);
@@ -101,6 +134,9 @@ void main() {
     final apiStarts = api.startCount;
     final entryStarts = webUI.entryStartCount;
     final generation = webUI.serveGeneration.value;
+    final apiIdentity = (await _request(apiUri())).listenerId;
+    final skinIdentity = (await _request(skinUri())).listenerId;
+    final entryIdentity = (await _request(entryUri())).listenerId;
 
     await coordinator.onResumed();
 
@@ -108,12 +144,155 @@ void main() {
     expect(webUI.entryStartCount, entryStarts);
     expect(webUI.serveGeneration.value, generation);
     expect((await _request(apiUri())).statusCode, HttpStatus.ok);
+    expect((await _request(apiUri())).listenerId, apiIdentity);
     expect((await _request(skinUri())).body, skinBody());
+    expect((await _request(skinUri())).listenerId, skinIdentity);
     expect(
       (await _request(entryUri())).statusCode,
       HttpStatus.temporaryRedirect,
     );
+    expect((await _request(entryUri())).listenerId, entryIdentity);
   });
+
+  test(
+    'rejects a responsive replacement skin and follows fallback port policy',
+    () async {
+      final oldPort = webUI.port;
+      final generation = webUI.serveGeneration.value;
+      await webUI.closeSkinListenerForTesting();
+      final counterfeit = await _bindCounterfeitListener(
+        oldPort,
+        statusCode: HttpStatus.ok,
+        contentType: ContentType.html,
+        body: '<html>counterfeit</html>',
+      );
+      addTearDown(() => counterfeit.close(force: true));
+
+      final response = await _request(skinUri());
+      expect(response.statusCode, HttpStatus.ok);
+      expect(response.contentType, startsWith('text/html'));
+      expect(response.body, '<html>counterfeit</html>');
+      expect(await webUI.checkHealth(), isFalse);
+
+      await coordinator.onResumed().timeout(const Duration(seconds: 15));
+
+      expect(webUI.port, isNot(oldPort));
+      expect(webUI.serveGeneration.value, generation + 1);
+      expect(await webUI.checkHealth(), isTrue);
+      final replacement = await _request(skinUri());
+      expect(replacement.body, skinBody());
+      expect(replacement.listenerId, isNotNull);
+      expect(
+        (await _request(entryUri())).location,
+        'http://127.0.0.1:${webUI.port}/',
+      );
+    },
+  );
+
+  test(
+    'rejects a responsive replacement entry with the matching redirect',
+    () async {
+      final target = 'http://127.0.0.1:${webUI.port}/';
+      await webUI.closeEntryListenerForTesting();
+      final counterfeit = await _bindCounterfeitListener(
+        entryPort,
+        statusCode: HttpStatus.temporaryRedirect,
+        contentType: ContentType.html,
+        body: '',
+        location: target,
+      );
+      addTearDown(() => counterfeit.close(force: true));
+
+      final response = await _request(entryUri());
+      expect(response.statusCode, HttpStatus.temporaryRedirect);
+      expect(response.contentType, startsWith('text/html'));
+      expect(response.location, target);
+      expect(await webUI.checkHealth(), isFalse);
+    },
+  );
+
+  test('occupied API port with matching JSON fails bounded recovery', () async {
+    await api.closeForTesting();
+    final counterfeit = await _bindCounterfeitListener(
+      api.port,
+      statusCode: HttpStatus.ok,
+      contentType: ContentType.json,
+      body: '{}',
+    );
+    addTearDown(() => counterfeit.close(force: true));
+
+    final response = await _request(apiUri());
+    expect(response.statusCode, HttpStatus.ok);
+    expect(response.contentType, startsWith('application/json'));
+    expect(await api.checkHealth(), isFalse);
+
+    final attempts = api.startAttemptCount;
+    await expectLater(
+      coordinator.onResumed().timeout(const Duration(seconds: 15)),
+      throwsA(
+        isA<WebServerPortInUse>().having(
+          (error) => error.port,
+          'port',
+          api.port,
+        ),
+      ),
+    );
+    expect(coordinator.failure.value, contains('WebServerPortInUse'));
+    expect(api.startAttemptCount, attempts + coordinator.maxAttempts);
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    expect(api.startAttemptCount, attempts + coordinator.maxAttempts);
+
+    await counterfeit.close(force: true);
+    await coordinator.retry().timeout(const Duration(seconds: 15));
+    expect(coordinator.failure.value, isNull);
+    expect(await api.checkHealth(), isTrue);
+  });
+
+  test(
+    'occupied entry port with matching redirect fails bounded recovery',
+    () async {
+      final retainedSkinPort = webUI.port;
+      final generation = webUI.serveGeneration.value;
+      final retainedEntryIdentity = (await _request(entryUri())).listenerId;
+      await webUI.closeEntryListenerForTesting();
+      final counterfeitEntry = await _bindCounterfeitListener(
+        entryPort,
+        statusCode: HttpStatus.temporaryRedirect,
+        contentType: ContentType.html,
+        body: '',
+        location: 'http://127.0.0.1:$retainedSkinPort/',
+      );
+      addTearDown(() => counterfeitEntry.close(force: true));
+
+      final skinResponse = await _request(skinUri());
+      final entryResponse = await _request(entryUri());
+      expect(skinResponse.statusCode, HttpStatus.ok);
+      expect(skinResponse.contentType, startsWith('text/html'));
+      expect(skinResponse.listenerId, isNotNull);
+      expect(entryResponse.statusCode, HttpStatus.temporaryRedirect);
+      expect(entryResponse.contentType, startsWith('text/html'));
+      expect(entryResponse.location, 'http://127.0.0.1:$retainedSkinPort/');
+      expect(await webUI.checkHealth(), isFalse);
+
+      await expectLater(
+        coordinator.onResumed().timeout(const Duration(seconds: 15)),
+        throwsA(isA<SocketException>()),
+      );
+      expect(coordinator.failure.value, contains('SocketException'));
+      expect(webUI.port, retainedSkinPort);
+      expect(webUI.serveGeneration.value, generation);
+
+      await counterfeitEntry.close(force: true);
+      await coordinator.retry().timeout(const Duration(seconds: 15));
+      expect(coordinator.failure.value, isNull);
+      expect(webUI.port, retainedSkinPort);
+      expect(webUI.serveGeneration.value, generation);
+      expect(await webUI.checkHealth(), isTrue);
+      final recoveredEntry = await _request(entryUri());
+      expect(recoveredEntry.listenerId, isNotNull);
+      expect(recoveredEntry.listenerId, isNot(retainedEntryIdentity));
+    },
+  );
 
   test(
     'disposal during a pending health check has no late side effects',

@@ -65,6 +65,20 @@ existing API handlers and skin selection. Recovery is single-flight and bounded;
 a failed bind remains available through the skin's retry action. An intentional
 server stop or an installation with no active skin is not restarted.
 
+Each actual API, skin, entry, or alias binding has its own identity, exposed as
+an additive `x-decaid-listener-id` diagnostic header on ordinary HTTP responses.
+The value is cryptographically random and changes for every new binding; it is
+not an authentication credential, client requirement, or protection against a
+malicious local proxy. Successful WebSocket upgrades use the hijacked handshake
+path and do not carry this marker; existing WebSocket behavior is unchanged.
+Recovery requires the exact retained-listener value in addition to the existing
+status, content-type, and redirect checks, so an unrelated or replacement server
+cannot claim ownership by returning the same response shape. The marker is not
+listed in the API's CORS-exposed headers. If an assigned skin port is occupied,
+Decaid keeps the occupied port rejected and serves the skin on its existing
+temporary-port fallback; occupied API or entry ports produce the existing
+bounded actionable recovery failure.
+
 On Android and iOS, Decaid pauses the embedded WebView while the app is
 backgrounded. After ten minutes in the background, it unloads the page and
 reloads the selected skin when the app returns. Skin state that must survive
