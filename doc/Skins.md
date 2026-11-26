@@ -57,7 +57,13 @@ The **Streamline Project** is a reference implementation:
 - **WebSocket API**: Port 8080 - Real-time state updates, shot telemetry
 - **API Documentation**: Port 4001 - Interactive API docs (when enabled)
 
-### Embedded Skin Lifecycle
+### Listener Recovery and Embedded Skin Lifecycle
+
+On foreground resume, Decaid probes the API, stable entry redirect, and active
+skin listener. It rebinds only listeners that do not respond, reusing the
+existing API handlers and skin selection. Recovery is single-flight and bounded;
+a failed bind remains available through the skin's retry action. An intentional
+server stop or an installation with no active skin is not restarted.
 
 On Android and iOS, Decaid pauses the embedded WebView while the app is
 backgrounded. After ten minutes in the background, it unloads the page and

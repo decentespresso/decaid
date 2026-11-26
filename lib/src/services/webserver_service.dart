@@ -83,6 +83,7 @@ import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/calibration_codec.dart';
 import 'package:reaprime/src/models/device/transport/ble_timeout_exception.dart';
 import 'package:reaprime/src/services/webserver/port_binding.dart';
+import 'package:reaprime/src/services/webserver/api_listener.dart';
 import 'package:shelf_web_socket/shelf_web_socket.dart' as sws;
 import 'package:shelf_cors_headers/shelf_cors_headers.dart';
 import 'package:stack_trace/stack_trace.dart';
@@ -149,7 +150,7 @@ const _corsExposedResponseHeaders = [
 
 final log = Logger("Webservice");
 
-Future<void> startWebServer(
+Future<ApiListener> startWebServer(
   DeviceController deviceController,
   De1Controller de1Controller,
   ScaleController scaleController,
@@ -429,15 +430,20 @@ Future<void> startWebServer(
     updateHandler,
   );
   pluginService.pluginManager.attachLocalApi(handler);
-  final server = await serveOrReportPortInUse(handler, '0.0.0.0', 8080);
-  apiListenerPort = server.port;
-  apiListenerAddress = server.address.address;
-  log.info('API Web server running on ${server.address.host}:${server.port}');
+  final apiListener = ApiListener(handler: handler, port: 8080);
+  await apiListener.start();
+  apiListenerPort = apiListener.port;
+  apiListenerAddress = apiListener.addressString;
+  log.info(
+    'API Web server running on '
+    '${apiListener.addressString}:${apiListener.port}',
+  );
 
   final apiDocsServer = await startApiDocsServer(
     deviceAddresses: deviceAddresses,
   );
   apiDocsListenerPort = apiDocsServer?.port;
+  return apiListener;
 }
 
 Handler _init(

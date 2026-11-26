@@ -235,6 +235,8 @@ class SkinView extends StatefulWidget {
     this.webView,
     required this.port,
     this.cameraTarget,
+    this.onResumeListeners,
+    this.onRetryListeners,
     this.onSwitchSkin,
     this.notificationCenter,
     this.notificationActions,
@@ -249,6 +251,8 @@ class SkinView extends StatefulWidget {
   final Widget? webView;
   final int port;
   final SkinCameraTarget? Function()? cameraTarget;
+  final Future<bool> Function()? onResumeListeners;
+  final Future<bool> Function()? onRetryListeners;
   final Future<SkinSwitchOutcome> Function(String skinId)? onSwitchSkin;
   final NotificationCenter? notificationCenter;
   final NotificationActions? notificationActions;
@@ -272,6 +276,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   String? _errorMessage;
   CompatibilityResult? _compatibilityResult;
   bool _rendererCrashed = false;
+  bool _listenersReady = false;
 
   // ponytail: one embedded skin route exists at a time, so a process-wide
   // count is enough to tell a generation replacement from leaving the skin.
@@ -288,10 +293,13 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
 
   InAppWebViewController? _webViewController;
   Object _webViewAttempt = Object();
+  Object? _controllerAttempt;
+  bool _retryInProgress = false;
   final String _switchNonce = _generateSwitchNonce();
   final _skinExitCoordinator = SkinExitCoordinator();
   bool _appExitInProgress = false;
   Uri? _mainFrameUri;
+  Object? _resumeAttempt;
   late final _camera = SkinCameraWebViewAccess(
     context: () => mounted ? context : null,
     currentTarget: () {
@@ -320,6 +328,8 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   @override
   void dispose() {
     _log.fine("disposing");
+    _resumeAttempt = Object();
+    _webViewAttempt = Object();
     _activeViews--;
     final isLeavingSkin = _activeViews == 0;
     if (supportsSkinCamera) _camera.dispose();
@@ -348,6 +358,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
     }
 
     if (state == AppLifecycleState.paused) {
+      _resumeAttempt = Object();
       if (_webViewController == null) return;
       _log.info('App backgrounded — pausing WebView and loading blank page');
       unawaited(_changeWebViewActivity(_webViewController!, pause: true));
@@ -366,16 +377,76 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
     } else if (state == AppLifecycleState.resumed) {
       _blankPageTimer?.cancel();
       _blankPageTimer = null;
-      if (_webViewController == null) return;
-      _log.info('App foregrounded — resuming WebView and reloading skin');
-      _timerLifecycle = Object();
-      unawaited(_changeWebViewTimers(_webViewController!, 'resume'));
-      unawaited(_changeWebViewActivity(_webViewController!));
-      if (_didBlank) {
-        _didBlank = false;
-        _webViewController?.loadUrl(
-          urlRequest: URLRequest(url: WebUri(_skinUrl)),
-        );
+      final attempt = Object();
+      _resumeAttempt = attempt;
+      unawaited(_resumeAfterListeners(attempt));
+    }
+  }
+
+  Future<void> _resumeAfterListeners(Object attempt) {
+    final recover = widget.onResumeListeners;
+    if (recover == null) {
+      return _finishResume(attempt, recovered: false);
+    }
+    return _awaitResumeAfterListeners(attempt, recover);
+  }
+
+  Future<void> _awaitResumeAfterListeners(
+    Object attempt,
+    Future<bool> Function() recover,
+  ) async {
+    try {
+      final recovered = await recover();
+      if (!mounted || !identical(attempt, _resumeAttempt)) return;
+      await _finishResume(attempt, recovered: recovered);
+    } catch (error, stackTrace) {
+      _log.warning(
+        'Listener recovery failed while resuming skin',
+        error,
+        stackTrace,
+      );
+      if (!mounted || !identical(attempt, _resumeAttempt)) return;
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Failed to recover skin server: $error';
+      });
+    }
+  }
+
+  Future<void> _finishResume(Object attempt, {required bool recovered}) async {
+    if (!mounted || !identical(attempt, _resumeAttempt)) return;
+    final controller = _webViewController;
+    if (controller == null) {
+      if (!_listenersReady) {
+        setState(() {
+          _listenersReady = true;
+          _isLoading = true;
+          _errorMessage = null;
+        });
+      }
+      return;
+    }
+    if (_errorMessage != null) {
+      setState(() {
+        _errorMessage = null;
+        _isLoading = true;
+      });
+    }
+    _log.info('App foregrounded — resuming WebView and reloading skin');
+    _timerLifecycle = Object();
+    unawaited(_changeWebViewTimers(controller, 'resume'));
+    unawaited(_changeWebViewActivity(controller));
+    if (recovered || _didBlank) {
+      _didBlank = false;
+      try {
+        await controller.loadUrl(urlRequest: URLRequest(url: WebUri(_skinUrl)));
+      } catch (error, stackTrace) {
+        _log.warning('Failed to reload skin', error, stackTrace);
+        if (!mounted || !identical(attempt, _resumeAttempt)) return;
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'Failed to reload skin: $error';
+        });
       }
     }
   }
@@ -383,6 +454,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   Future<void> _checkCompatibilityAndInit() async {
     if (widget.webView != null) {
       _isCheckingCompatibility = false;
+      await _prepareListeners(_webViewAttempt);
       return;
     }
     _log.info('Checking WebView compatibility...');
@@ -406,9 +478,50 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
 
     if (result.isCompatible) {
       _log.info('WebView is compatible');
+      await _prepareListeners(_webViewAttempt);
     } else {
       _log.warning('WebView is not compatible: ${result.reason}');
     }
+  }
+
+  Future<void> _prepareListeners(Object attempt) {
+    final recover = widget.onResumeListeners;
+    if (recover == null) {
+      _markListenersReady(attempt);
+      return Future<void>.value();
+    }
+    return _awaitListenerPreparation(attempt, recover);
+  }
+
+  Future<void> _awaitListenerPreparation(
+    Object attempt,
+    Future<bool> Function() recover,
+  ) async {
+    try {
+      await recover();
+    } catch (error, stackTrace) {
+      _log.warning(
+        'Listener recovery failed while preparing skin',
+        error,
+        stackTrace,
+      );
+      if (!mounted || !identical(attempt, _webViewAttempt)) return;
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Failed to recover skin server: $error';
+      });
+      return;
+    }
+    _markListenersReady(attempt);
+  }
+
+  void _markListenersReady(Object attempt) {
+    if (!mounted || !identical(attempt, _webViewAttempt)) return;
+    setState(() {
+      _listenersReady = true;
+      _isLoading = true;
+      _errorMessage = null;
+    });
   }
 
   void _showExitInstructions() {
@@ -439,6 +552,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
       return;
     }
     _log.info('Skin requested switch to $skinId');
+    _resumeAttempt = Object();
     final outcome = await handler(skinId);
     _log.info('Skin switch to $skinId: ${outcome.name}');
   }
@@ -457,6 +571,8 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   }
 
   void _exitToDashboard() {
+    _resumeAttempt = Object();
+    _webViewAttempt = Object();
     Navigator.of(context)
         .pushNamedAndRemoveUntil(LauncherView.routeName, (_) => false);
   }
@@ -644,6 +760,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
                     setState(() {
                       _compatibilityResult = null;
                     });
+                    unawaited(_prepareListeners(_webViewAttempt));
                   },
                   child: const Text('Ignore and load anyway'),
                 ),
@@ -724,14 +841,39 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
       return _buildIncompatibilityMessage();
     }
 
+    Widget? errorOverlay;
     if (_errorMessage != null) {
-      return SkinWebViewError(
-        message: _errorMessage!,
-        onOpenInBrowser: defaultTargetPlatform == TargetPlatform.windows
-            ? _openInExternalBrowser
-            : null,
-        onDashboard: _exitToDashboard,
+      errorOverlay = Column(
+        children: [
+          Expanded(
+            child: SkinWebViewError(
+              message: _errorMessage!,
+              onOpenInBrowser: defaultTargetPlatform == TargetPlatform.windows
+                  ? _openInExternalBrowser
+                  : null,
+              onDashboard: _exitToDashboard,
+            ),
+          ),
+          if (widget.onRetryListeners != null)
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: ElevatedButton(
+                  onPressed: _retryInProgress
+                      ? null
+                      : () => unawaited(
+                          _retryListeners(widget.onRetryListeners!),
+                        ),
+                  child: const Text('Retry'),
+                ),
+              ),
+            ),
+        ],
       );
+    }
+
+    if (!_listenersReady) {
+      return errorOverlay ?? const Center(child: CircularProgressIndicator());
     }
 
     if (_rendererCrashed) {
@@ -750,7 +892,18 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
       );
     }
 
-    return _buildWebViewStack();
+    return Stack(
+      children: [
+        Positioned.fill(child: _buildWebViewStack()),
+        if (errorOverlay != null)
+          Positioned.fill(
+            child: ColoredBox(
+              color: Theme.of(context).scaffoldBackgroundColor,
+              child: errorOverlay,
+            ),
+          ),
+      ],
+    );
   }
 
   Widget _buildWebViewStack() {
@@ -805,6 +958,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
         if (!isCurrentView()) return;
         if (supportsSkinCamera) _camera.invalidate();
         _log.info('InAppWebView created');
+        _controllerAttempt = attempt;
         _timerViewAttempt = attempt;
         setState(() => _webViewController = controller);
         if (Platform.isAndroid) {
@@ -961,14 +1115,41 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
           _rendererCrashed = true;
         });
         Future.delayed(const Duration(milliseconds: 500), () {
-          if (isCurrentView()) {
-            setState(() {
-              _rendererCrashed = false;
-            });
-          }
+          if (isCurrentView()) _resetWebView();
         });
       },
     );
+  }
+
+  Future<void> _retryListeners(Future<bool> Function() retry) async {
+    if (_retryInProgress) return;
+    final attempt = _webViewAttempt;
+    final resumeAttempt = Object();
+    _resumeAttempt = resumeAttempt;
+    setState(() => _retryInProgress = true);
+    try {
+      await retry();
+      if (!mounted ||
+          !identical(attempt, _webViewAttempt) ||
+          !identical(resumeAttempt, _resumeAttempt)) {
+        return;
+      }
+      setState(() {
+        _listenersReady = true;
+        _isLoading = true;
+        _errorMessage = null;
+      });
+      await _finishResume(resumeAttempt, recovered: true);
+    } catch (error) {
+      if (!mounted ||
+          !identical(attempt, _webViewAttempt) ||
+          !identical(resumeAttempt, _resumeAttempt)) {
+        return;
+      }
+      setState(() => _errorMessage = 'Failed to recover skin server: $error');
+    } finally {
+      if (mounted) setState(() => _retryInProgress = false);
+    }
   }
 
   void _balanceWebViewTimers(String where) {
@@ -981,14 +1162,17 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
 
   void _resetWebView() {
     _balanceWebViewTimers('reset');
+    final attempt = _webViewAttempt = Object();
+    _resumeAttempt = Object();
     setState(() {
-      _webViewAttempt = Object();
+      _listenersReady = false;
       _webViewController = null;
       _isLoading = true;
       _errorMessage = null;
       _mainFrameUri = null;
       _rendererCrashed = false;
     });
+    unawaited(_prepareListeners(attempt));
   }
 
   Future<void> _logRenderingDiagnostics(
@@ -1038,7 +1222,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
     String where, {
     bool pause = false,
   }) {
-    final attempt = _webViewAttempt;
+    final attempt = _controllerAttempt;
     final lifecycle = _timerLifecycle;
     bool isCurrentView() =>
         mounted &&
