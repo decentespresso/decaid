@@ -425,6 +425,23 @@ A skin that must not lose state across such a run should persist it through the
 Decaid API rather than browser storage. The KV endpoints are unaffected by
 origin, because that data lives in the app.
 
+### Read-only Clean Bundled Source Observation
+
+`WebUIStorage.qualifyCleanBundledSkinSource` is an opt-in internal query with
+no production caller. It compares the exact selected managed package's complete
+file paths and bytes with one unique build-bundled ZIP. Modified, custom or
+updated packages without an exact clean bundled match reject; their normal
+installation and serving behavior is unchanged. Unreadable or uncertain sources,
+unsafe paths, links and over-budget packages reject rather than select a fallback.
+
+Qualification is content correspondence at observation time, not installation
+origin, durable package preservation, personal-state cleanup or reset eligibility.
+The managed root must be trusted; reads are not atomic against concurrent swaps.
+A future guarded operation must revalidate and independently preserve the clean
+source. Destructive new-owner reset remains disabled. See the
+[Slice 4 design](plans/archive/1259-new-owner-reset/slice-4-clean-skin-source.md)
+for limits and remaining prerequisites.
+
 ### Offline Operation
 
 Decaid serves installed skins from `localhost`, so Wi-Fi and internet access

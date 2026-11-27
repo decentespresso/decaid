@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -184,7 +185,397 @@ final class ManagedSkinLookup {
   bool get isResolved => status == ManagedSkinLookupStatus.resolved;
 }
 
+enum CleanSkinSourceStatus {
+  qualified,
+  invalidSkinId,
+  skinSelectionRejected,
+  installedPackageUnsafe,
+  installedPackageUnreadable,
+  bundledManifestUnavailable,
+  bundledSourceAbsent,
+  bundledSourceAmbiguous,
+  bundledSourceUnreadable,
+  bundledSourceUnsafe,
+  packageContentMismatch,
+}
+
+final class CleanSkinSourceQualification {
+  const CleanSkinSourceQualification.qualified({
+    required this.skinId,
+    required this.bundledAssetKey,
+  }) : status = CleanSkinSourceStatus.qualified,
+       selectionStatus = null;
+
+  const CleanSkinSourceQualification.rejected(
+    this.status, {
+    this.selectionStatus,
+  }) : skinId = null,
+       bundledAssetKey = null;
+
+  final CleanSkinSourceStatus status;
+  final String? skinId;
+  final String? bundledAssetKey;
+  final ManagedSkinLookupStatus? selectionStatus;
+
+  bool get isQualified => status == CleanSkinSourceStatus.qualified;
+}
+
+final class _CleanSkinArchiveLayout {
+  const _CleanSkinArchiveLayout({required this.headers, required this.sizes});
+
+  final Map<String, ZipFileHeader> headers;
+  final Map<String, int> sizes;
+}
+
+final class _CleanSkinBundledSource {
+  const _CleanSkinBundledSource({
+    required this.assetKey,
+    required this.headers,
+    required this.sizes,
+  });
+
+  final String assetKey;
+  final Map<String, ZipFileHeader> headers;
+  final Map<String, int> sizes;
+}
+
+final class _CleanSkinSourceScanResult {
+  const _CleanSkinSourceScanResult(this.outcome, [this.source]);
+
+  final _CleanSkinSourceScan outcome;
+  final _CleanSkinBundledSource? source;
+}
+
 const int _maxSkinManifestBytes = 256 * 1024;
+
+const int _maxBundledSkinSourceCount = 64;
+const int _maxBundledSkinArchiveBytes = 32 * 1024 * 1024;
+const int _maxCleanSkinSourcesBytes = 128 * 1024 * 1024;
+const int _maxCleanSkinEntries = 4096;
+const int _maxCleanSkinFileBytes = 16 * 1024 * 1024;
+const int _maxCleanSkinPackageBytes = 64 * 1024 * 1024;
+const int _maxCleanSkinPackageCompressedBytes = 64 * 1024 * 1024;
+const int _maxCleanSkinParseBytes = 4 * 32 * 1024 * 1024;
+const int _maxCleanSkinPathDepth = 32;
+const int _maxCleanSkinPathLength = 1024;
+const String _bundledSkinManifestAssetKey =
+    'assets/bundled_skins/manifest.json';
+const String _bundledSkinAssetPrefix = 'assets/bundled_skins/';
+
+const Set<String> _win32ReservedNames = {
+  'CON',
+  'PRN',
+  'AUX',
+  'NUL',
+  'COM1',
+  'COM2',
+  'COM3',
+  'COM4',
+  'COM5',
+  'COM6',
+  'COM7',
+  'COM8',
+  'COM9',
+  'LPT1',
+  'LPT2',
+  'LPT3',
+  'LPT4',
+  'LPT5',
+  'LPT6',
+  'LPT7',
+  'LPT8',
+  'LPT9',
+};
+
+final class _CleanSkinRejected implements Exception {
+  const _CleanSkinRejected();
+}
+
+enum _CleanSkinEntryKind { file, directory, link, other }
+
+enum _CleanSkinSourceScan { match, other, unsafe, unreadable }
+
+final class _CleanSkinPathIndex {
+  final _spellingByFoldedPath = <String, String>{};
+  final _kindByFoldedPath = <String, _CleanSkinEntryKind>{};
+
+  bool add(String path, _CleanSkinEntryKind kind) {
+    final components = path.split('/');
+    for (var depth = 1; depth <= components.length; depth++) {
+      final prefix = components.take(depth).join('/');
+      final folded = prefix.toLowerCase();
+      final spelling = _spellingByFoldedPath[folded];
+      if (spelling == null) {
+        _spellingByFoldedPath[folded] = prefix;
+        _kindByFoldedPath[folded] = depth == components.length
+            ? kind
+            : _CleanSkinEntryKind.directory;
+        continue;
+      }
+      if (spelling != prefix || depth == components.length) return false;
+      if (_kindByFoldedPath[folded] != _CleanSkinEntryKind.directory) {
+        return false;
+      }
+    }
+    return true;
+  }
+}
+
+final class _BoundedCleanSkinInput extends InputMemoryStream {
+  _BoundedCleanSkinInput(super.bytes);
+
+  int _consumed = 0;
+
+  void _consume(int count) {
+    if (count > _maxCleanSkinParseBytes - _consumed) {
+      throw const _CleanSkinRejected();
+    }
+    _consumed += count;
+    _recordCleanSkinParseReads(_consumed);
+  }
+
+  @override
+  int readByte() {
+    _consume(1);
+    return super.readByte();
+  }
+
+  @override
+  InputStream readBytes(int count) {
+    final available = length;
+    _consume(count > available ? available : count);
+    return super.readBytes(count);
+  }
+}
+
+final class _BoundedCleanSkinSink implements Sink<List<int>> {
+  _BoundedCleanSkinSink(this.maxBytes);
+
+  final int maxBytes;
+  final _bytes = BytesBuilder(copy: false);
+
+  int get length => _bytes.length;
+
+  @override
+  void add(List<int> chunk) {
+    final room = maxBytes - _bytes.length;
+    if (chunk.length > room) {
+      if (room > 0) _bytes.add(chunk.sublist(0, room));
+      throw const _CleanSkinRejected();
+    }
+    _bytes.add(chunk);
+  }
+
+  @override
+  void close() {}
+
+  Uint8List takeBytes() => _bytes.takeBytes();
+}
+
+bool _isCleanSkinRelativePath(String path) {
+  if (path.isEmpty || path.length > _maxCleanSkinPathLength) return false;
+  final components = path.split('/');
+  if (components.length > _maxCleanSkinPathDepth) return false;
+  return components.every(_isCleanSkinPathComponent);
+}
+
+bool _isCleanSkinPathComponent(String component) {
+  if (component.isEmpty || component == '.' || component == '..') return false;
+  for (final unit in component.codeUnits) {
+    if (unit < 0x20 || unit > 0x7e) return false;
+  }
+  if (!isSafePathComponent(component)) return false;
+  return !_win32ReservedNames.contains(
+    component.split('.').first.toUpperCase(),
+  );
+}
+
+String _stripCleanSkinTrailingSlashes(String name) {
+  var stripped = name;
+  while (stripped.isNotEmpty &&
+      (stripped.endsWith('/') || stripped.endsWith('\\'))) {
+    stripped = stripped.substring(0, stripped.length - 1);
+  }
+  return stripped;
+}
+
+_CleanSkinEntryKind _cleanSkinArchiveEntryKind(ZipFileHeader header) {
+  if (header.versionMadeBy >> 8 == 3) {
+    final fileType = (header.externalFileAttributes >> 16) & 0xf000;
+    if (fileType == 0x4000) return _CleanSkinEntryKind.directory;
+    if (fileType == 0x8000 || fileType == 0x0000) {
+      return _CleanSkinEntryKind.file;
+    }
+    if (fileType == 0xa000) return _CleanSkinEntryKind.link;
+    return _CleanSkinEntryKind.other;
+  }
+  final name = header.filename;
+  return name.endsWith('/') || name.endsWith('\\')
+      ? _CleanSkinEntryKind.directory
+      : _CleanSkinEntryKind.file;
+}
+
+Uint8List _readCleanSkinArchiveContent(ZipFileHeader header) {
+  final file = header.file;
+  if (file == null) throw const _CleanSkinRejected();
+  final sink = _BoundedCleanSkinSink(header.uncompressedSize);
+  try {
+    if (file.compressionMethod == CompressionType.none) {
+      sink.add(file.getRawContent());
+    } else if (file.compressionMethod == CompressionType.deflate) {
+      final decoder = ZLibCodec(gzip: true).decoder
+          .startChunkedConversion(sink);
+      decoder.add(_cleanSkinGzipFrame(file.getRawContent(), header));
+      decoder.close();
+    } else {
+      throw const _CleanSkinRejected();
+    }
+    if (sink.length != header.uncompressedSize) {
+      throw const _CleanSkinRejected();
+    }
+    final bytes = sink.takeBytes();
+    _recordCleanSkinInflation(bytes.length);
+    if (getCrc32(bytes) != header.crc32) throw const _CleanSkinRejected();
+    return bytes;
+  } on _CleanSkinRejected {
+    _recordCleanSkinInflation(sink.length);
+    rethrow;
+  } catch (_) {
+    _recordCleanSkinInflation(sink.length);
+    throw const _CleanSkinRejected();
+  }
+}
+
+Uint8List _cleanSkinGzipFrame(Uint8List compressed, ZipFileHeader header) {
+  final crc = header.crc32;
+  final size = header.uncompressedSize;
+  final frame = BytesBuilder(copy: false)
+    ..add(const [0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff])
+    ..add(compressed)
+    ..add([
+      crc & 0xff,
+      (crc >> 8) & 0xff,
+      (crc >> 16) & 0xff,
+      (crc >> 24) & 0xff,
+      size & 0xff,
+      (size >> 8) & 0xff,
+      (size >> 16) & 0xff,
+      (size >> 24) & 0xff,
+    ]);
+  return frame.takeBytes();
+}
+
+int _cleanSkinCompressionCode(CompressionType type) => switch (type) {
+  CompressionType.none => ZipFile.zipCompressionStore,
+  CompressionType.deflate => ZipFile.zipCompressionDeflate,
+  CompressionType.bzip2 => ZipFile.zipCompressionBZip2,
+};
+
+int _cleanSkinUint16(Uint8List bytes, int offset) =>
+    bytes[offset] | (bytes[offset + 1] << 8);
+
+int _cleanSkinUint32(Uint8List bytes, int offset) =>
+    bytes[offset] |
+    (bytes[offset + 1] << 8) |
+    (bytes[offset + 2] << 16) |
+    (bytes[offset + 3] << 24);
+
+const int _zip64LocatorSize = 20;
+const int _zip64LocatorSignature = 0x07064b50;
+const int _cleanSkinZip64Sentinel = 0xffffffff;
+const int _cleanSkinZip64ExtraFieldId = 0x0001;
+
+bool _hasCleanSkinZip64ExtraField(Uint8List bytes, int start, int length) {
+  var cursor = start;
+  final end = start + length;
+  while (cursor + 4 <= end) {
+    final id = _cleanSkinUint16(bytes, cursor);
+    final size = _cleanSkinUint16(bytes, cursor + 2);
+    if (id == _cleanSkinZip64ExtraFieldId) return true;
+    cursor += 4 + size;
+  }
+  return false;
+}
+
+bool _isZip64LocatorBefore(Uint8List bytes, int eocdOffset) {
+  final locatorOffset = eocdOffset - _zip64LocatorSize;
+  if (locatorOffset < 0) return false;
+  return _cleanSkinUint32(bytes, locatorOffset) == _zip64LocatorSignature;
+}
+
+bool _hasEarlierCleanSkinEndOfCentralDirectory(
+  Uint8List bytes,
+  int eocdOffset,
+) {
+  for (var offset = 0; offset + 4 <= eocdOffset; offset++) {
+    if (_cleanSkinUint32(bytes, offset) == 0x06054b50) return true;
+  }
+  return false;
+}
+
+bool _hasBoundedCleanSkinCentralDirectory(Uint8List bytes) {
+  const endSize = 22;
+  if (bytes.length < endSize) return false;
+  for (var offset = bytes.length - endSize; offset >= 0; offset--) {
+    if (bytes[offset] != 0x50 ||
+        bytes[offset + 1] != 0x4b ||
+        bytes[offset + 2] != 0x05 ||
+        bytes[offset + 3] != 0x06) {
+      continue;
+    }
+    if (offset + endSize + _cleanSkinUint16(bytes, offset + 20) !=
+        bytes.length) {
+      return false;
+    }
+    if (_hasEarlierCleanSkinEndOfCentralDirectory(bytes, offset)) return false;
+    if (_isZip64LocatorBefore(bytes, offset)) return false;
+    final entries = _cleanSkinUint16(bytes, offset + 10);
+    final size = _cleanSkinUint32(bytes, offset + 12);
+    final directoryOffset = _cleanSkinUint32(bytes, offset + 16);
+    if (entries == 0 || entries > _maxCleanSkinEntries) return false;
+    if (directoryOffset + size > bytes.length) return false;
+    var cursor = directoryOffset;
+    final end = directoryOffset + size;
+    for (var index = 0; index < entries; index++) {
+      if (cursor + 46 > end) return false;
+      if (bytes[cursor] != 0x50 ||
+          bytes[cursor + 1] != 0x4b ||
+          bytes[cursor + 2] != 0x01 ||
+          bytes[cursor + 3] != 0x02) {
+        return false;
+      }
+      final nameLength = _cleanSkinUint16(bytes, cursor + 28);
+      final extraLength = _cleanSkinUint16(bytes, cursor + 30);
+      final commentLength = _cleanSkinUint16(bytes, cursor + 32);
+      if (_cleanSkinUint32(bytes, cursor + 20) == _cleanSkinZip64Sentinel ||
+          _cleanSkinUint32(bytes, cursor + 24) == _cleanSkinZip64Sentinel ||
+          _cleanSkinUint32(bytes, cursor + 42) == _cleanSkinZip64Sentinel) {
+        return false;
+      }
+      final extraStart = cursor + 46 + nameLength;
+      if (extraStart + extraLength > end) return false;
+      if (_hasCleanSkinZip64ExtraField(bytes, extraStart, extraLength)) {
+        return false;
+      }
+      cursor = extraStart + extraLength + commentLength;
+      if (cursor > end) return false;
+    }
+    return cursor == end;
+  }
+  return false;
+}
+
+void _recordCleanSkinInflation(int bytes) {
+  if (bytes > (WebUIStorage.debugCleanSkinInflationBytesWritten ?? 0)) {
+    WebUIStorage.debugCleanSkinInflationBytesWritten = bytes;
+  }
+}
+
+void _recordCleanSkinParseReads(int bytes) {
+  if (bytes > (WebUIStorage.debugCleanSkinParseBytesRead ?? 0)) {
+    WebUIStorage.debugCleanSkinParseBytesRead = bytes;
+  }
+}
 
 final class _ManagedSkinPackage {
   const _ManagedSkinPackage({
@@ -300,6 +691,7 @@ class WebUIStorage {
   final SettingsController _settingsController;
   final Directory? _webUIDirOverride;
   final ManagedSkinFileAccess _skinFileAccess;
+  final AssetBundle _bundledSkinAssets;
 
   late Directory _webUIDir;
   final Map<String, WebUISkin> _installedSkins = {};
@@ -320,9 +712,11 @@ class WebUIStorage {
     GithubRateLimit? rateLimit,
     this.credentials,
     ManagedSkinFileAccess? skinFileAccess,
+    AssetBundle? bundledSkinAssets,
   }) : _webUIDirOverride = webUIDir,
        _rateLimit = rateLimit ?? GithubRateLimit(),
-       _skinFileAccess = skinFileAccess ?? const SystemManagedSkinFileAccess();
+       _skinFileAccess = skinFileAccess ?? const SystemManagedSkinFileAccess(),
+       _bundledSkinAssets = bundledSkinAssets ?? rootBundle;
 
   Future<http.Response> _getGitHubRelease(String apiUrl) =>
       githubGet(apiUrl, rateLimit: _rateLimit, credentials: credentials);
@@ -331,6 +725,12 @@ class WebUIStorage {
 
   @visibleForTesting
   static bool get diagnosticsSkinEnabled => bool.fromEnvironment('diagnostics');
+
+  @visibleForTesting
+  static int? debugCleanSkinInflationBytesWritten;
+
+  @visibleForTesting
+  static int? debugCleanSkinParseBytesRead;
 
   @visibleForTesting
   void debugInitWithWebUIDir(Directory dir) {
@@ -451,6 +851,7 @@ class WebUIStorage {
   Future<ManagedSkinLookup> resolveManagedSelectedSkin(
     String skinId, {
     String? runtimePath,
+    bool followLinks = true,
   }) async {
     if (!isSafePathComponent(skinId) || skinId == _stagingDirName) {
       return const ManagedSkinLookup.notManaged(
@@ -507,6 +908,7 @@ class WebUIStorage {
       final snapshot = await _readManagedSkinSelectionSnapshot(
         rootPath,
         canonicalRoot,
+        followLinks: followLinks,
       );
       final canonicalFailure = snapshot.skipped[skinId];
       if (canonicalFailure != null) {
@@ -554,6 +956,7 @@ class WebUIStorage {
       final entryPointStatus = await _entryPointStatus(
         selected.canonicalPath,
         selected.path,
+        followLinks: followLinks,
       );
       if (entryPointStatus != null) {
         return ManagedSkinLookup.notManaged(entryPointStatus);
@@ -578,8 +981,9 @@ class WebUIStorage {
 
   Future<_ManagedSkinSnapshot> _readManagedSkinSelectionSnapshot(
     String rootPath,
-    String canonicalRoot,
-  ) async {
+    String canonicalRoot, {
+    required bool followLinks,
+  }) async {
     final packages = <String, List<_ManagedSkinPackage>>{};
     final skipped = <String, ManagedSkinLookupStatus>{};
     for (final directoryName in await _skinFileAccess.listSubdirectoryNames(
@@ -591,6 +995,7 @@ class WebUIStorage {
         directoryPath,
         rootPath,
         canonicalRoot,
+        followLinks: followLinks,
       );
       final package = inspection.package;
       if (package == null) {
@@ -608,8 +1013,9 @@ class WebUIStorage {
   Future<_ManagedSkinInspection> _inspectManagedSkinSelectionPackage(
     String directoryPath,
     String rootPath,
-    String canonicalRoot,
-  ) async {
+    String canonicalRoot, {
+    required bool followLinks,
+  }) async {
     final String canonicalPath;
     try {
       final rawType = await _skinFileAccess.entityType(directoryPath);
@@ -621,6 +1027,11 @@ class WebUIStorage {
       if (rawType == FileSystemEntityType.directory) {
         canonicalPath = await _skinFileAccess.canonicalPath(directoryPath);
       } else if (rawType == FileSystemEntityType.link) {
+        if (!followLinks) {
+          return const _ManagedSkinInspection.skipped(
+            ManagedSkinLookupStatus.escaped,
+          );
+        }
         if (!await _linkTargetsWithin(directoryPath, [
           rootPath,
           canonicalRoot,
@@ -649,7 +1060,11 @@ class WebUIStorage {
 
     final Map<String, dynamic>? manifest;
     try {
-      manifest = await _readSelectionSkinManifest(canonicalPath, directoryPath);
+      manifest = await _readSelectionSkinManifest(
+        canonicalPath,
+        directoryPath,
+        followLinks: followLinks,
+      );
     } on FileSystemException {
       return const _ManagedSkinInspection.skipped(
         ManagedSkinLookupStatus.unreadable,
@@ -739,8 +1154,9 @@ class WebUIStorage {
 
   Future<Map<String, dynamic>?> _readSelectionSkinManifest(
     String canonicalPackagePath,
-    String logicalPackagePath,
-  ) async {
+    String logicalPackagePath, {
+    required bool followLinks,
+  }) async {
     for (final name in _skinManifestNames) {
       final manifestPath = p.join(canonicalPackagePath, name);
       final rawType = await _skinFileAccess.entityType(manifestPath);
@@ -749,6 +1165,12 @@ class WebUIStorage {
       if (rawType == FileSystemEntityType.file) {
         resolvedPath = manifestPath;
       } else if (rawType == FileSystemEntityType.link) {
+        if (!followLinks) {
+          throw FileSystemException(
+            'Skin manifest is a symbolic link',
+            manifestPath,
+          );
+        }
         if (!await _linkTargetsWithin(manifestPath, [
           canonicalPackagePath,
           logicalPackagePath,
@@ -789,8 +1211,9 @@ class WebUIStorage {
 
   Future<ManagedSkinLookupStatus?> _entryPointStatus(
     String canonicalPackagePath,
-    String logicalPackagePath,
-  ) async {
+    String logicalPackagePath, {
+    required bool followLinks,
+  }) async {
     final entryPointPath = p.join(canonicalPackagePath, 'index.html');
     final rawType = await _skinFileAccess.entityType(entryPointPath);
     if (rawType == FileSystemEntityType.notFound ||
@@ -802,6 +1225,7 @@ class WebUIStorage {
       if (rawType == FileSystemEntityType.file) {
         resolvedPath = entryPointPath;
       } else if (rawType == FileSystemEntityType.link) {
+        if (!followLinks) return ManagedSkinLookupStatus.unreadable;
         if (!await _linkTargetsWithin(entryPointPath, [
           canonicalPackagePath,
           logicalPackagePath,
@@ -833,6 +1257,404 @@ class WebUIStorage {
       if (package.directoryName == package.skinId) return package;
     }
     return packages.length == 1 ? packages.single : null;
+  }
+
+  Future<CleanSkinSourceQualification> qualifyCleanBundledSkinSource(
+    String skinId, {
+    String? runtimePath,
+  }) async {
+    debugCleanSkinInflationBytesWritten = null;
+    debugCleanSkinParseBytesRead = null;
+    if (!isSafePathComponent(skinId) || skinId == _stagingDirName) {
+      return const CleanSkinSourceQualification.rejected(
+        CleanSkinSourceStatus.invalidSkinId,
+      );
+    }
+    final selection = await resolveManagedSelectedSkin(
+      skinId,
+      runtimePath: runtimePath,
+      followLinks: false,
+    );
+    final packagePath = selection.canonicalPath;
+    if (!selection.isResolved || packagePath == null) {
+      return CleanSkinSourceQualification.rejected(
+        CleanSkinSourceStatus.skinSelectionRejected,
+        selectionStatus: selection.status,
+      );
+    }
+
+    final Map<String, int> installedSizes;
+    try {
+      installedSizes = await _readCleanSkinInstalledLayout(packagePath);
+    } on _CleanSkinRejected {
+      return const CleanSkinSourceQualification.rejected(
+        CleanSkinSourceStatus.installedPackageUnsafe,
+      );
+    } on FileSystemException {
+      return const CleanSkinSourceQualification.rejected(
+        CleanSkinSourceStatus.installedPackageUnreadable,
+      );
+    }
+
+    final sourceIds = await _readBundledSkinSourceIds();
+    if (sourceIds == null) {
+      return const CleanSkinSourceQualification.rejected(
+        CleanSkinSourceStatus.bundledManifestUnavailable,
+      );
+    }
+
+    var sawUnsafe = false;
+    var sawUnreadable = false;
+    var inspectedBytes = 0;
+    _CleanSkinBundledSource? match;
+    for (final sourceId in sourceIds) {
+      final assetKey = '$_bundledSkinAssetPrefix$sourceId.zip';
+      final bytes = await _loadBundledSkinAsset(assetKey);
+      if (bytes == null) {
+        sawUnreadable = true;
+        continue;
+      }
+      inspectedBytes += bytes.length;
+      if (inspectedBytes > _maxCleanSkinSourcesBytes) {
+        sawUnsafe = true;
+        break;
+      }
+      if (bytes.length > _maxBundledSkinArchiveBytes) {
+        sawUnsafe = true;
+        continue;
+      }
+      final scan = _scanBundledSkinSource(assetKey, bytes, skinId);
+      switch (scan.outcome) {
+        case _CleanSkinSourceScan.unsafe:
+          sawUnsafe = true;
+        case _CleanSkinSourceScan.unreadable:
+          sawUnreadable = true;
+        case _CleanSkinSourceScan.other:
+          break;
+        case _CleanSkinSourceScan.match:
+          if (match != null) {
+            return const CleanSkinSourceQualification.rejected(
+              CleanSkinSourceStatus.bundledSourceAmbiguous,
+            );
+          }
+          match = scan.source;
+      }
+    }
+
+    final matched = match;
+    if (matched == null) {
+      return CleanSkinSourceQualification.rejected(
+        sawUnsafe
+            ? CleanSkinSourceStatus.bundledSourceUnsafe
+            : sawUnreadable
+            ? CleanSkinSourceStatus.bundledSourceUnreadable
+            : CleanSkinSourceStatus.bundledSourceAbsent,
+      );
+    }
+    if (sawUnsafe) {
+      return const CleanSkinSourceQualification.rejected(
+        CleanSkinSourceStatus.bundledSourceUnsafe,
+      );
+    }
+    if (sawUnreadable) {
+      return const CleanSkinSourceQualification.rejected(
+        CleanSkinSourceStatus.bundledSourceUnreadable,
+      );
+    }
+
+    final mismatch = await _compareCleanSkinPackageContent(
+      packagePath,
+      installedSizes,
+      matched,
+    );
+    if (mismatch != null) {
+      return CleanSkinSourceQualification.rejected(mismatch);
+    }
+    return CleanSkinSourceQualification.qualified(
+      skinId: selection.skinId ?? skinId,
+      bundledAssetKey: matched.assetKey,
+    );
+  }
+
+  Future<Map<String, int>> _readCleanSkinInstalledLayout(
+    String rootPath,
+  ) async {
+    final sizes = <String, int>{};
+    final index = _CleanSkinPathIndex();
+    var entries = 0;
+    var totalBytes = 0;
+
+    Future<void> walk(String directoryPath, String prefix) async {
+      await for (final entity in Directory(
+        directoryPath,
+      ).list(followLinks: false)) {
+        entries += 1;
+        if (entries > _maxCleanSkinEntries) throw const _CleanSkinRejected();
+        final name = p.basename(entity.path);
+        final relativePath = prefix.isEmpty ? name : '$prefix/$name';
+        if (!_isCleanSkinRelativePath(relativePath)) {
+          throw const _CleanSkinRejected();
+        }
+        if (entity is Directory) {
+          if (!index.add(relativePath, _CleanSkinEntryKind.directory)) {
+            throw const _CleanSkinRejected();
+          }
+          await walk(entity.path, relativePath);
+          continue;
+        }
+        if (entity is! File) throw const _CleanSkinRejected();
+        if (!index.add(relativePath, _CleanSkinEntryKind.file)) {
+          throw const _CleanSkinRejected();
+        }
+        final length = await entity.length();
+        if (length > _maxCleanSkinFileBytes) {
+          throw const _CleanSkinRejected();
+        }
+        totalBytes += length;
+        if (totalBytes > _maxCleanSkinPackageBytes) {
+          throw const _CleanSkinRejected();
+        }
+        sizes[relativePath] = length;
+      }
+    }
+
+    await walk(rootPath, '');
+    return sizes;
+  }
+
+  Future<Uint8List> _readCleanSkinInstalledFile(
+    String path,
+    int expectedSize,
+  ) async {
+    final builder = BytesBuilder(copy: false);
+    var total = 0;
+    await for (final chunk in File(path).openRead(0, expectedSize + 1)) {
+      total += chunk.length;
+      if (total > expectedSize) throw const _CleanSkinRejected();
+      builder.add(chunk);
+    }
+    if (total != expectedSize) throw const _CleanSkinRejected();
+    return builder.takeBytes();
+  }
+
+  Future<Uint8List?> _loadBundledSkinAsset(String key) async {
+    try {
+      final data = await _bundledSkinAssets.load(key);
+      return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<List<String>?> _readBundledSkinSourceIds() async {
+    final bytes = await _loadBundledSkinAsset(_bundledSkinManifestAssetKey);
+    if (bytes == null || bytes.length > _maxSkinManifestBytes) return null;
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(utf8.decode(bytes));
+    } on FormatException {
+      return null;
+    }
+    if (decoded is! List || decoded.length > _maxBundledSkinSourceCount) {
+      return null;
+    }
+    final sourceIds = <String>[];
+    for (final value in decoded) {
+      if (value is! String ||
+          !isSafePathComponent(value) ||
+          sourceIds.contains(value)) {
+        return null;
+      }
+      sourceIds.add(value);
+    }
+    return sourceIds;
+  }
+
+  _CleanSkinSourceScanResult _scanBundledSkinSource(
+    String assetKey,
+    Uint8List bytes,
+    String skinId,
+  ) {
+    if (!_hasBoundedCleanSkinCentralDirectory(bytes)) {
+      return const _CleanSkinSourceScanResult(_CleanSkinSourceScan.unsafe);
+    }
+    final ZipDirectory directory;
+    try {
+      directory = ZipDirectory()..read(_BoundedCleanSkinInput(bytes));
+    } on _CleanSkinRejected {
+      return const _CleanSkinSourceScanResult(_CleanSkinSourceScan.unsafe);
+    } catch (_) {
+      return const _CleanSkinSourceScanResult(_CleanSkinSourceScan.unsafe);
+    }
+    final headers = directory.fileHeaders;
+    if (headers.isEmpty || headers.length > _maxCleanSkinEntries) {
+      return const _CleanSkinSourceScanResult(_CleanSkinSourceScan.unsafe);
+    }
+    final layout = _validateCleanSkinArchiveLayout(headers);
+    if (layout == null) {
+      return const _CleanSkinSourceScanResult(_CleanSkinSourceScan.unsafe);
+    }
+    final declaration = _readCleanSkinArchiveDeclaration(layout);
+    if (declaration == null) {
+      return const _CleanSkinSourceScanResult(_CleanSkinSourceScan.unreadable);
+    }
+    if (declaration != skinId) {
+      return const _CleanSkinSourceScanResult(_CleanSkinSourceScan.other);
+    }
+    return _CleanSkinSourceScanResult(
+      _CleanSkinSourceScan.match,
+      _CleanSkinBundledSource(
+        assetKey: assetKey,
+        headers: layout.headers,
+        sizes: layout.sizes,
+      ),
+    );
+  }
+
+  String? _readCleanSkinArchiveDeclaration(_CleanSkinArchiveLayout layout) {
+    final candidates = [
+      for (final name in layout.headers.keys)
+        if (name.split('/').length <= 2 &&
+            _skinManifestNames.contains(name.split('/').last))
+          name,
+    ];
+    final shallow = [
+      for (final name in candidates)
+        if (!name.contains('/')) name,
+    ];
+    final chosen = shallow.isEmpty ? candidates : shallow;
+    if (chosen.length != 1) return null;
+    final header = layout.headers[chosen.single];
+    if (header == null || header.uncompressedSize > _maxSkinManifestBytes) {
+      return null;
+    }
+    try {
+      final decoded = jsonDecode(
+        utf8.decode(_readCleanSkinArchiveContent(header)),
+      );
+      if (decoded is! Map) return null;
+      final id = decoded['id'];
+      return id is String ? id : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  _CleanSkinArchiveLayout? _validateCleanSkinArchiveLayout(
+    List<ZipFileHeader> headers,
+  ) {
+    final kinds = <String, _CleanSkinEntryKind>{};
+    final entries = <String, ZipFileHeader>{};
+    for (final header in headers) {
+      if (header.filename.contains('\\')) return null;
+      final kind = _cleanSkinArchiveEntryKind(header);
+      if (kind != _CleanSkinEntryKind.file &&
+          kind != _CleanSkinEntryKind.directory) {
+        return null;
+      }
+      final name = kind == _CleanSkinEntryKind.directory
+          ? _stripCleanSkinTrailingSlashes(header.filename)
+          : header.filename;
+      if (!_isCleanSkinRelativePath(name) || entries.containsKey(name)) {
+        return null;
+      }
+      kinds[name] = kind;
+      entries[name] = header;
+    }
+
+    var prefix = '';
+    final roots = {for (final name in entries.keys) name.split('/').first};
+    if (roots.length == 1) {
+      final root = roots.single;
+      if (kinds[root] != _CleanSkinEntryKind.file) prefix = '$root/';
+    }
+
+    final index = _CleanSkinPathIndex();
+    final sizes = <String, int>{};
+    final files = <String, ZipFileHeader>{};
+    var totalBytes = 0;
+    var totalCompressedBytes = 0;
+    for (final entry in entries.entries) {
+      var name = entry.key;
+      if (prefix.isNotEmpty) {
+        if (!name.startsWith(prefix)) continue;
+        name = name.substring(prefix.length);
+      }
+      if (!index.add(name, kinds[entry.key]!)) return null;
+      if (kinds[entry.key] == _CleanSkinEntryKind.directory) continue;
+      final header = entry.value;
+      if ((header.generalPurposeBitFlag & 0x1) != 0) return null;
+      if (header.compressionMethod != ZipFile.zipCompressionStore &&
+          header.compressionMethod != ZipFile.zipCompressionDeflate) {
+        return null;
+      }
+      final local = header.file;
+      if (local == null) return null;
+      if ((local.flags & 0x9) != (header.generalPurposeBitFlag & 0x9)) {
+        return null;
+      }
+      if (local.filename != header.filename) return null;
+      if (_cleanSkinCompressionCode(local.compressionMethod) !=
+          header.compressionMethod) {
+        return null;
+      }
+      if ((header.generalPurposeBitFlag & 0x8) == 0 &&
+          local.crc32 != header.crc32) {
+        return null;
+      }
+      if (header.uncompressedSize > _maxCleanSkinFileBytes) return null;
+      totalBytes += header.uncompressedSize;
+      totalCompressedBytes += header.compressedSize;
+      if (totalBytes > _maxCleanSkinPackageBytes) return null;
+      if (totalCompressedBytes > _maxCleanSkinPackageCompressedBytes) {
+        return null;
+      }
+      sizes[name] = header.uncompressedSize;
+      files[name] = header;
+    }
+
+    final entryPoint = sizes['index.html'];
+    if (entryPoint == null || entryPoint == 0) return null;
+
+    return _CleanSkinArchiveLayout(headers: files, sizes: sizes);
+  }
+
+  Future<CleanSkinSourceStatus?> _compareCleanSkinPackageContent(
+    String packagePath,
+    Map<String, int> installedSizes,
+    _CleanSkinBundledSource source,
+  ) async {
+    if (installedSizes.length != source.sizes.length) {
+      return CleanSkinSourceStatus.packageContentMismatch;
+    }
+    for (final entry in installedSizes.entries) {
+      if (source.sizes[entry.key] != entry.value) {
+        return CleanSkinSourceStatus.packageContentMismatch;
+      }
+      final Uint8List installedBytes;
+      try {
+        installedBytes = await _readCleanSkinInstalledFile(
+          p.joinAll([packagePath, ...entry.key.split('/')]),
+          entry.value,
+        );
+      } on _CleanSkinRejected {
+        return CleanSkinSourceStatus.installedPackageUnreadable;
+      } on FileSystemException {
+        return CleanSkinSourceStatus.installedPackageUnreadable;
+      }
+      final Uint8List archivedBytes;
+      try {
+        archivedBytes = _readCleanSkinArchiveContent(
+          source.headers[entry.key]!,
+        );
+      } on _CleanSkinRejected {
+        return CleanSkinSourceStatus.bundledSourceUnsafe;
+      }
+      if (!listEquals(installedBytes, archivedBytes)) {
+        return CleanSkinSourceStatus.packageContentMismatch;
+      }
+    }
+    return null;
   }
 
   Future<String> installFromPath(
