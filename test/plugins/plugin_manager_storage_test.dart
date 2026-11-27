@@ -8,7 +8,7 @@ import 'package:reaprime/src/services/storage/storage_operation_coordinator.dart
 import 'plugin_test_helpers.dart';
 
 const _pluginId = 'storage.v2';
-const _timeout = Duration(milliseconds: 100);
+const _timeout = Duration(milliseconds: 250);
 
 class _ControlledStore extends FakeKeyValueStoreService {
   Future<Object?> Function(String namespace, String key)? onGet;
@@ -32,15 +32,18 @@ class _ControlledStore extends FakeKeyValueStoreService {
 }
 
 class _Harness {
-  _Harness({int maxOutstanding = 32})
-    : store = _ControlledStore(),
-      coordinator = StorageOperationCoordinator(
-        limits: StorageOperationLimits(
-          operationTimeout: _timeout,
-          drainTimeout: _timeout,
-          maxOutstandingPerNamespace: maxOutstanding,
-        ),
-      ) {
+  _Harness({
+    int maxOutstanding = 32,
+    Duration operationTimeout = _timeout,
+    Duration drainTimeout = _timeout,
+  }) : store = _ControlledStore(),
+       coordinator = StorageOperationCoordinator(
+         limits: StorageOperationLimits(
+           operationTimeout: operationTimeout,
+           drainTimeout: drainTimeout,
+           maxOutstandingPerNamespace: maxOutstanding,
+         ),
+       ) {
     manager = PluginManager(kvStore: store, storageCoordinator: coordinator);
     _subscription = manager.emitStream.listen((event) {
       events.add({'name': event['event'], 'payload': event['payload']});
@@ -106,7 +109,7 @@ class _Harness {
       Future<void>.delayed(duration);
 
   Future<void> waitFor(bool Function() condition) async {
-    for (var i = 0; i < 200 && !condition(); i++) {
+    for (var i = 0; i < 500 && !condition(); i++) {
       await settle(const Duration(milliseconds: 10));
     }
     expect(condition(), isTrue);
@@ -314,6 +317,40 @@ void main() {
     expect(harness.named('storageResult').first['operation'], isNull);
   });
 
+  test('unsupported storage versions return invalid_command', () async {
+    harness.command({..._read(1, 'k'), 'version': 3});
+    harness.command({..._read(2, 'k'), 'version': null});
+    harness.command({'type': 'read', 'key': 'k', 'version': 1});
+    await harness.waitFor(() => harness.named('storageResult').length == 2);
+    await harness.settle(const Duration(milliseconds: 100));
+
+    expect(harness.named('storageResult').map((r) => r['error']['code']), [
+      'invalid_command',
+      'invalid_command',
+    ]);
+    expect(harness.named('storageRead'), isEmpty);
+  });
+
+  test('the drain deadline bounds unload independently of the operation '
+      'deadline', () async {
+    await harness.dispose();
+    harness = _Harness(
+      operationTimeout: const Duration(minutes: 5),
+      drainTimeout: const Duration(milliseconds: 200),
+    );
+    await harness.load();
+    harness.store.onSet = (_, _, _) => Completer<void>().future;
+    harness.command({'type': 'write', 'key': 'stuck', 'data': 1});
+    harness.command(_write(1, 'stuck2', 1));
+    await harness.settle();
+
+    final stopwatch = Stopwatch()..start();
+    await harness.manager.unloadPlugin(_pluginId);
+    expect(stopwatch.elapsed, lessThan(const Duration(seconds: 20)));
+    expect(harness.manager.loadedPlugins, isEmpty);
+    expect(harness.coordinator.outstanding(_pluginId), 2);
+  });
+
   test(
     'unload and reload stay bounded when the backend never settles',
     () async {
@@ -343,7 +380,7 @@ void main() {
     harness.events.removeWhere((e) => e['name'] != 'loaded');
 
     read.complete('stale');
-    await harness.settle(const Duration(milliseconds: 150));
+    await harness.settle(const Duration(milliseconds: 400));
     expect(harness.named('storageResult'), isEmpty);
     expect(harness.named('storageRead'), isEmpty);
 

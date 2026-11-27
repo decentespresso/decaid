@@ -1,7 +1,30 @@
 part of '../webserver_service.dart';
 
 final class KvStoreHandler {
-  final store = HiveStoreService(defaultNamespace: "kvStore");
+  KvStoreHandler({required this.coordinator, KeyValueStoreService? store})
+    : store = store ?? HiveStoreService(defaultNamespace: "kvStore");
+
+  final StorageOperationCoordinator coordinator;
+  final KeyValueStoreService store;
+
+  Future<Response> _coordinatedWrite(
+    String namespace,
+    String key,
+    Future<void> Function() backend,
+  ) async {
+    try {
+      await coordinator.write(namespace, key, backend);
+      return jsonOk({});
+    } on StorageOperationException catch (e) {
+      final body = {'error': e.code.wireName, 'message': e.code.message};
+      return switch (e.code) {
+        StorageErrorCode.storageError => jsonError(body),
+        StorageErrorCode.timeout ||
+        StorageErrorCode.writeIndeterminate => jsonGatewayTimeout(body),
+        _ => jsonServiceUnavailable(body),
+      };
+    }
+  }
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/store/<namespace>', (Request req) async {
@@ -30,8 +53,11 @@ final class KvStoreHandler {
       if (namespace == null || key == null) {
         return jsonBadRequest({'error': 'Missing namespace or key'});
       }
-      await store.delete(key: key, namespace: namespace);
-      return jsonOk({});
+      return _coordinatedWrite(
+        namespace,
+        key,
+        () => store.delete(key: key, namespace: namespace),
+      );
     });
 
     app.post('/api/v1/store/<namespace>/<key>', (Request req) async {
@@ -46,12 +72,15 @@ final class KvStoreHandler {
       if (namespace == null || key == null) {
         return jsonBadRequest({'error': 'Missing namespace or key'});
       }
-      await store.set(
-        key: key,
-        value: maybeJson ?? value,
-        namespace: namespace,
+      return _coordinatedWrite(
+        namespace,
+        key,
+        () => store.set(
+          key: key,
+          value: maybeJson ?? value,
+          namespace: namespace,
+        ),
       );
-      return jsonOk({});
     });
   }
 }

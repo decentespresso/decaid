@@ -59,7 +59,8 @@ Keep these stores independent. A settings reset must not clear account credentia
 is the single admission point for `host.storage` operations and the maintenance boundary that
 backup restore uses. `PluginManager` owns one instance for the process; `startWebServer` hands
 the same instance to `KvStoreExportSection`, so direct import and data sync share it. The
-plugin-facing contract is in `doc/Plugins.md` ("Correlated storage results").
+generic `/api/v1/store` write routes use it as well. The plugin-facing contract is in
+`doc/Plugins.md` ("Correlated storage results"); the REST error mapping is in `doc/Api.md`.
 
 - **Keyed by namespace, not generation.** The plugin namespace is the plugin id, and the
   restore path writes the same Hive box through a different `HiveStoreService` instance
@@ -83,10 +84,22 @@ plugin-facing contract is in `doc/Plugins.md` ("Correlated storage results").
 - **Restore guards the namespaces it restores.** `KvStoreExportSection.validateJson` returns
   the namespace set; `importJson` runs the whole restore inside `runMaintenance` for it and
   reports a refused restore as a section error with nothing imported.
-- **Not covered yet.** The generic `/api/v1/store` routes still write Hive directly; routing
-  them through the coordinator, and retiring/reloading affected plugin generations around a
-  restore, is #1235's scope. The limits live in `StorageOperationLimits` and are injected via
-  `PluginManager(storageCoordinator:)` in tests; there is no user-facing setting.
+- **REST writes are coordinated too.** `KvStoreHandler` sends `POST` and `DELETE` on
+  `/api/v1/store/<namespace>/<key>` through `write`, so they are ordered with plugin writes,
+  refused (503) while maintenance holds the namespace or the key is quarantined, and count
+  toward the namespace budget. A delete is a write for ordering purposes. `GET` routes stay
+  uncoordinated: reads cannot change stored data.
+- **Namespaces are case-folded once, inside the coordinator.** `hive_ce` lowercases box
+  names, so `Visualizer.Reaplugin` and `visualizer.reaplugin` are the same box. The
+  coordinator lowercases every namespace it receives; callers pass whatever they have. Keys
+  are not folded because Hive keys are case-sensitive.
+- **Only work that reached the backend keeps budget after a timeout.** A queued write that
+  gives up before starting releases its budget slot and its pending-write entry immediately.
+  Its write tail stays chained to the previous write, so admission order for later writes is
+  unchanged.
+- **Limits.** The limits live in `StorageOperationLimits` and are injected via
+  `PluginManager(storageCoordinator:)` in tests; there is no user-facing setting. The unload
+  drain measures its deadline with `clock.stopwatch()`.
 
 ## Legacy Skin Port Assignments
 

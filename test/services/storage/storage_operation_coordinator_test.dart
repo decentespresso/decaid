@@ -163,6 +163,89 @@ void main() {
     });
   });
 
+  test('queued writes that give up release their budget', () {
+    fakeAsync((async) {
+      final shared = StorageOperationCoordinator();
+      final calls = <int>[];
+      shared.write('p', 'k', () => Completer<void>().future).ignore();
+      for (var i = 0; i < 31; i++) {
+        shared.write('p', 'k', () async => calls.add(i)).ignore();
+      }
+      expect(shared.outstanding('p'), 32);
+
+      async.elapse(const Duration(seconds: 60));
+      expect(shared.outstanding('p'), 1);
+      expect(calls, isEmpty);
+      Object? value;
+      shared.read('p', 'other', () async => 'ok').then((v) => value = v);
+      async.flushMicrotasks();
+      expect(value, 'ok');
+    });
+  });
+
+  test('a write queued behind abandoned writes keeps admission order', () {
+    fakeAsync((async) {
+      final head = Completer<void>();
+      final calls = <String>[];
+      coordinator.write('p', 'k', () {
+        calls.add('head');
+        return head.future;
+      }).ignore();
+      async.elapse(const Duration(seconds: 1));
+      coordinator.write('p', 'k', () async => calls.add('abandoned')).ignore();
+      async.elapse(const Duration(seconds: 3));
+      coordinator.write('p', 'k', () async => calls.add('last'));
+      async.elapse(const Duration(seconds: 2));
+      expect(coordinator.outstanding('p'), 2);
+
+      head.complete();
+      async.flushMicrotasks();
+      expect(calls, ['head', 'last']);
+      expect(coordinator.outstanding('p'), 0);
+    });
+  });
+
+  test('namespaces are matched case-insensitively like Hive box names', () {
+    fakeAsync((async) {
+      final write = Completer<void>();
+      coordinator.write('Plugin.A', 'k', () => write.future).ignore();
+      async.elapse(const Duration(seconds: 5));
+      expect(coordinator.isQuarantined('plugin.a', 'k'), isTrue);
+      expect(coordinator.outstanding('PLUGIN.A'), 1);
+
+      Object? quarantined;
+      coordinator
+          .write('plugin.a', 'k', () async {})
+          .catchError((Object e) => quarantined = e);
+      Object? refused;
+      coordinator
+          .runMaintenance({'PLUGIN.a'}, () async {})
+          .then(
+            (_) {},
+            onError: (Object e) {
+              refused = e;
+            },
+          );
+      async.elapse(const Duration(seconds: 5));
+      expect(quarantined, _storageError(StorageErrorCode.quarantined));
+      expect(refused, _storageError(StorageErrorCode.unresolvedWrites));
+
+      write.complete();
+      async.flushMicrotasks();
+      final hold = Completer<void>();
+      coordinator.runMaintenance({'Visualizer.Reaplugin'}, () => hold.future);
+      async.flushMicrotasks();
+      Object? guarded;
+      coordinator
+          .write('visualizer.reaplugin', 'k', () async {})
+          .catchError((Object e) => guarded = e);
+      async.flushMicrotasks();
+      expect(guarded, _storageError(StorageErrorCode.maintenance));
+      hold.complete();
+      async.flushMicrotasks();
+    });
+  });
+
   test('outstanding backend work is bounded per namespace', () {
     fakeAsync((async) {
       final pending = Completer<Object?>();

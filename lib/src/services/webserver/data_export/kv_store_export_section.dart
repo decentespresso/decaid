@@ -14,8 +14,8 @@ class KvStoreExportSection implements DataExportSection {
   KvStoreExportSection({
     required this._store,
     this._limits = const DataTransferLimits(),
-    StorageOperationCoordinator? coordinator,
-  }) : _coordinator = coordinator ?? StorageOperationCoordinator();
+    required this._coordinator,
+  });
 
   @override
   String get filename => 'store.json';

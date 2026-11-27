@@ -66,7 +66,10 @@ void main() {
       await store.set(namespace: 'empty', key: 'k', value: 'v');
       await store.delete(namespace: 'empty', key: 'k');
 
-      final section = KvStoreExportSection(store: store);
+      final section = KvStoreExportSection(
+        store: store,
+        coordinator: StorageOperationCoordinator(),
+      );
 
       final sink = CapturingJsonSink();
       await section.exportJson(sink);
@@ -86,14 +89,22 @@ void main() {
       const limits = DataTransferLimits(maxKeyBytes: 14);
       final source = MockKvStore();
       await source.set(key: '123456789012', value: 'ok');
-      final section = KvStoreExportSection(store: source, limits: limits);
+      final section = KvStoreExportSection(
+        store: source,
+        limits: limits,
+        coordinator: StorageOperationCoordinator(),
+      );
       final sink = CapturingJsonSink();
 
       await section.exportJson(sink);
 
       final destination = MockKvStore();
       final result = await importSectionJson(
-        KvStoreExportSection(store: destination, limits: limits),
+        KvStoreExportSection(
+          store: destination,
+          limits: limits,
+          coordinator: StorageOperationCoordinator(),
+        ),
         sink.json,
         ConflictStrategy.skip,
         limits: limits,
@@ -106,7 +117,11 @@ void main() {
       const limits = DataTransferLimits(maxKeyBytes: 14);
       final store = MockKvStore();
       await store.set(key: '1234567890123', value: 'too long');
-      final section = KvStoreExportSection(store: store, limits: limits);
+      final section = KvStoreExportSection(
+        store: store,
+        limits: limits,
+        coordinator: StorageOperationCoordinator(),
+      );
 
       await expectLater(
         section.exportJson(CapturingJsonSink()),
@@ -118,7 +133,11 @@ void main() {
       const limits = DataTransferLimits(maxKeyBytes: 14);
       final store = MockKvStore();
       await store.set(key: 'ok', value: {'1234567890123': 1});
-      final section = KvStoreExportSection(store: store, limits: limits);
+      final section = KvStoreExportSection(
+        store: store,
+        limits: limits,
+        coordinator: StorageOperationCoordinator(),
+      );
 
       await expectLater(
         section.exportJson(CapturingJsonSink()),
@@ -132,14 +151,22 @@ void main() {
         const limits = DataTransferLimits(maxKeyBytes: 14);
         final source = MockKvStore();
         await source.set(key: '😀😀😀', value: 'ok');
-        final section = KvStoreExportSection(store: source, limits: limits);
+        final section = KvStoreExportSection(
+          store: source,
+          limits: limits,
+          coordinator: StorageOperationCoordinator(),
+        );
         final sink = CapturingJsonSink();
 
         await section.exportJson(sink);
 
         final destination = MockKvStore();
         final result = await importSectionJson(
-          KvStoreExportSection(store: destination, limits: limits),
+          KvStoreExportSection(
+            store: destination,
+            limits: limits,
+            coordinator: StorageOperationCoordinator(),
+          ),
           sink.json,
           ConflictStrategy.skip,
           limits: limits,
@@ -152,7 +179,10 @@ void main() {
     test('imports key/value pairs at depth 3 with skip semantics', () async {
       final store = MockKvStore();
       await store.set(namespace: 'default', key: 'existing', value: 1);
-      final section = KvStoreExportSection(store: store);
+      final section = KvStoreExportSection(
+        store: store,
+        coordinator: StorageOperationCoordinator(),
+      );
       final result = await importSectionJson(
         section,
         jsonEncode({
@@ -171,7 +201,10 @@ void main() {
 
     test('rejects malformed payloads without importing', () async {
       final store = MockKvStore();
-      final section = KvStoreExportSection(store: store);
+      final section = KvStoreExportSection(
+        store: store,
+        coordinator: StorageOperationCoordinator(),
+      );
       await expectLater(
         importSectionJson(
           section,
@@ -190,7 +223,10 @@ void main() {
     ]) {
       test('rejects $invalidJson without importing', () async {
         final store = MockKvStore();
-        final section = KvStoreExportSection(store: store);
+        final section = KvStoreExportSection(
+          store: store,
+          coordinator: StorageOperationCoordinator(),
+        );
 
         await expectLater(
           importSectionJson(section, invalidJson, ConflictStrategy.skip),
@@ -202,7 +238,10 @@ void main() {
 
     test('accepts empty namespace objects', () async {
       final store = MockKvStore();
-      final section = KvStoreExportSection(store: store);
+      final section = KvStoreExportSection(
+        store: store,
+        coordinator: StorageOperationCoordinator(),
+      );
 
       final result = await importSectionJson(
         section,
@@ -292,6 +331,35 @@ void main() {
         );
         expect(retry.imported, 1);
         expect(store.boxes['plugin.a']!['k'], 'restored');
+      });
+
+      test('a differently cased namespace cannot bypass quarantine', () async {
+        final store = MockKvStore();
+        final coordinator = StorageOperationCoordinator(limits: limits);
+        final gate = Completer<void>();
+        await expectLater(
+          coordinator.write('visualizer.reaplugin', 'k', () => gate.future),
+          throwsA(isA<StorageOperationException>()),
+        );
+        final section = KvStoreExportSection(
+          store: store,
+          coordinator: coordinator,
+        );
+
+        final result = await importSectionJson(
+          section,
+          jsonEncode({
+            'namespaces': {
+              'Visualizer.Reaplugin': {'k': 'restored'},
+            },
+          }),
+          ConflictStrategy.overwrite,
+        );
+
+        expect(result.imported, 0);
+        expect(result.errors, hasLength(1));
+        expect(store.boxes, isEmpty);
+        gate.complete();
       });
 
       test('plugin access is refused while restore runs', () async {

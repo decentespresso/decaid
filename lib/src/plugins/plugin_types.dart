@@ -34,7 +34,7 @@ class PluginStorageCommand {
   }
 
   static bool isVersioned(dynamic data) =>
-      data is Map && data['version'] == version;
+      data is Map && data.containsKey('version');
 
   static int? requestIdFrom(Object? value) {
     final id = switch (value) {

@@ -363,6 +363,10 @@ if (event.name === "storageResult") {
   plugin generation already sent. Reused, lower or malformed IDs are dropped
   and logged; they never produce a result, so the original request still gets
   its single result. The sequence restarts with each new generation.
+- A command that carries `version` with any value other than `2` is treated as
+  a version 2 command with an unsupported version: with a valid `requestId` it
+  gets an `invalid_command` result, otherwise it is dropped. Commands without a
+  `version` field stay on the legacy path.
 - Every accepted command gets exactly one `storageResult` event, delivered
   only to the generation that sent it. Results for a generation that has been
   unloaded or replaced are discarded. Concurrent requests can settle in any
@@ -377,7 +381,7 @@ if (event.name === "storageResult") {
 
 | `error.code` | Meaning |
 | --- | --- |
-| `invalid_command` | Unknown type, missing key, or a write without `data`. |
+| `invalid_command` | Unsupported `version`, unknown type, missing key, or a write without `data`. |
 | `capacity` | The plugin already has 32 storage operations outstanding. |
 | `quarantined` | An earlier write to this key timed out and has not settled. |
 | `maintenance` | The host is restoring or maintaining this plugin's storage. |
@@ -388,9 +392,10 @@ if (event.name === "storageResult") {
 Bounds and ordering apply to legacy and version 2 commands alike:
 
 - A timeout ends the plugin's wait, not the backend operation. A timed-out
-  operation still counts toward the 32-operation budget until it settles. The
-  budget is per plugin and survives reload, so a replacement generation cannot
-  bypass a stuck predecessor.
+  operation that reached the backend still counts toward the 32-operation
+  budget until it settles; a queued write that gave up before starting frees
+  its slot at once. The budget is per plugin and survives reload, so a
+  replacement generation cannot bypass a stuck predecessor.
 - Writes to the same key run one at a time in the order they were accepted,
   across generations. After a `write_indeterminate` result the key is
   quarantined: later writes to it fail with `quarantined` until the earlier
@@ -405,7 +410,11 @@ Bounds and ordering apply to legacy and version 2 commands alike:
 - Unload and reload wait at most 5 seconds for outstanding storage work, so a
   stuck backend cannot block lifecycle completion. Writes issued from
   `onUnload` are still accepted while the generation retires.
-- Backup restore and data sync use the same storage coordinator. While a
+- Backup restore, data sync and the `/api/v1/store` `POST`/`DELETE` routes use
+  the same storage coordinator, so a REST write to the plugin's namespace is
+  ordered with plugin writes to the same key. Namespaces match
+  case-insensitively, as Hive box names do.
+- Backup restore and data sync hold the namespaces they restore. While a
   restore holds a namespace, plugin reads and writes to it fail with
   `maintenance`. A restore waits up to 5 seconds for outstanding writes to the
   namespaces it restores and is refused, without changing those namespaces,

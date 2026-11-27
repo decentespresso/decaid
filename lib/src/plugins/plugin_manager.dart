@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:clock/clock.dart';
 import 'package:flutter_js/flutter_js.dart';
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart' as shelf;
@@ -144,6 +145,7 @@ class PluginManager {
   final Map<String, int> _retiringPluginGenerations = {};
   final Map<(String, int), Set<Future<void>>> _pluginStorageOperations = {};
   final Map<(String, int), int> _storageRequestHighWater = {};
+  final Set<(String, int)> _loggedStorageRequestDrops = {};
   late final PluginTransportService _transportService;
   final Map<String, _PendingDeviceInvocation> _pendingDeviceInvocations = {};
   final Map<
@@ -326,6 +328,7 @@ class PluginManager {
       _timedOutDeviceConnects.clear();
       _pluginStorageOperations.clear();
       _storageRequestHighWater.clear();
+      _loggedStorageRequestDrops.clear();
       _pluginBridgeTokens.clear();
       _pluginIdsByBridgeToken.clear();
       _extensionGrants.clear();
@@ -2172,7 +2175,7 @@ class PluginManager {
     int generation,
   ) async {
     final key = (pluginId, generation);
-    final elapsed = Stopwatch()..start();
+    final elapsed = clock.stopwatch()..start();
     while (true) {
       final operations = _pluginStorageOperations[key]?.toList() ?? const [];
       if (operations.isEmpty) return;
@@ -2606,6 +2609,7 @@ class PluginManager {
     } finally {
       _retiringPluginGenerations.remove(id);
       _storageRequestHighWater.remove((id, retiringGeneration));
+      _loggedStorageRequestDrops.remove((id, retiringGeneration));
       runtime.markDisposed();
       _plugins.remove(id);
       _closingPluginPermissions.remove(id);
@@ -3343,10 +3347,13 @@ class PluginManager {
     if (!live ||
         requestId == null ||
         requestId <= (_storageRequestHighWater[admission] ?? -1)) {
-      _log.warning(
-        'Dropped plugin storage request from $pluginId: '
-        'invalid, reused or retired request ID',
-      );
+      if (live && _loggedStorageRequestDrops.add(admission)) {
+        _log.warning(
+          'Dropped plugin storage request from $pluginId: '
+          'invalid or reused request ID; further drops for this generation '
+          'are not logged',
+        );
+      }
       return;
     }
     _storageRequestHighWater[admission] = requestId;
@@ -3358,6 +3365,9 @@ class PluginManager {
       'generation': generation,
     };
     try {
+      if (payload['version'] != PluginStorageCommand.version) {
+        throw const FormatException('Unsupported storage version');
+      }
       final value = await _runPluginStorage(
         pluginId,
         PluginStorageCommand.fromPlugin(payload),
