@@ -3400,8 +3400,38 @@ paths:
           application/json:
             schema: {}
       responses:
-        "204":
-          description: Successfully stored
+        "200":
+          description: Successfully stored; the body is an empty JSON object.
+          content:
+            application/json:
+              schema:
+                type: object
+                maxProperties: 0
+        "500":
+          description: The storage backend failed (`error` is `storage_error`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreWriteError"
+        "503":
+          description: >-
+            The namespace is held by a backup restore (`maintenance`), the key has
+            an earlier write that has not settled (`quarantined`), or the namespace
+            already has 32 outstanding storage operations (`capacity`). Nothing was
+            written; retry later.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreWriteError"
+        "504":
+          description: >-
+            The write did not settle within 5 seconds. `timeout` means it never
+            started and was not applied; `write_indeterminate` means it may still be
+            applied and the key is quarantined until it settles.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreWriteError"
 
     delete:
       summary: Delete key
@@ -3420,16 +3450,39 @@ paths:
             type: string
       responses:
         "200":
-          description: Key deleted
+          description: >-
+            The key is absent after the call, whether or not it existed; the body
+            is an empty JSON object.
           content:
             application/json:
               schema:
                 type: object
-                properties:
-                  deleted:
-                    type: boolean
-        "404":
-          description: Key not found
+                maxProperties: 0
+        "500":
+          description: The storage backend failed (`error` is `storage_error`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreWriteError"
+        "503":
+          description: >-
+            The namespace is held by a backup restore (`maintenance`), the key has
+            an earlier write that has not settled (`quarantined`), or the namespace
+            already has 32 outstanding storage operations (`capacity`). Nothing was
+            written; retry later.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreWriteError"
+        "504":
+          description: >-
+            The write did not settle within 5 seconds. `timeout` means it never
+            started and was not applied; `write_indeterminate` means it may still be
+            applied and the key is quarantined until it settles.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreWriteError"
 
   /api/v1/plugins:
     get:
@@ -6737,6 +6790,18 @@ components:
         token is not confidential on the local network: HTTPS is proposed in
         #925 and separate full API authentication in #1135.
   schemas:
+    StoreWriteError:
+      type: object
+      description: >-
+        Bounded storage coordination error. `message` is a fixed host string and
+        never contains stored values, paths or exception details.
+      required: [error, message]
+      properties:
+        error:
+          type: string
+          enum: [maintenance, quarantined, capacity, timeout, write_indeterminate, storage_error]
+        message:
+          type: string
     ScaleCommandError:
       type: object
       required: [error]

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:clock/clock.dart';
 import 'package:flutter_js/flutter_js.dart';
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart' as shelf;
@@ -22,6 +23,7 @@ import 'plugin_runtime.dart';
 import 'plugin_transport_service.dart';
 import 'plugin_types.dart';
 import '../services/storage/kv_store_service.dart';
+import '../services/storage/storage_operation_coordinator.dart';
 import '../controllers/de1_controller.dart';
 import '../controllers/workflow_controller.dart';
 import '../models/device/de1_interface.dart';
@@ -101,6 +103,7 @@ class PluginManager {
   final Map<String, PluginRuntime> _plugins = {};
   final JavascriptRuntime js;
   final KeyValueStoreService kvStore;
+  final StorageOperationCoordinator storageCoordinator;
   final DecentProxyService? decentProxyService;
   final NotificationCenter notifications;
   late final PluginDecentProxyBridge _decentProxyBridge;
@@ -141,6 +144,8 @@ class PluginManager {
   Future<void>? _disposeFuture;
   final Map<String, int> _retiringPluginGenerations = {};
   final Map<(String, int), Set<Future<void>>> _pluginStorageOperations = {};
+  final Map<(String, int), int> _storageRequestHighWater = {};
+  final Set<(String, int)> _loggedStorageRequestDrops = {};
   late final PluginTransportService _transportService;
   final Map<String, _PendingDeviceInvocation> _pendingDeviceInvocations = {};
   final Map<
@@ -185,7 +190,9 @@ class PluginManager {
     this.deviceInvocationTimeout = const Duration(seconds: 10),
     PluginDeviceService? deviceService,
     PluginBleRegistry? bleRegistry,
+    StorageOperationCoordinator? storageCoordinator,
   }) : notifications = notifications ?? NotificationCenter(),
+       storageCoordinator = storageCoordinator ?? StorageOperationCoordinator(),
        js = js ?? getJavascriptRuntime(xhr: false),
        deviceService = deviceService ?? PluginDeviceService() {
     _decentProxyBridge = PluginDecentProxyBridge(
@@ -320,6 +327,8 @@ class PluginManager {
       _deviceConnectAttempts.clear();
       _timedOutDeviceConnects.clear();
       _pluginStorageOperations.clear();
+      _storageRequestHighWater.clear();
+      _loggedStorageRequestDrops.clear();
       _pluginBridgeTokens.clear();
       _pluginIdsByBridgeToken.clear();
       _extensionGrants.clear();
@@ -380,8 +389,15 @@ class PluginManager {
         );
   }
 
-  Object? _withoutBridgeToken(Object? message) =>
-      message is Map ? ({...message}..remove('bridgeToken')) : message;
+  Object? _withoutBridgeToken(Object? message) {
+    if (message is! Map) return message;
+    final copy = {...message}..remove('bridgeToken');
+    final payload = copy['payload'];
+    if (copy['type'] == 'pluginStorage' && payload is Map) {
+      copy['payload'] = {...payload}..remove('data');
+    }
+    return copy;
+  }
 
   String _permissionError(String pluginId, PluginPermissions permission) =>
       'PluginPermissionError: Plugin $pluginId requires manifest permission ${permission.wireName}';
@@ -2159,10 +2175,20 @@ class PluginManager {
     int generation,
   ) async {
     final key = (pluginId, generation);
+    final elapsed = clock.stopwatch()..start();
     while (true) {
       final operations = _pluginStorageOperations[key]?.toList() ?? const [];
       if (operations.isEmpty) return;
-      await Future.wait(operations);
+      final remaining =
+          storageCoordinator.limits.drainTimeout - elapsed.elapsed;
+      if (remaining <= Duration.zero) {
+        _log.warning(
+          'Plugin storage drain for $pluginId timed out with '
+          '${operations.length} operation(s) outstanding',
+        );
+        return;
+      }
+      await Future.wait(operations).timeout(remaining, onTimeout: () => []);
     }
   }
 
@@ -2402,6 +2428,7 @@ class PluginManager {
           storage: ${manifest.permissions.contains(PluginPermissions.pluginStorage)}
             ? (cmd) => pluginHostBridge.storage(pluginBridgeToken, pluginGeneration, cmd)
             : () => requirePermission("pluginStorage"),
+          storageVersion: ${PluginStorageCommand.version},
           decentProxy: (path, options = {}) => {
             const method = String(options.method || "GET").toUpperCase();
             if (method === "GET" && !${manifest.permissions.contains(PluginPermissions.proxyDecentApi)}) {
@@ -2581,6 +2608,8 @@ class PluginManager {
       }
     } finally {
       _retiringPluginGenerations.remove(id);
+      _storageRequestHighWater.remove((id, retiringGeneration));
+      _loggedStorageRequestDrops.remove((id, retiringGeneration));
       runtime.markDisposed();
       _plugins.remove(id);
       _closingPluginPermissions.remove(id);
@@ -2818,10 +2847,17 @@ class PluginManager {
         break;
 
       case 'pluginStorage':
-        final cmd = PluginStorageCommand.fromPlugin(payload);
         final generation = _messageGeneration(pluginId, msg);
         if (generation == null) return;
-        await _handlePluginStorage(pluginId, generation, cmd);
+        if (PluginStorageCommand.isVersioned(payload)) {
+          await _handleVersionedPluginStorage(pluginId, generation, payload);
+        } else {
+          await _handlePluginStorage(
+            pluginId,
+            generation,
+            PluginStorageCommand.fromPlugin(payload),
+          );
+        }
         break;
 
       case 'permissionDenied':
@@ -3249,32 +3285,105 @@ class PluginManager {
     return out.isEmpty ? null : out;
   }
 
+  Future<Object?> _runPluginStorage(String pluginId, PluginStorageCommand cmd) {
+    final namespace = pluginId;
+    return switch (cmd.type) {
+      PluginStorageCommandType.read => storageCoordinator.read(
+        namespace,
+        cmd.key,
+        () => kvStore.get(key: cmd.key, namespace: namespace),
+      ),
+      PluginStorageCommandType.write => storageCoordinator.write(
+        namespace,
+        cmd.key,
+        () => kvStore.set(
+          key: cmd.key,
+          namespace: namespace,
+          value: cmd.data as Object,
+        ),
+      ),
+    };
+  }
+
   Future<void> _handlePluginStorage(
     String pluginId,
     int generation,
     PluginStorageCommand cmd,
   ) async {
-    final namespace = pluginId;
-
+    final Object? value;
+    try {
+      value = await _runPluginStorage(pluginId, cmd);
+    } on StorageOperationException catch (e) {
+      _log.warning(
+        'Plugin storage ${cmd.type.name} failed for $pluginId: '
+        '${e.code.wireName}',
+      );
+      return;
+    }
+    if (!_isCurrentPluginMessage(pluginId, {'generation': generation})) {
+      return;
+    }
     switch (cmd.type) {
       case PluginStorageCommandType.read:
-        final value = await kvStore.get(key: cmd.key, namespace: namespace);
-        if (!_isCurrentPluginMessage(pluginId, {'generation': generation})) {
-          return;
-        }
         dispatchEvent(pluginId, "storageRead", {
           "key": cmd.key,
           "value": value,
         });
-        break;
-
       case PluginStorageCommandType.write:
-        await kvStore.set(key: cmd.key, namespace: namespace, value: cmd.data);
-        if (!_isCurrentPluginMessage(pluginId, {'generation': generation})) {
-          return;
-        }
         dispatchEvent(pluginId, "storageWrite", cmd.data);
-        break;
+    }
+  }
+
+  Future<void> _handleVersionedPluginStorage(
+    String pluginId,
+    int generation,
+    Map<String, dynamic> payload,
+  ) async {
+    final requestId = PluginStorageCommand.requestIdFrom(payload['requestId']);
+    final admission = (pluginId, generation);
+    final live =
+        generation == _pluginGenerations[pluginId] ||
+        generation == _retiringPluginGenerations[pluginId];
+    if (!live ||
+        requestId == null ||
+        requestId <= (_storageRequestHighWater[admission] ?? -1)) {
+      if (live && _loggedStorageRequestDrops.add(admission)) {
+        _log.warning(
+          'Dropped plugin storage request from $pluginId: '
+          'invalid or reused request ID; further drops for this generation '
+          'are not logged',
+        );
+      }
+      return;
+    }
+    _storageRequestHighWater[admission] = requestId;
+
+    final type = payload['type'];
+    final result = <String, dynamic>{
+      'requestId': requestId,
+      'operation': type == 'read' || type == 'write' ? type : null,
+      'generation': generation,
+    };
+    try {
+      if (payload['version'] != PluginStorageCommand.version) {
+        throw const FormatException('Unsupported storage version');
+      }
+      final value = await _runPluginStorage(
+        pluginId,
+        PluginStorageCommand.fromPlugin(payload),
+      );
+      result['ok'] = true;
+      if (type == 'read') result['value'] = value;
+    } on FormatException {
+      result['ok'] = false;
+      result['error'] = StorageErrorCode.invalidCommand.toJson();
+    } on StorageOperationException catch (e) {
+      result['ok'] = false;
+      result['error'] = e.code.toJson();
+    }
+    if (_lifecycle == PluginManagerLifecycle.active &&
+        _isCurrentPluginMessage(pluginId, {'generation': generation})) {
+      dispatchEvent(pluginId, 'storageResult', result);
     }
   }
 

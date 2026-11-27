@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:reaprime/src/services/storage/kv_store_service.dart';
+import 'package:reaprime/src/services/storage/storage_operation_coordinator.dart';
 import 'package:reaprime/src/services/webserver/data_export/data_export_section.dart';
 import 'package:reaprime/src/services/webserver/data_export/data_transfer_limits.dart';
 import 'package:reaprime/src/util/incremental_json_parser.dart';
@@ -8,10 +9,12 @@ import 'package:reaprime/src/util/incremental_json_parser.dart';
 class KvStoreExportSection implements DataExportSection {
   final KeyValueStoreService _store;
   final DataTransferLimits _limits;
+  final StorageOperationCoordinator _coordinator;
 
   KvStoreExportSection({
     required this._store,
     this._limits = const DataTransferLimits(),
+    required this._coordinator,
   });
 
   @override
@@ -68,8 +71,28 @@ class KvStoreExportSection implements DataExportSection {
     SectionJsonInput input,
     ConflictStrategy strategy,
   ) async {
-    await validateJson(input);
+    final namespaces = await validateJson(input);
+    try {
+      return await _coordinator.runMaintenance(
+        namespaces,
+        () => _restore(input, strategy),
+      );
+    } on StorageOperationException catch (e) {
+      return SectionImportResult(
+        imported: 0,
+        skipped: 0,
+        errors: [
+          'store.json was not restored because plugin storage is busy '
+              '(${e.code.wireName}); retry once plugin storage settles.',
+        ],
+      );
+    }
+  }
 
+  Future<SectionImportResult> _restore(
+    SectionJsonInput input,
+    ConflictStrategy strategy,
+  ) async {
     int imported = 0;
     int skipped = 0;
     final errors = SectionImportErrors();
@@ -101,7 +124,7 @@ class KvStoreExportSection implements DataExportSection {
     );
   }
 
-  Future<void> validateJson(SectionJsonInput input) async {
+  Future<Set<String>> validateJson(SectionJsonInput input) async {
     if (await input.open() != JsonContainerKind.object) {
       throw const JsonStreamFormatException(
         'store.json must contain a root object.',
@@ -109,6 +132,7 @@ class KvStoreExportSection implements DataExportSection {
     }
 
     var sawNamespaces = false;
+    final namespaces = <String>{};
     String? shapeError;
     await for (final _ in input.valuesAtDepth(
       3,
@@ -119,11 +143,11 @@ class KvStoreExportSection implements DataExportSection {
             shapeError = '"namespaces" must be an object.';
           }
         }
-        if (depth == 2 &&
-            keys.length == 2 &&
-            keys.first == 'namespaces' &&
-            containerKind != JsonContainerKind.object) {
-          shapeError = 'Every namespace value must be an object.';
+        if (depth == 2 && keys.length == 2 && keys.first == 'namespaces') {
+          namespaces.add(keys[1]);
+          if (containerKind != JsonContainerKind.object) {
+            shapeError = 'Every namespace value must be an object.';
+          }
         }
       },
     )) {}
@@ -134,5 +158,6 @@ class KvStoreExportSection implements DataExportSection {
       );
     }
     if (shapeError != null) throw JsonStreamFormatException(shapeError!);
+    return namespaces;
   }
 }

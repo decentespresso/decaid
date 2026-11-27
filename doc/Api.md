@@ -1092,6 +1092,19 @@ single-owner: no other reader may hold the port while Decaid owns it.
 
 `GET /api/v1/store/:namespace?full=1` returns the entire namespace as a `{key: value}` map in one request instead of one GET per key. It sends an `ETag`, so a repeat request with `If-None-Match` returns `304 Not Modified` when nothing changed — cheap to poll. Without the flag the endpoint returns just the array of keys.
 
+`POST` and `DELETE` on `/api/v1/store/:namespace/:key` share plugin storage's coordinator (`host.storage` uses the plugin id as its namespace; namespaces match case-insensitively, like Hive box names). A write runs after earlier writes to the same key, including plugin writes. When it cannot run, nothing is written and the response is `{"error": <code>, "message": <fixed text>}`:
+
+| Status | `error` | Meaning |
+| --- | --- | --- |
+| 503 | `maintenance` | A backup import or data sync is restoring this namespace; retry later. |
+| 503 | `quarantined` | An earlier write to this key timed out and has not settled; retry later. |
+| 503 | `capacity` | The namespace already has 32 outstanding storage operations. |
+| 504 | `timeout` | The write could not start within 5 seconds and was not applied. |
+| 504 | `write_indeterminate` | The write started but did not settle within 5 seconds; it may still be applied, and the key stays quarantined until it settles. |
+| 500 | `storage_error` | The storage backend failed. |
+
+`GET` routes are not coordinated and can observe a namespace while a restore is writing it.
+
 ### Data Management
 
 | Method | Path | Description | Handler |

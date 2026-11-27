@@ -33,6 +33,8 @@ import 'package:reaprime/src/plugins/plugin_manifest.dart';
 import 'package:reaprime/src/plugins/plugin_source.dart';
 import 'package:reaprime/src/plugins/plugin_source_service.dart';
 import 'package:reaprime/src/services/storage/hive_store_service.dart';
+import 'package:reaprime/src/services/storage/kv_store_service.dart';
+import 'package:reaprime/src/services/storage/storage_operation_coordinator.dart';
 import 'package:reaprime/src/services/webserver/json_response.dart';
 import 'package:reaprime/src/services/webserver/opaque_path_component.dart';
 import 'package:reaprime/src/services/webserver/bounded_request_body.dart';
@@ -295,7 +297,9 @@ Future<ApiListener> startWebServer(
     grindersHandler = GrindersHandler(storage: grinderStorage);
   }
 
-  final kvStoreHandler = KvStoreHandler();
+  final kvStoreHandler = KvStoreHandler(
+    coordinator: pluginService.pluginManager.storageCoordinator,
+  );
   await kvStoreHandler.store.initialize();
 
   final dataExportHandler = DataExportHandler(
@@ -321,7 +325,10 @@ Future<ApiListener> startWebServer(
       ),
       WorkflowExportSection(controller: workflowController),
       SettingsExportSection(controller: settingsController),
-      KvStoreExportSection(store: kvStoreHandler.store),
+      KvStoreExportSection(
+        store: kvStoreHandler.store,
+        coordinator: pluginService.pluginManager.storageCoordinator,
+      ),
       if (beanStorage != null)
         BeanExportSection(
           storage: beanStorage,
