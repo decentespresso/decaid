@@ -7,6 +7,7 @@ import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/impl/de1/mmr_address.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
+import 'package:reaprime/src/models/errors.dart';
 import 'package:rxdart/rxdart.dart';
 
 typedef FakeBleWrite = ({
@@ -43,6 +44,9 @@ class FakeBleTransport extends BLETransport {
   final Set<int> failMmrWritesForAddresses = {};
 
   Duration? requestedStateSleepWriteTimeout;
+  bool firmwareMapReadUnavailable = false;
+  bool firmwareMapReadNotReadable = false;
+  int firmwareMapReadCalls = 0;
 
   final Map<int, int> failMmrWriteOrdinalForAddresses = {};
 
@@ -180,6 +184,16 @@ class FakeBleTransport extends BLETransport {
     Duration? timeout,
   }) async {
     recordTrace('read endpoint=${_endpointName(characteristicUUID)}');
+    if (characteristicUUID == Endpoint.fwMapRequest.uuid) {
+      firmwareMapReadCalls++;
+    }
+    if (characteristicUUID == Endpoint.fwMapRequest.uuid &&
+        (firmwareMapReadUnavailable || firmwareMapReadNotReadable)) {
+      throw const GattAttributeUnavailableException(
+        operation: 'read',
+        path: 'fwMapRequest',
+      );
+    }
     final q = _readQueue[characteristicUUID];
     if (q != null && q.isNotEmpty) {
       final next = q.removeFirst();

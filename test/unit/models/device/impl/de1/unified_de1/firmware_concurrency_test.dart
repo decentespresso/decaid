@@ -26,13 +26,13 @@ void main() {
     test(
       'throws FirmwareUpdateInProgressException when update is active',
       () async {
-        final first = de1.updateFirmware(Uint8List(0), onProgress: (_) {})
+        final first = de1.updateFirmware(Uint8List(16), onProgress: (_) {})
           ..catchError((_) {});
 
         expect(de1.firmwareUpdateState, isNot(FirmwareUpdateState.idle));
 
         expect(
-          () => de1.updateFirmware(Uint8List(0), onProgress: (_) {}),
+          () => de1.updateFirmware(Uint8List(16), onProgress: (_) {}),
           throwsA(isA<FirmwareUpdateInProgressException>()),
         );
 
@@ -44,7 +44,7 @@ void main() {
     );
 
     test('state returns to idle after successful completion', () async {
-      final future = de1.updateFirmware(Uint8List(0), onProgress: (_) {})
+      final future = de1.updateFirmware(Uint8List(16), onProgress: (_) {})
         ..catchError((_) {});
 
       expect(de1.firmwareUpdateState, isNot(FirmwareUpdateState.idle));
@@ -66,7 +66,7 @@ void main() {
     });
 
     test('state is not idle during active update and returns to idle after cancellation', () async {
-      final future = de1.updateFirmware(Uint8List(0), onProgress: (_) {})
+      final future = de1.updateFirmware(Uint8List(16), onProgress: (_) {})
         ..catchError((_) {});
 
       expect(de1.firmwareUpdateState, isNot(FirmwareUpdateState.idle));
@@ -82,7 +82,7 @@ void main() {
     test(
       'second cancelFirmwareUpload after first cancel completes does not throw',
       () async {
-        final future = de1.updateFirmware(Uint8List(0), onProgress: (_) {})
+        final future = de1.updateFirmware(Uint8List(16), onProgress: (_) {})
           ..catchError((_) {});
 
         await de1.cancelFirmwareUpload();

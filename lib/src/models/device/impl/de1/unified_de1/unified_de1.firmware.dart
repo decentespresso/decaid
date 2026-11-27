@@ -8,7 +8,51 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
     void Function(double) onProgress,
     _FirmwareCancellationToken cancelToken,
   ) async {
+    try {
+      await _updateFirmwareBody(fwImage, onProgress, cancelToken);
+      _log.info('firmware terminal outcome=success');
+    } catch (error, stackTrace) {
+      final outcome = error is FirmwareUpdateCancelledException
+          ? 'cancelled'
+          : 'failure';
+      _log.info('firmware terminal outcome=$outcome cause=$error');
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+  }
+
+  Future<void> _updateFirmwareBody(
+    Uint8List fwImage,
+    void Function(double) onProgress,
+    _FirmwareCancellationToken cancelToken,
+  ) async {
     _throwIfFirmwareCancelled(cancelToken);
+    late final De1FirmwareImageClassification imageClassification;
+    try {
+      imageClassification = De1FirmwareHeader.validateUpload(fwImage);
+    } on FormatException catch (error, stackTrace) {
+      _log.warning(
+        'firmware stage=validation failed cause=$error',
+        error,
+        stackTrace,
+      );
+      rethrow;
+    }
+    final classification = switch (imageClassification) {
+      De1FirmwareImageClassification.canonicalDe1 => 'canonical-de1',
+      De1FirmwareImageClassification.unrecognizedAtLeastHeader =>
+        'unrecognized-at-least-header',
+      De1FirmwareImageClassification.unrecognizedShort => 'unrecognized-short',
+    };
+    final log =
+        'firmware image classification=$classification '
+        'byteLength=${fwImage.length} sha256=${sha256.convert(fwImage)}';
+    _log.info(log);
+    if (imageClassification != De1FirmwareImageClassification.canonicalDe1) {
+      _log.warning(
+        'firmware image format validation skipped '
+        'classification=$classification byteLength=${fwImage.length}',
+      );
+    }
     await _runFirmwareStage('sleep', () => requestState(MachineState.sleeping));
     _throwIfFirmwareCancelled(cancelToken);
     await _runFirmwareStage('preflight', beforeFirmwareUpload);
@@ -31,10 +75,10 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
     Future<void> Function() operation,
   ) async {
     final stopwatch = Stopwatch()..start();
-    _log.fine('firmware stage=$stage start elapsed=0ms');
+    _log.info('firmware stage=$stage start elapsed=0ms');
     try {
       final result = await operation();
-      _log.fine(
+      _log.info(
         'firmware stage=$stage complete '
         'elapsed=${stopwatch.elapsedMilliseconds}ms',
       );
@@ -81,49 +125,88 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
       await Future<void>.delayed(Duration.zero);
       _throwIfFirmwareCancelled(cancelToken);
       late Future<FWMapRequestData> eraseResponse;
-      await _writeFirmwareMap(
-        coordinator: coordinator,
-        firmwareMapSequence: () => firmwareMapSequence,
-        cancelToken: cancelToken,
-        firmwareToErase: 1,
-        predicate: _isEraseComplete,
-        onResponseArmed: (response) => eraseResponse = response,
-      );
-      await _waitForFirmwareResponse(
-        eraseResponse,
-        cancelToken,
-        firmwareEraseTimeout,
-        'Timed out waiting for firmware erase',
-        _isEraseComplete,
-      );
+      _log.info('firmware stage=erase start');
+      try {
+        await _writeFirmwareMap(
+          coordinator: coordinator,
+          firmwareMapSequence: () => firmwareMapSequence,
+          cancelToken: cancelToken,
+          firmwareToErase: 1,
+          predicate: _isEraseComplete,
+          onResponseArmed: (response) => eraseResponse = response,
+        );
+        await _waitForFirmwareResponse(
+          eraseResponse,
+          cancelToken,
+          firmwareEraseTimeout,
+          'Timed out waiting for firmware erase',
+          _isEraseComplete,
+        );
+        _log.info('firmware stage=erase complete');
+      } catch (error, stackTrace) {
+        if (error is! FirmwareUpdateCancelledException) {
+          _log.warning(
+            'firmware stage=erase failed cause=$error',
+            error,
+            stackTrace,
+          );
+        }
+        rethrow;
+      }
 
       _throwIfFirmwareCancelled(cancelToken);
       _firmwareUpdateState = FirmwareUpdateState.uploading;
-      await _uploadFirmwareBytes(fwImage, onProgress, cancelToken);
+      _log.info('firmware stage=upload start');
+      try {
+        await _uploadFirmwareBytes(fwImage, onProgress, cancelToken);
+        _log.info('firmware stage=upload complete');
+      } catch (error, stackTrace) {
+        if (error is! FirmwareUpdateCancelledException) {
+          _log.warning(
+            'firmware stage=upload failed cause=$error',
+            error,
+            stackTrace,
+          );
+        }
+        rethrow;
+      }
 
       _throwIfFirmwareCancelled(cancelToken);
       _firmwareUpdateState = FirmwareUpdateState.verifying;
-      late Future<FWMapRequestData> verificationResponse;
-      await _writeFirmwareMap(
-        coordinator: coordinator,
-        firmwareMapSequence: () => firmwareMapSequence,
-        cancelToken: cancelToken,
-        firmwareToErase: 0,
-        predicate: _isTerminalVerificationResponse,
-        onResponseArmed: (response) => verificationResponse = response,
-      );
-      final verification = await _waitForFirmwareResponse(
-        verificationResponse,
-        cancelToken,
-        firmwareVerificationTimeout,
-        'Timed out waiting for firmware verification',
-        _isTerminalVerificationResponse,
-      );
-      if (!_isSuccessfulFirmwareVerification(verification)) {
-        throw StateError(
-          'Firmware verification failed at 0x'
-          '${verification.error.map((value) => value.toRadixString(16).padLeft(2, '0')).join()}',
+      _log.info('firmware stage=verify start');
+      try {
+        late Future<FWMapRequestData> verificationResponse;
+        await _writeFirmwareMap(
+          coordinator: coordinator,
+          firmwareMapSequence: () => firmwareMapSequence,
+          cancelToken: cancelToken,
+          firmwareToErase: 0,
+          predicate: _isTerminalVerificationResponse,
+          onResponseArmed: (response) => verificationResponse = response,
         );
+        final verification = await _waitForFirmwareResponse(
+          verificationResponse,
+          cancelToken,
+          firmwareVerificationTimeout,
+          'Timed out waiting for firmware verification',
+          _isTerminalVerificationResponse,
+        );
+        if (!_isSuccessfulFirmwareVerification(verification)) {
+          throw StateError(
+            'Firmware verification failed at 0x'
+            '${verification.error.map((value) => value.toRadixString(16).padLeft(2, '0')).join()}',
+          );
+        }
+        _log.info('firmware stage=verify complete');
+      } catch (error, stackTrace) {
+        if (error is! FirmwareUpdateCancelledException) {
+          _log.warning(
+            'firmware stage=verify failed cause=$error',
+            error,
+            stackTrace,
+          );
+        }
+        rethrow;
       }
     } finally {
       await subscription.cancel();
@@ -144,7 +227,9 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
         windowIncrement: 0,
         firmwareToErase: firmwareToErase,
         firmwareToMap: 1,
-        error: Uint8List.fromList([0xff, 0xff, 0xff]),
+        error: Uint8List.fromList(
+          firmwareToErase == 1 ? [0, 0, 0] : [0xff, 0xff, 0xff],
+        ),
       ).asData().buffer.asUint8List(),
       retryOnTimeout: false,
       beforeDispatch: () {
@@ -198,6 +283,11 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
         if (stopped || cancelToken.isCancelled) break;
         final response = FWMapRequestData.from(data);
         if (predicate(response)) return response;
+      } on GattAttributeUnavailableException catch (error) {
+        _log.info(
+          'firmware map polling unavailable; using notifications: $error',
+        );
+        return Completer<FWMapRequestData>().future;
       } catch (e) {
         _log.fine('firmware map poll read failed: $e');
       }
@@ -216,7 +306,7 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
     return response.windowIncrement == 0 &&
         response.firmwareToErase == 0 &&
         response.firmwareToMap == 1 &&
-        _hasFirmwareError(response, const [0xff, 0xff, 0xff]);
+        _hasFirmwareError(response, const [0, 0, 0]);
   }
 
   bool _isTerminalVerificationResponse(FWMapRequestData response) {
@@ -262,6 +352,7 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
   ) async {
     final total = list.length;
     var chunkNum = 0;
+    var loggedProgress = -1;
     final batchSize = firmwareUploadBatchSize;
     final batchPause = firmwareUploadBatchPause;
     for (var offset = 0; offset < list.length; offset += 16) {
@@ -285,7 +376,13 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
       if (batchPause > Duration.zero && chunkNum % batchSize == 0) {
         await _waitFirmwarePacing(batchPause, cancelToken);
       }
-      onProgress(min((offset + chunkLength) / total, 1.0));
+      final progress = min((offset + chunkLength) / total, 1.0);
+      onProgress(progress);
+      final progressBucket = (progress * 10).floor();
+      if (progressBucket > loggedProgress) {
+        loggedProgress = progressBucket;
+        _log.info('firmware stage=upload progress=${progressBucket * 10}%');
+      }
     }
   }
 }

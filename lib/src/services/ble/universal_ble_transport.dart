@@ -272,9 +272,10 @@ class UniversalBleTransport extends BLETransport {
     UniversalBleErrorCode.deviceDisconnected,
   };
 
-  static const _attributeMissingCodes = {
+  static const _attributeUnavailableCodes = {
     UniversalBleErrorCode.characteristicNotFound,
     UniversalBleErrorCode.serviceNotFound,
+    UniversalBleErrorCode.characteristicDoesNotSupportRead,
   };
 
   static const _unsupportedWriteCodes = {
@@ -287,9 +288,9 @@ class UniversalBleTransport extends BLETransport {
     String operation,
     String path,
   ) {
-    if (_attributeMissingCodes.contains(e.code)) {
+    if (_attributeUnavailableCodes.contains(e.code)) {
       _log.warning(
-        'GATT $operation($path) failed — attribute not in GATT database: '
+        'GATT $operation($path) failed — attribute unavailable for read: '
         '${e.code}',
       );
       unawaited(

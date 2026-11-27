@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reaprime/src/models/device/device.dart' as device;
 import 'package:reaprime/src/models/device/firmware_update_state.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
@@ -9,8 +11,22 @@ import 'package:reaprime/src/models/device/transport/ble_timeout_exception.dart'
 
 import '../../../../../../helpers/fake_ble_transport.dart';
 
+final class _FakeAsyncConnectionBleTransport extends FakeBleTransport {
+  final device.ConnectionState _connectionState =
+      device.ConnectionState.connected;
+
+  @override
+  Stream<device.ConnectionState> get connectionState => Stream.multi((events) {
+    events.add(_connectionState);
+    events.close();
+  });
+
+  @override
+  Future<device.ConnectionState> getConnectionState() async => _connectionState;
+}
+
 /// Terminal frame: window, erase, map, then three error bytes.
-final _eraseTerminal = Uint8List.fromList([0, 0, 0, 1, 0xff, 0xff, 0xff]);
+final _eraseTerminal = Uint8List.fromList([0, 0, 0, 1, 0, 0, 0]);
 final _verifySuccess = Uint8List.fromList([0, 0, 0, 1, 0xff, 0xff, 0xfd]);
 
 void main() {
@@ -18,7 +34,7 @@ void main() {
   late UnifiedDe1 de1;
 
   setUp(() async {
-    transport = FakeBleTransport();
+    transport = _FakeAsyncConnectionBleTransport();
     addTearDown(transport.dispose);
     transport.queueOnConnectResponses(v13Model: 3);
     transport.queueMmrResponseInt(MMRItem.calFlowEst, 0);
@@ -57,6 +73,55 @@ void main() {
 
       transport.emitFirmwareMapResponse(_verifySuccess);
       await update;
+      expect(de1.firmwareUpdateState, FirmwareUpdateState.idle);
+    },
+  );
+
+  test('BLE missing A009 uses notifications without repeated reads', () async {
+    transport.firmwareMapReadUnavailable = true;
+    transport.queueFirmwareMapResponse(_eraseTerminal);
+    Future<void>? update;
+    fakeAsync((async) {
+      update = de1.updateFirmware(Uint8List(16), onProgress: (_) {});
+      unawaited(
+        update!.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+      );
+      async.elapse(Duration.zero);
+      expect(de1.firmwareUpdateState, FirmwareUpdateState.verifying);
+      expect(transport.firmwareMapReadCalls, 1);
+      async.elapse(const Duration(milliseconds: 750));
+      expect(transport.firmwareMapReadCalls, 1);
+      transport.emitFirmwareMapResponse(_verifySuccess);
+      async.elapse(Duration.zero);
+    });
+    await update!;
+
+    expect(transport.firmwareMapReadCalls, 1);
+    expect(de1.firmwareUpdateState, FirmwareUpdateState.idle);
+  });
+
+  test(
+    'BLE unreadable A009 uses notifications without repeated reads',
+    () async {
+      transport.firmwareMapReadNotReadable = true;
+      transport.queueFirmwareMapResponse(_eraseTerminal);
+      Future<void>? update;
+      fakeAsync((async) {
+        update = de1.updateFirmware(Uint8List(16), onProgress: (_) {});
+        unawaited(
+          update!.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+        );
+        async.elapse(Duration.zero);
+        expect(de1.firmwareUpdateState, FirmwareUpdateState.verifying);
+        expect(transport.firmwareMapReadCalls, 1);
+        async.elapse(const Duration(milliseconds: 750));
+        expect(transport.firmwareMapReadCalls, 1);
+        transport.emitFirmwareMapResponse(_verifySuccess);
+        async.elapse(Duration.zero);
+      });
+      await update!;
+
+      expect(transport.firmwareMapReadCalls, 1);
       expect(de1.firmwareUpdateState, FirmwareUpdateState.idle);
     },
   );
