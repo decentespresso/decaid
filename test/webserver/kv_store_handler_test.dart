@@ -62,6 +62,10 @@ void main() {
     expect(await store.get(namespace: 'ns', key: 'k'), 'v');
     expect((await send('DELETE', '/api/v1/store/ns/k')).statusCode, 200);
     expect(await store.get(namespace: 'ns', key: 'k'), isNull);
+
+    final missing = await send('DELETE', '/api/v1/store/ns/missing');
+    expect(missing.statusCode, 200);
+    expect(jsonDecode(await missing.readAsString()), <String, dynamic>{});
   });
 
   test('writes and deletes are refused while restore holds the namespace '

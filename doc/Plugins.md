@@ -363,10 +363,11 @@ if (event.name === "storageResult") {
   plugin generation already sent. Reused, lower or malformed IDs are dropped
   and logged; they never produce a result, so the original request still gets
   its single result. The sequence restarts with each new generation.
-- A command that carries `version` with any value other than `2` is treated as
-  a version 2 command with an unsupported version: with a valid `requestId` it
-  gets an `invalid_command` result, otherwise it is dropped. Commands without a
-  `version` field stay on the legacy path.
+- Only an integer `version` selects the versioned protocol. `version: 2` opts
+  in. Any other integer `version` gets an `invalid_command` result when it
+  carries a valid `requestId`, and is dropped otherwise. A command whose
+  `version` is absent, `null` or not an integer stays on the legacy path
+  unchanged.
 - Every accepted command gets exactly one `storageResult` event, delivered
   only to the generation that sent it. Results for a generation that has been
   unloaded or replaced are discarded. Concurrent requests can settle in any

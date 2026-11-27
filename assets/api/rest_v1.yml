@@ -3400,8 +3400,13 @@ paths:
           application/json:
             schema: {}
       responses:
-        "204":
-          description: Successfully stored
+        "200":
+          description: Successfully stored; the body is an empty JSON object.
+          content:
+            application/json:
+              schema:
+                type: object
+                maxProperties: 0
         "500":
           description: The storage backend failed (`error` is `storage_error`).
           content:
@@ -3445,16 +3450,14 @@ paths:
             type: string
       responses:
         "200":
-          description: Key deleted
+          description: >-
+            The key is absent after the call, whether or not it existed; the body
+            is an empty JSON object.
           content:
             application/json:
               schema:
                 type: object
-                properties:
-                  deleted:
-                    type: boolean
-        "404":
-          description: Key not found
+                maxProperties: 0
         "500":
           description: The storage backend failed (`error` is `storage_error`).
           content:

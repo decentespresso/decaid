@@ -317,9 +317,9 @@ void main() {
     expect(harness.named('storageResult').first['operation'], isNull);
   });
 
-  test('unsupported storage versions return invalid_command', () async {
+  test('integer versions other than 2 return invalid_command', () async {
     harness.command({..._read(1, 'k'), 'version': 3});
-    harness.command({..._read(2, 'k'), 'version': null});
+    harness.command({..._read(2, 'k'), 'version': 0});
     harness.command({'type': 'read', 'key': 'k', 'version': 1});
     await harness.waitFor(() => harness.named('storageResult').length == 2);
     await harness.settle(const Duration(milliseconds: 100));
@@ -329,6 +329,21 @@ void main() {
       'invalid_command',
     ]);
     expect(harness.named('storageRead'), isEmpty);
+  });
+
+  test('null or non-integer versions stay on the legacy path', () async {
+    await harness.store.set(namespace: _pluginId, key: 'k', value: 'v');
+    harness.command({'type': 'read', 'key': 'k', 'version': null});
+    harness.command({'type': 'read', 'key': 'k', 'version': '2'});
+    harness.command({'type': 'read', 'key': 'k', 'version': 2.5});
+    await harness.waitFor(() => harness.named('storageRead').length == 3);
+    await harness.settle(const Duration(milliseconds: 100));
+
+    expect(
+      harness.named('storageRead'),
+      everyElement({'key': 'k', 'value': 'v'}),
+    );
+    expect(harness.named('storageResult'), isEmpty);
   });
 
   test('the drain deadline bounds unload independently of the operation '
