@@ -67,6 +67,44 @@ void main() {
       expect(header.firmwareVersion, 1400);
     });
 
+    test('classifies unrecognized images without assigning a family', () {
+      expect(
+        De1FirmwareHeader.validateUpload(Uint8List(16)),
+        De1FirmwareImageClassification.unrecognizedShort,
+      );
+      expect(
+        De1FirmwareHeader.validateUpload(Uint8List(64)),
+        De1FirmwareImageClassification.unrecognizedAtLeastHeader,
+      );
+    });
+
+    test('classifies and validates a canonical DE1 image', () {
+      final image = _buildHeader(
+        bodyByteCount: 100,
+        cpuByteCount: 50,
+        totalSize: 200,
+      );
+      expect(
+        De1FirmwareHeader.validateUpload(image),
+        De1FirmwareImageClassification.canonicalDe1,
+      );
+    });
+
+    test('rejects an empty image before upload', () {
+      expect(
+        () => De1FirmwareHeader.validateUpload(Uint8List(0)),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
+    test('rejects a DE1 header with an out-of-bounds body', () {
+      final image = _buildHeader(bodyByteCount: 1000);
+      expect(
+        () => De1FirmwareHeader.validateUpload(image),
+        throwsA(isA<FormatException>()),
+      );
+    });
+
     test('header fields decoded correctly end-to-end', () {
       final image = _buildHeader(
         boardMarker: 0xDE100001,

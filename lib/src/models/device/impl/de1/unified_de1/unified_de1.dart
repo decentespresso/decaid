@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:math';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/controllers/connection/connection_timings.dart';
@@ -31,6 +32,7 @@ import 'package:reaprime/src/models/device/ble_service_identifier.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:reaprime/src/models/device/transport/logical_endpoint.dart';
 import 'package:reaprime/src/models/errors.dart';
+import 'package:reaprime/src/services/firmware/de1_firmware_header.dart';
 import 'package:rxdart/rxdart.dart';
 
 part 'firmware_mmr_gate.dart';

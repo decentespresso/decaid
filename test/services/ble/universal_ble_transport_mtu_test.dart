@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/device/device.dart' as device;
 import 'package:reaprime/src/models/errors.dart';
@@ -15,6 +16,7 @@ class _MtuRecordingBlePlatform extends UniversalBlePlatform {
   bool attached = false;
   int connectCalls = 0;
   int physicalConnectCalls = 0;
+  int connectionStateCalls = 0;
 
   @override
   Future<int> requestMtu(String deviceId, int expectedMtu) async {
@@ -134,6 +136,7 @@ class _MtuRecordingBlePlatform extends UniversalBlePlatform {
 
   @override
   Future<BleConnectionState> getConnectionState(String deviceId) async {
+    connectionStateCalls++;
     return systemConnected
         ? BleConnectionState.connected
         : BleConnectionState.disconnected;
@@ -220,6 +223,91 @@ void main() {
       await value.dispose();
     });
   }
+
+  test(
+    'characteristicDoesNotSupportRead maps to an unavailable exception',
+    () async {
+      final value = transport(android: false, linux: false);
+      final states = <device.ConnectionState>[];
+      final subscription = value.connectionState.listen(states.add);
+      await value.connect();
+      platform.readErrorCode =
+          UniversalBleErrorCode.characteristicDoesNotSupportRead;
+
+      fakeAsync((async) {
+        var readCompleted = false;
+        Object? readAssertionError;
+        expectLater(
+          value.read(
+            '0000180f-0000-1000-8000-00805f9b34fb',
+            '00002a19-0000-1000-8000-00805f9b34fb',
+          ),
+          throwsA(isA<GattAttributeUnavailableException>()),
+        ).then(
+          (_) {
+            readCompleted = true;
+          },
+          onError: (Object error, StackTrace stack) {
+            readAssertionError = error;
+          },
+        );
+        async.flushMicrotasks();
+        async.elapse(const Duration(milliseconds: 50));
+        async.flushMicrotasks();
+
+        expect(readAssertionError, isNull);
+        expect(readCompleted, isTrue);
+        expect(platform.connectionStateCalls, 1);
+        expect(states, isNot(contains(device.ConnectionState.disconnected)));
+      });
+
+      await subscription.cancel();
+      await value.dispose();
+    },
+  );
+
+  test(
+    'characteristicDoesNotSupportRead after the link died reports disconnected',
+    () async {
+      final value = transport(android: false, linux: false);
+      final states = <device.ConnectionState>[];
+      final subscription = value.connectionState.listen(states.add);
+      await value.connect();
+      platform.readErrorCode =
+          UniversalBleErrorCode.characteristicDoesNotSupportRead;
+      platform.systemConnected = false;
+
+      fakeAsync((async) {
+        var readCompleted = false;
+        Object? readAssertionError;
+        expectLater(
+          value.read(
+            '0000180f-0000-1000-8000-00805f9b34fb',
+            '00002a19-0000-1000-8000-00805f9b34fb',
+          ),
+          throwsA(isA<GattAttributeUnavailableException>()),
+        ).then(
+          (_) {
+            readCompleted = true;
+          },
+          onError: (Object error, StackTrace stack) {
+            readAssertionError = error;
+          },
+        );
+        async.flushMicrotasks();
+        async.elapse(const Duration(milliseconds: 50));
+        async.flushMicrotasks();
+
+        expect(readAssertionError, isNull);
+        expect(readCompleted, isTrue);
+        expect(platform.connectionStateCalls, 1);
+        expect(states, contains(device.ConnectionState.disconnected));
+      });
+
+      await subscription.cancel();
+      await value.dispose();
+    },
+  );
 
   test('attribute-missing errors are catchable as not-connected', () async {
     final value = transport(android: false, linux: false);

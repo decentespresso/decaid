@@ -31,7 +31,7 @@ void main() {
     final eraseBarrier = Completer<void>();
     transport.pauseNextWrite(Endpoint.fwMapRequest.uuid, eraseBarrier);
     final eraseRequest = transport.nextWrite(Endpoint.fwMapRequest.uuid);
-    final update = de1.updateFirmware(Uint8List(0), onProgress: (_) {});
+    final update = de1.updateFirmware(Uint8List(16), onProgress: (_) {});
     final updateFailure = expectLater(update, throwsA(isA<StateError>()));
 
     await _flushEventQueue();
@@ -62,7 +62,7 @@ void main() {
       final eraseBarrier = Completer<void>();
       transport.pauseNextWrite(Endpoint.fwMapRequest.uuid, eraseBarrier);
       final eraseRequest = transport.nextWrite(Endpoint.fwMapRequest.uuid);
-      final update = de1.updateFirmware(Uint8List(0), onProgress: (_) {});
+      final update = de1.updateFirmware(Uint8List(16), onProgress: (_) {});
       final updateFailure = expectLater(update, throwsA(isA<StateError>()));
       await _flushEventQueue();
 
@@ -84,7 +84,7 @@ void main() {
       final eraseBarrier = Completer<void>();
       transport.pauseNextWrite(Endpoint.fwMapRequest.uuid, eraseBarrier);
       final eraseRequest = transport.nextWrite(Endpoint.fwMapRequest.uuid);
-      final update = de1.updateFirmware(Uint8List(0), onProgress: (_) {});
+      final update = de1.updateFirmware(Uint8List(16), onProgress: (_) {});
       final updateFailure = expectLater(update, throwsA(isA<StateError>()));
       await eraseRequest;
 
@@ -119,7 +119,7 @@ void main() {
       final eraseBarrier = Completer<void>();
       transport.pauseNextWrite(Endpoint.fwMapRequest.uuid, eraseBarrier);
       final eraseRequest = transport.nextWrite(Endpoint.fwMapRequest.uuid);
-      final update = de1.updateFirmware(Uint8List(0), onProgress: (_) {});
+      final update = de1.updateFirmware(Uint8List(16), onProgress: (_) {});
       await _flushEventQueue();
 
       await de1.cancelFirmwareUpload();
@@ -149,7 +149,7 @@ void main() {
     final activeMmr = de1.getSteamFlow();
     await activeMmrRequest;
 
-    final update = de1.updateFirmware(Uint8List(0), onProgress: (_) {});
+    final update = de1.updateFirmware(Uint8List(16), onProgress: (_) {});
     await _flushEventQueue();
 
     transport.emitConnectionState(ConnectionState.disconnected);
@@ -171,7 +171,7 @@ void main() {
     final eraseBarrier = Completer<void>();
     transport.pauseNextWrite(Endpoint.fwMapRequest.uuid, eraseBarrier);
     final eraseRequest = transport.nextWrite(Endpoint.fwMapRequest.uuid);
-    final update = de1.updateFirmware(Uint8List(0), onProgress: (_) {});
+    final update = de1.updateFirmware(Uint8List(16), onProgress: (_) {});
     final cancellation = expectLater(
       update,
       throwsA(isA<FirmwareUpdateCancelledException>()),
@@ -203,7 +203,7 @@ void main() {
     final eraseBarrier = Completer<void>();
     transport.pauseNextWrite(Endpoint.fwMapRequest.uuid, eraseBarrier);
     final eraseRequest = transport.nextWrite(Endpoint.fwMapRequest.uuid);
-    final update = de1.updateFirmware(Uint8List(0), onProgress: (_) {});
+    final update = de1.updateFirmware(Uint8List(16), onProgress: (_) {});
     final updateFailure = expectLater(update, throwsA(isA<StateError>()));
     await eraseRequest;
 
@@ -230,7 +230,7 @@ void main() {
       final eraseBarrier = Completer<void>();
       transport.pauseNextWrite(Endpoint.fwMapRequest.uuid, eraseBarrier);
       final eraseRequest = transport.nextWrite(Endpoint.fwMapRequest.uuid);
-      final update = de1.updateFirmware(Uint8List(0), onProgress: (_) {});
+      final update = de1.updateFirmware(Uint8List(16), onProgress: (_) {});
       final updateFailure = expectLater(update, throwsA(isA<StateError>()));
       final retryRequest = transport.nextWrite(Endpoint.readFromMMR.uuid);
 
@@ -249,7 +249,7 @@ void main() {
   );
 
   test('MMR issued during firmware follows final firmware traffic', () async {
-    transport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
+    transport.queueFirmwareMapResponse([0, 0, 0, 1, 0, 0, 0]);
     transport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xfd]);
     final eraseRequest = transport.nextWrite(Endpoint.fwMapRequest.uuid);
     final update = de1.updateFirmware(

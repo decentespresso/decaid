@@ -47,6 +47,7 @@ class UnifiedDe1Transport {
   bool _cacheCleared = false;
 
   bool _recovering = false;
+  bool _firmwareMapReadUnavailable = false;
 
   Stream<device.ConnectionState> get connectionState => _transport
       .connectionState
@@ -169,6 +170,7 @@ class UnifiedDe1Transport {
       throw "wrong transport type";
     }
     _notificationGeneration++;
+    _firmwareMapReadUnavailable = false;
     final services = await _transport.discoverServices();
     final de1Service = BleServiceIdentifier.parse(de1ServiceUUID);
     if (!de1Service.matchesAny(services)) {
@@ -773,10 +775,21 @@ class UnifiedDe1Transport {
       return next;
     }
     if (transportType == TransportType.ble) {
-      return _bleRead(
-        Endpoint.fwMapRequest,
-        timeout: _firmwareMapPollReadTimeout,
-      );
+      if (_firmwareMapReadUnavailable) {
+        throw const GattAttributeUnavailableException(
+          operation: 'read',
+          path: 'fwMapRequest',
+        );
+      }
+      try {
+        return await _bleRead(
+          Endpoint.fwMapRequest,
+          timeout: _firmwareMapPollReadTimeout,
+        );
+      } on GattAttributeUnavailableException {
+        _firmwareMapReadUnavailable = true;
+        rethrow;
+      }
     }
     return read(Endpoint.fwMapRequest);
   }
