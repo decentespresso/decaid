@@ -6,9 +6,13 @@ enum De1FirmwareImageClassification {
   unrecognizedShort,
 }
 
+enum De1FirmwareTarget { de1, bengle }
+
 final class De1FirmwareHeader {
   static const int byteLength = 64;
-  static const int maxUploadByteLength = 16 * 1024 * 1024;
+  static const int maxDe1FirmwareImageByteLength = 512 * 1024;
+  static const int maxCanonicalBodyByteLength = 504 * 1024;
+  static const int maxBengleFirmwareImageByteLength = 960 * 1024;
   static const int de1BoardMarker = 0xDE100001;
 
   final int checksum;
@@ -53,13 +57,24 @@ final class De1FirmwareHeader {
 
   bool get isDe1Board => boardMarker == de1BoardMarker;
 
-  static De1FirmwareImageClassification validateUpload(Uint8List image) {
+  static De1FirmwareImageClassification validateUpload(
+    Uint8List image, {
+    De1FirmwareTarget target = De1FirmwareTarget.de1,
+  }) {
     if (image.isEmpty) {
       throw const FormatException('Firmware image is empty');
     }
-    if (image.length > maxUploadByteLength) {
+    final maxImageByteLength = switch (target) {
+      De1FirmwareTarget.de1 => maxDe1FirmwareImageByteLength,
+      De1FirmwareTarget.bengle => maxBengleFirmwareImageByteLength,
+    };
+    final targetName = switch (target) {
+      De1FirmwareTarget.de1 => 'DE1/legacy',
+      De1FirmwareTarget.bengle => 'Bengle',
+    };
+    if (image.length > maxImageByteLength) {
       throw FormatException(
-        'Firmware image exceeds $maxUploadByteLength bytes',
+        'Firmware image exceeds $maxImageByteLength bytes for $targetName target',
       );
     }
     if (image.length < byteLength) {
@@ -72,9 +87,18 @@ final class De1FirmwareHeader {
     }
 
     final header = De1FirmwareHeader.parse(image);
-    if (header.bodyByteCount <= 0 ||
-        header.bodyByteCount > image.length - byteLength) {
+    if (header.bodyByteCount <= 0) {
       throw const FormatException('Firmware body length is out of bounds');
+    }
+    if (header.bodyByteCount > maxCanonicalBodyByteLength) {
+      throw FormatException(
+        'Firmware body length exceeds $maxCanonicalBodyByteLength bytes',
+      );
+    }
+    if (header.bodyByteCount > image.length - byteLength) {
+      throw const FormatException(
+        'Firmware image is incomplete for its declared body',
+      );
     }
     if (header.cpuByteCount <= 0 ||
         header.cpuByteCount > header.bodyByteCount) {
@@ -83,11 +107,17 @@ final class De1FirmwareHeader {
     if (header.unused != 0) {
       throw const FormatException('Firmware header reserved field is non-zero');
     }
-    if (header.checksum == 0 ||
-        header.decryptedChecksum == 0 ||
-        header.headerChecksum == 0 ||
-        header.initializationVector.every((byte) => byte == 0)) {
-      throw const FormatException('Firmware header checksums are incomplete');
+    if (header.checksum == 0) {
+      throw const FormatException('Firmware checksum is zero');
+    }
+    if (header.decryptedChecksum == 0) {
+      throw const FormatException('Firmware decrypted checksum is zero');
+    }
+    if (header.headerChecksum == 0) {
+      throw const FormatException('Firmware header checksum is zero');
+    }
+    if (header.initializationVector.every((byte) => byte == 0)) {
+      throw const FormatException('Firmware initialization vector is zero');
     }
     return De1FirmwareImageClassification.canonicalDe1;
   }
