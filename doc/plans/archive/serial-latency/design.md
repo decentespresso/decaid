@@ -19,9 +19,11 @@ fail the affected request and any remaining requests when the worker exits.
 The reader also needs an observable shutdown barrier. Its worker processes a
 stop message between native reads and acknowledges termination through isolate
 exit. Pause, resume and cancel serialize startup/shutdown, and `close()` now
-returns a future. A positive native read timeout is required; zero previously
-meant an unbounded wait. Awaiting close guarantees the reader no longer uses the
-native handle, including when the stream subscription is paused.
+returns a future. The native read timeout must be in `1..0xfffffffe` milliseconds.
+The constructor rejects zero (an unbounded wait), the reserved Windows value
+`0xffffffff`, and larger values before the unsigned native conversion can wrap
+them. The default remains 500 ms. Awaiting close guarantees the reader no longer
+uses the native handle, including when the stream subscription is paused.
 
 The desktop transport serializes connect/disconnect/dispose. It detaches the
 current reader/writer, joins both workers, cancels the subscription, then closes

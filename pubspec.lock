@@ -941,8 +941,8 @@ packages:
     dependency: "direct overridden"
     description:
       path: "."
-      ref: "4f973f262c9f5462e589f4360f131e4313601720"
-      resolved-ref: "4f973f262c9f5462e589f4360f131e4313601720"
+      ref: "912fff861c8151d71a22e8e4abd231d598011244"
+      resolved-ref: "912fff861c8151d71a22e8e4abd231d598011244"
       url: "https://github.com/rheasman/libserialport.dart"
     source: git
     version: "0.3.0+1"

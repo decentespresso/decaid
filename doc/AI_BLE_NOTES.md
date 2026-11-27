@@ -754,11 +754,13 @@ future covers the complete sequence. Shutdown rejects new writes and joins both
 workers before closing the shared native handle; only dispose frees it.
 
 The libserialport reader must provide an awaited `close()` that finishes after
-worker exit. Killing an isolate or merely calling subscription cancellation is
-not a native-I/O lifetime barrier. Reader pause/resume must join the old worker
-before starting another. Desktop connect/disconnect/dispose serialize through
-the transport's lifecycle future; reader callbacks are checked against the
-currently owned reader.
+worker exit. Its constructor accepts only `1..0xfffffffe` milliseconds: zero
+disables native timeouts, `0xffffffff` is reserved on Windows, and larger Dart
+integers can wrap during FFI conversion. Killing an isolate or merely calling
+subscription cancellation is not a native-I/O lifetime barrier. Reader
+pause/resume must join the old worker before starting another. Desktop
+connect/disconnect/dispose serialize through the transport's lifecycle future;
+reader callbacks are checked against the currently owned reader.
 
 Linux physical testing found that closing a serial endpoint after a failed write
 can block while the driver drains unsent bytes. Shutdown flushes remaining output
