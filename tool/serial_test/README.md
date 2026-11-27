@@ -5,6 +5,7 @@ Build the Linux release bundle once, then run each test file with its own loopba
 ```sh
 flutter build linux --release
 python3 tool/serial_test/run_pty.py flutter test --no-pub test/services/serial/serial_port_reader_test.dart
+python3 tool/serial_test/run_pty.py flutter test --no-pub test/services/serial/serial_worker_test.dart
 ```
 
 Use the SDK and native prerequisites from the repository README. The helper also

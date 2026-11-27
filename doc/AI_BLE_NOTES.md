@@ -743,3 +743,28 @@ fallback percentage.
 ## Keeping Notes Fresh
 
 Add lessons that would have saved debugging time: new footguns, thread-safety constraints, connection-lifecycle changes, non-obvious symptoms, and cross-transport dependencies. Prune stale claims. Prefer fewer, sharper notes over long background.
+
+
+## Desktop serial worker ownership
+
+Desktop serial uses one reader and one FIFO writer isolate per open port.
+`SerialWriter` copies admitted commands and bounds pending work to 32 requests /
+64 KiB; the worker owns native writes, drain polling and platform pacing. A write
+future covers the complete sequence. Shutdown rejects new writes and joins both
+workers before closing the shared native handle; only dispose frees it.
+
+The libserialport reader must provide an awaited `close()` that finishes after
+worker exit. Its constructor accepts only `1..0xfffffffe` milliseconds: zero
+disables native timeouts, `0xffffffff` is reserved on Windows, and larger Dart
+integers can wrap during FFI conversion. Killing an isolate or merely calling
+subscription cancellation is not a native-I/O lifetime barrier. Reader
+pause/resume must join the old worker before starting another. Desktop
+connect/disconnect/dispose serialize through the transport's lifecycle future;
+reader callbacks are checked against the currently owned reader.
+
+Linux physical testing found that closing a serial endpoint after a failed write
+can block while the driver drains unsent bytes. Shutdown flushes remaining output
+and performs close off the UI isolate, after the workers have exited. The normal
+write path keeps the existing bounded drain and Linux/macOS pacing. Native
+loopback regression commands are in `tool/serial_test/README.md`; PTYs do not
+reproduce all USB driver behavior.

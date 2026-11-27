@@ -1,9 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/scan_filter.dart';
@@ -20,6 +21,7 @@ import 'package:reaprime/src/models/device/remembered_device.dart';
 
 import 'mmr_codec.dart';
 import 'serial_reconcile.dart';
+import 'serial_writer.dart';
 import 'usb_ids.dart';
 import 'utils.dart';
 
@@ -601,7 +603,9 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
   }
 }
 
-const int _serialWriteTimeoutMs = 500;
+@visibleForTesting
+SerialTransport createDesktopSerialPortForTest(SerialPort port) =>
+    _DesktopSerialPort(port: port, canonicalId: 'test-serial');
 
 class _DesktopSerialPort implements SerialTransport {
   final SerialPort _port;
@@ -637,40 +641,70 @@ class _DesktopSerialPort implements SerialTransport {
   }
 
   bool _disposed = false;
+  int _disconnectRequests = 0;
+  Future<void> _lifecycle = Future<void>.value();
+  Future<void>? _disposeFuture;
+  SerialPortReader? _reader;
+  SerialWriter? _writer;
 
-  @override
-  Future<void> disconnect() async {
-    if (_disposed) return;
-    _portSubscription?.cancel();
-    _port.close();
-    if (!_open.isClosed) _open.add(ConnectionState.disconnected);
+  Future<void> _serialize(Future<void> Function() operation) async {
+    final previous = _lifecycle;
+    final done = Completer<void>();
+    _lifecycle = done.future;
+    await previous;
+    try {
+      await operation();
+    } finally {
+      done.complete();
+    }
   }
 
   @override
-  Future<void> dispose() async {
-    if (_disposed) return;
+  Future<void> disconnect() {
+    if (_disposed) return _disposeFuture ?? Future<void>.value();
+    _disconnectRequests++;
+    return _serialize(() async {
+      try {
+        await _disconnect();
+      } finally {
+        _disconnectRequests--;
+      }
+    });
+  }
+
+  Future<void> _disconnect() async {
+    final reader = _reader;
+    final writer = _writer;
+    final subscription = _portSubscription;
+    _reader = null;
+    _writer = null;
+    _portSubscription = null;
+    await Future.wait([
+      if (reader != null) reader.close(),
+      if (writer != null) writer.close(),
+      if (subscription != null) subscription.cancel(),
+    ]);
+    final address = _port.address;
+    await Isolate.run(() => _closePort(address));
+    if (!_open.isClosed) _open.add(ConnectionState.disconnected);
+  }
+
+  static Future<void> _closePort(int address) async {
+    final port = SerialPort.fromAddress(address);
+    port.flush(SerialPortBuffer.output);
+    await port.close();
+  }
+
+  @override
+  Future<void> dispose() {
     _disposed = true;
-    try {
-      _portSubscription?.cancel();
-      _port.close();
-      if (!_open.isClosed) _open.add(ConnectionState.disconnected);
-    } catch (e) {
-      _log.warning("dispose: close failed", e);
-    }
-    try {
+    return _disposeFuture ??= _serialize(() async {
+      await _disconnect();
       _port.dispose();
-    } catch (e) {
-      _log.warning("dispose: _port.dispose failed", e);
-    }
-    if (!_rawStreamController.isClosed) {
       await _rawStreamController.close();
-    }
-    if (!_readController.isClosed) {
       await _readController.close();
-    }
-    if (!_open.isClosed) {
       await _open.close();
-    }
+    });
   }
 
   @override
@@ -691,7 +725,21 @@ class _DesktopSerialPort implements SerialTransport {
   Stream<Uint8List> get rawStream => _rawStreamController.stream;
 
   @override
-  Future<void> connect() async {
+  Future<void> connect() {
+    if (_disposed) {
+      return Future.error(StateError('Serial transport is disposed'));
+    }
+    return _serialize(() async {
+      try {
+        await _connect();
+      } catch (_) {
+        await _disconnect();
+        rethrow;
+      }
+    });
+  }
+
+  Future<void> _connect() async {
     if (_disposed) {
       throw StateError("serial transport disposed (id=$id) — cannot connect");
     }
@@ -741,11 +789,21 @@ class _DesktopSerialPort implements SerialTransport {
       _log.finest("current config: ${_port.config.baudRate}");
 
       _log.fine("port opened");
+      if (_disposed || _disconnectRequests > 0) {
+        throw StateError('Serial connection cancelled');
+      }
       final reader = SerialPortReader(_port);
+      _reader = reader;
+      _writer = SerialWriter(_port);
       final readerTag = "reader=${identityHashCode(reader).toRadixString(16)}";
       _log.info("subscribing reader (id=$id $instanceTag $readerTag)");
       _portSubscription = reader.stream.listen(
         (data) {
+          if (!identical(_reader, reader) ||
+              _disposed ||
+              _disconnectRequests > 0) {
+            return;
+          }
           _rawStreamController.add(data);
           if (!_decodeUtf8Text) return;
           try {
@@ -757,11 +815,21 @@ class _DesktopSerialPort implements SerialTransport {
           }
         },
         onError: (error) {
+          if (!identical(_reader, reader) ||
+              _disposed ||
+              _disconnectRequests > 0) {
+            return;
+          }
           _log.severe("port error (id=$id $instanceTag $readerTag): $error");
           _readController.addError(error);
           disconnect();
         },
         onDone: () {
+          if (!identical(_reader, reader) ||
+              _disposed ||
+              _disconnectRequests > 0) {
+            return;
+          }
           _log.warning(
             "serial stream closed (onDone) — cable unplug or reader isolate "
             "death. id=$id $instanceTag $readerTag",
@@ -791,39 +859,18 @@ class _DesktopSerialPort implements SerialTransport {
   }
 
   Future<void> _write(Uint8List command) async {
-    if (_disposed) {
-      throw StateError("serial transport disposed (id=$id) — cannot write");
+    final writer = _writer;
+    if (_disposed || _disconnectRequests > 0 || writer == null) {
+      throw StateError(
+        "serial transport is not connected (id=$id) — cannot write",
+      );
     }
     try {
-      int offset = 0;
-      while (offset < command.length) {
-        final chunk = offset == 0
-            ? command
-            : Uint8List.sublistView(command, offset);
-        final written = await _port.write(
-          chunk,
-          timeout: _serialWriteTimeoutMs,
-        );
-        if (written < 0) {
-          throw StateError('Serial write failed: ${SerialPort.lastError}');
-        }
-        if (written == 0) {
-          throw StateError(
-            'Serial write stalled (0 bytes in ${_serialWriteTimeoutMs}ms)',
-          );
-        }
-        offset += written;
-      }
-      await drainWithTimeout(bytesToWrite: () => _port.bytesToWrite);
+      await writer.write(command);
       _log.fine("wrote: ${command.map((e) => e.toRadixString(16))}");
-      if (Platform.isLinux || Platform.isMacOS) {
-        await Future.delayed(Duration(milliseconds: 20), () {
-          _log.finest("delaying next write");
-        });
-      }
     } catch (e) {
       _log.warning("Serial write error, disconnecting", e);
-      await disconnect();
+      if (identical(_writer, writer)) await disconnect();
       rethrow;
     }
   }

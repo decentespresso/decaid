@@ -152,7 +152,7 @@ dependency_overrides:
   libserialport:
     git:
       url: https://github.com/rheasman/libserialport.dart
-      ref: db3ad7b61447bbd8aa28516aac2a3232294618c3
+      ref: 912fff861c8151d71a22e8e4abd231d598011244
   # shadcn_ui 0.53.5 transitively pins lucide_icons_flutter 3.1.12, which
   # extends `IconData` — that broke after Flutter's CI SDK made
   # `IconData` final. Override to a newer lucide that compiles cleanly.
