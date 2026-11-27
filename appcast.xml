@@ -6,6 +6,42 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Decaid</title>
         <item>
+            <title>0.9.4</title>
+            <pubDate>Fri, 27 Nov 2026 14:34:09 +0000</pubDate>
+            <sparkle:channel>beta</sparkle:channel>
+            <sparkle:version>3306</sparkle:version>
+            <sparkle:shortVersionString>0.9.4</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## What's Changed
+* fix(release): preserve full tags in artifact filenames by @tadelv in https://github.com/decentespresso/decaid/pull/1242
+* fix(update): send versioned Decaid User-Agent on release downloads by @tadelv in https://github.com/decentespresso/decaid/pull/1244
+* fix(api): reject shot timestamp updates atomically by @tadelv in https://github.com/decentespresso/decaid/pull/1247
+* fix(api): validate required bean creation fields by @tadelv in https://github.com/decentespresso/decaid/pull/1248
+* fix(onboarding): show discovered devices and clarify setup skip by @tadelv in https://github.com/decentespresso/decaid/pull/1249
+* fix(beans): delete batches atomically while preserving shot history by @tadelv in https://github.com/decentespresso/decaid/pull/1254
+* feat(app-log): log warm-up times and cap support log sharing at 7 days by @allofmeng in https://github.com/decentespresso/decaid/pull/1218
+* feat(simulate): add Mock DE1 GHC switch and steam simulation by @allofmeng in https://github.com/decentespresso/decaid/pull/1245
+* fix(ci): validate current PR acknowledgement after approval by @tadelv in https://github.com/decentespresso/decaid/pull/1256
+* fix(calibration): read machine flow multiplier without automatic replay by @tadelv in https://github.com/decentespresso/decaid/pull/1250
+* fix(android): accept the owner user on headless system user devices by @lgladdy in https://github.com/decentespresso/decaid/pull/1246
+* feat(onboarding): add non-destructive setup replay by @tadelv in https://github.com/decentespresso/decaid/pull/1261
+* fix(shot): confirm the espresso tare before stop-at-weight trusts the scale by @lgladdy in https://github.com/decentespresso/decaid/pull/1251
+* feat(storage): add journal foundation for new-owner reset by @tadelv in https://github.com/decentespresso/decaid/pull/1262
+* feat(storage): guard new-owner recovery startup by @tadelv in https://github.com/decentespresso/decaid/pull/1265
+* fix(ble): preserve plugin scale watch connection authority by @tadelv in https://github.com/decentespresso/decaid/pull/1266
+* fix(lifecycle): recover API and skin listeners on resume by @tadelv in https://github.com/decentespresso/decaid/pull/1269
+* feat: add read-only new-owner retention preflight (#1259) by @tadelv in https://github.com/decentespresso/decaid/pull/1272
+* fix(firmware): separate DE1 erase and verification requests by @tadelv in https://github.com/decentespresso/decaid/pull/1276
+
+## New Contributors
+* @lgladdy made their first contribution in https://github.com/decentespresso/decaid/pull/1246
+
+**Full Changelog**: https://github.com/decentespresso/decaid/compare/v0.9.3...v0.9.4-beta.1
+
+]]></description>
+            <enclosure url="https://github.com/decentespresso/decaid/releases/download/v0.9.4-beta.1/decaid-macos-v0.9.4-beta.1.zip" length="66331672" type="application/octet-stream" sparkle:edSignature="PL1QO5OKqwuvjOGThbWi1kwUmeYhw/jdMXErVFeevLn5IGIDppv6F+6FQfU1k0xF8VnYq9JHgqWZRrATuMLMDQ=="/>
+        </item>
+        <item>
             <title>0.9.3</title>
             <pubDate>Mon, 23 Nov 2026 13:17:21 +0000</pubDate>
             <sparkle:version>3265</sparkle:version>
@@ -894,6 +930,6 @@ See `doc/RELEASE.md` for install and verification instructions.
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: /uuQAuEnVKr0KOFsU0Ps82P3+e83UVWL7RKPC4r5WYzuh9Cgeko+EgUKNdEJ0mkitFjLBPqKpwEY7ZMWb4nxAQ==
-length: 81327
+edSignature: /kbTWgsRTcM62tGDuMpSeULCHqQmTao3V9QArJ6DoHH22LCbhX0xNitYXp3JGMEIp9z32g4rS970Drv3ditpDw==
+length: 84747
 -->
