@@ -321,7 +321,10 @@ Future<ApiListener> startWebServer(
       ),
       WorkflowExportSection(controller: workflowController),
       SettingsExportSection(controller: settingsController),
-      KvStoreExportSection(store: kvStoreHandler.store),
+      KvStoreExportSection(
+        store: kvStoreHandler.store,
+        coordinator: pluginService.pluginManager.storageCoordinator,
+      ),
       if (beanStorage != null)
         BeanExportSection(
           storage: beanStorage,

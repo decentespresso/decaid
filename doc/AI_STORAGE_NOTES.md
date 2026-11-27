@@ -53,6 +53,41 @@ Gotchas:
 
 Keep these stores independent. A settings reset must not clear account credentials unless explicitly requested.
 
+## Plugin Storage Coordination (issue #994)
+
+`StorageOperationCoordinator` (`lib/src/services/storage/storage_operation_coordinator.dart`)
+is the single admission point for `host.storage` operations and the maintenance boundary that
+backup restore uses. `PluginManager` owns one instance for the process; `startWebServer` hands
+the same instance to `KvStoreExportSection`, so direct import and data sync share it. The
+plugin-facing contract is in `doc/Plugins.md` ("Correlated storage results").
+
+- **Keyed by namespace, not generation.** The plugin namespace is the plugin id, and the
+  restore path writes the same Hive box through a different `HiveStoreService` instance
+  (`Hive.openBox` returns the already-open box by name). Budgets, write tails and quarantine
+  therefore survive plugin reload, which is what stops a replacement generation from racing a
+  stuck predecessor.
+- **A timeout cannot cancel a Hive write.** `KeyValueStoreService` has no cancellation, so a
+  write that started and missed its deadline is indeterminate. Its key is quarantined until
+  that backend future settles (success or failure) or the process restarts; the coordinator is
+  in-memory, so restart is the recovery boundary. A queued write whose deadline passes before
+  it starts is abandoned and never issued, so its `timeout` result is definite.
+- **Per-key write tails serialize writes.** Each accepted write chains on the previous write to
+  the same `(namespace, key)` and only reaches the backend after it settles. Combined with
+  quarantine, a late old write always lands before any newer write to that key.
+- **Maintenance waits for writes only.** `runMaintenance(namespaces, action)` refuses new
+  reads and writes to the guarded namespaces at once, waits up to `drainTimeout` for their
+  pending writes (including retired generations' and quarantined ones) and throws
+  `StorageOperationException(unresolved_writes)` without running `action` if they do not
+  settle. Outstanding reads cannot change stored data and do not block it. Overlapping
+  maintenance on the same namespace is refused, not queued.
+- **Restore guards the namespaces it restores.** `KvStoreExportSection.validateJson` returns
+  the namespace set; `importJson` runs the whole restore inside `runMaintenance` for it and
+  reports a refused restore as a section error with nothing imported.
+- **Not covered yet.** The generic `/api/v1/store` routes still write Hive directly; routing
+  them through the coordinator, and retiring/reloading affected plugin generations around a
+  restore, is #1235's scope. The limits live in `StorageOperationLimits` and are injected via
+  `PluginManager(storageCoordinator:)` in tests; there is no user-facing setting.
+
 ## Legacy Skin Port Assignments
 
 `webUISkinPorts` stores serving-path-to-port assignments. Skin discovery prefers

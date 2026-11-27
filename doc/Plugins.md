@@ -327,6 +327,90 @@ host.storage({
 
 **Note:** namespace is not used by Decaid internally, the plugin storage is namespaced to the plugins' identifier.
 
+These legacy commands answer with `storageRead {key, value}` and
+`storageWrite <data>` events and carry no request ID. They are unchanged for
+plugins that do not opt in to correlated results.
+
+#### Correlated storage results (storage protocol 2)
+
+Hosts that support correlated results expose `host.storageVersion === 2`.
+Older hosts leave it undefined; keep using the legacy commands there. A plugin
+opts in per command by adding `version: 2` and a `requestId`:
+
+```javascript
+let nextStorageRequest = 0;
+const pending = new Map();
+
+function storage(command) {
+  const requestId = nextStorageRequest++;
+  return new Promise((resolve, reject) => {
+    pending.set(requestId, { resolve, reject });
+    host.storage({ ...command, version: 2, requestId });
+  });
+}
+
+// in onEvent(event)
+if (event.name === "storageResult") {
+  const entry = pending.get(event.payload.requestId);
+  if (!entry) return;
+  pending.delete(event.payload.requestId);
+  event.payload.ok ? entry.resolve(event.payload.value) : entry.reject(event.payload.error);
+}
+```
+
+- `requestId` is a nonnegative JavaScript safe integer (`0` to
+  `Number.MAX_SAFE_INTEGER`). Each ID must be greater than every ID the same
+  plugin generation already sent. Reused, lower or malformed IDs are dropped
+  and logged; they never produce a result, so the original request still gets
+  its single result. The sequence restarts with each new generation.
+- Every accepted command gets exactly one `storageResult` event, delivered
+  only to the generation that sent it. Results for a generation that has been
+  unloaded or replaced are discarded. Concurrent requests can settle in any
+  order.
+- Success: `{requestId, operation, generation, ok: true}`, plus `value` for a
+  read (`null` when the key is missing). A version 2 command emits no legacy
+  `storageRead` or `storageWrite` event.
+- Failure: `{requestId, operation, generation, ok: false, error: {code,
+  message}}`. `operation` is `null` when the command type is not `read` or
+  `write`. Messages are fixed host strings; they never contain stored values,
+  paths, credentials or exception details.
+
+| `error.code` | Meaning |
+| --- | --- |
+| `invalid_command` | Unknown type, missing key, or a write without `data`. |
+| `capacity` | The plugin already has 32 storage operations outstanding. |
+| `quarantined` | An earlier write to this key timed out and has not settled. |
+| `maintenance` | The host is restoring or maintaining this plugin's storage. |
+| `timeout` | A read took longer than 5 seconds, or a write could not start within 5 seconds and was not applied. |
+| `write_indeterminate` | A write started but did not settle within 5 seconds; it may still be applied. |
+| `storage_error` | The storage backend failed. |
+
+Bounds and ordering apply to legacy and version 2 commands alike:
+
+- A timeout ends the plugin's wait, not the backend operation. A timed-out
+  operation still counts toward the 32-operation budget until it settles. The
+  budget is per plugin and survives reload, so a replacement generation cannot
+  bypass a stuck predecessor.
+- Writes to the same key run one at a time in the order they were accepted,
+  across generations. After a `write_indeterminate` result the key is
+  quarantined: later writes to it fail with `quarantined` until the earlier
+  write actually settles or the app restarts. Reloading the plugin does not
+  clear quarantine, and the host never replays a timed-out write; the plugin
+  decides whether to write again. Other keys stay writable.
+- Reads have no read-after-write guarantee until the corresponding write
+  succeeds.
+- Legacy events are dispatched only for operations that settle within the
+  deadline; failed, refused or timed-out legacy operations are logged without
+  an event, as failures were before.
+- Unload and reload wait at most 5 seconds for outstanding storage work, so a
+  stuck backend cannot block lifecycle completion. Writes issued from
+  `onUnload` are still accepted while the generation retires.
+- Backup restore and data sync use the same storage coordinator. While a
+  restore holds a namespace, plugin reads and writes to it fail with
+  `maintenance`. A restore waits up to 5 seconds for outstanding writes to the
+  namespaces it restores and is refused, without changing those namespaces,
+  while any write stays unresolved.
+
 ### `host.decentProxy(path, options)`
 Call the Decent account proxy without exposing stored credentials to plugin code. `GET` requires the read-only `proxy.decent_api` permission. `POST` requires the distinct write permission `proxy.decent_api.write` **and** is restricted to an explicit path allowlist (currently only `support/api/shot_upload`); other methods/paths are rejected and logged. The first request from each plugin id pauses for approval in Decaid's native UI. Explicit allow and deny decisions are remembered; denial or timeout rejects the call before any upstream request.
 
@@ -556,6 +640,9 @@ Machine broadcasts require `events.machine`. Shot lifecycle broadcasts require
   ```
 
 - **`storageWrite`**: Confirmation of storage write
+- **`storageResult`**: Correlated result of a version 2 `host.storage` command;
+  see "Correlated storage results" above. Delivered only to the generation that
+  sent the command.
 - **`shotStored`**: A new shot finished persisting, including successful backup, Settings JSON, and De1App/onboarding backup imports. Payload: `{id: "<shot id>"}`.
 - **`shotUpdated`**: A stored shot was edited (e.g. notes in History, `PUT /api/v1/shots/<id>`, or a changed backup overwrite). The payload always contains `id`, `shot` (current metadata without measurements), and `patch` (fields changed by this mutation). PUT preserves the submitted request patch; native edits provide an equivalent field patch; backup overwrites provide changed replacement metadata, with removed fields set to `null`. Measurement-only overwrites can have an empty metadata patch. Unchanged, skipped, and failed imports emit no Shot event. Events are per Shot, not batched. The Visualizer plugin uses the patch to forward-sync only edited fields without overwriting unrelated remote edits.
 
