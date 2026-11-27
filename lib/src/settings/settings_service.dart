@@ -105,6 +105,20 @@ abstract class SettingsService {
   Future<void> setFeatureFlag(FeatureFlag flag, bool value);
 }
 
+abstract class LegacySelectedSkinLookup {
+  Future<String?> selectedSkinId();
+}
+
+class SharedPrefsLegacySelectedSkinLookup implements LegacySelectedSkinLookup {
+  static const String key = 'selected_webui_skin_id';
+
+  @override
+  Future<String?> selectedSkinId() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(key);
+  }
+}
+
 class SharedPreferencesSettingsService extends SettingsService {
   final prefs = SharedPreferencesAsync();
 

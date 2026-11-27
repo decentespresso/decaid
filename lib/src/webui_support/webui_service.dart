@@ -23,6 +23,26 @@ class SkinOverride {
   const SkinOverride.id(String skinId) : source = SkinSource.id, value = skinId;
 }
 
+@immutable
+final class SkinServingSelection {
+  const SkinServingSelection.notServing({required this.declaredOverride})
+    : servedPath = null;
+
+  const SkinServingSelection.serving({
+    required this.declaredOverride,
+    required String this.servedPath,
+  });
+
+  final SkinOverride declaredOverride;
+  final String? servedPath;
+
+  bool get isServing => servedPath != null;
+}
+
+abstract interface class SkinServingSelectionSource {
+  SkinServingSelection observeServingSelection();
+}
+
 enum SkinSource { registry, path, id }
 
 @immutable
@@ -140,7 +160,7 @@ Future<List<String>> _listDeviceAddresses() async {
   ];
 }
 
-class WebUIService {
+class WebUIService implements SkinServingSelectionSource {
   final _log = Logger("WebUIService");
   final Future<List<String>> Function() _listLocalAddresses;
   final Future<Map<String, int>> Function()? _loadSkinPortAssignments;
@@ -159,6 +179,7 @@ class WebUIService {
   @visibleForTesting
   int entryStartCount = 0;
   String _path = "";
+  String? _servedPath;
   String? _localIP;
   String? _activeSkinIdentity;
   String? _skinListenerId;
@@ -286,6 +307,7 @@ class WebUIService {
     _servingVersion = version;
     final previousServer = _server;
     _server = null;
+    _servedPath = null;
     if (previousServer != null) {
       await previousServer.close(force: true);
       if (version != _lifecycleVersion) {
@@ -416,6 +438,7 @@ class WebUIService {
       }
       _server = activeServer;
       _skinListenerId = _listenerIds[activeServer];
+      _servedPath = path;
       this.port = activeServer.port;
       await _serveEntryPoint(port);
       await _reconcileAliasServers();
@@ -434,6 +457,7 @@ class WebUIService {
         await _closeAliasServers();
         _server = null;
         _entryServer = null;
+        _servedPath = null;
         _activeSkinIdentity = null;
         _skinListenerId = null;
         _entryListenerId = null;
@@ -730,6 +754,19 @@ class WebUIService {
     return _path;
   }
 
+  @override
+  SkinServingSelection observeServingSelection() {
+    final override = skinOverride;
+    final servedPath = _servedPath;
+    if (_server == null || servedPath == null) {
+      return SkinServingSelection.notServing(declaredOverride: override);
+    }
+    return SkinServingSelection.serving(
+      declaredOverride: override,
+      servedPath: servedPath,
+    );
+  }
+
   bool get isServing => _server != null;
 
   bool get hasActiveSkin => _path.isNotEmpty;
@@ -808,13 +845,17 @@ class WebUIService {
         if (version != _lifecycleVersion || (isCancelled?.call() ?? false)) {
           return;
         }
-        if (identical(_server, skinServer)) _server = null;
+        if (identical(_server, skinServer)) {
+          _server = null;
+          _servedPath = null;
+        }
         final replacement = await _serveStable(handler, identity);
         if (version != _lifecycleVersion || (isCancelled?.call() ?? false)) {
           await replacement.close(force: true);
           return;
         }
         _server = replacement;
+        _servedPath = path;
         _skinListenerId = _listenerIds[replacement];
         port = replacement.port;
         _pendingRecoveryGeneration = (version: version, identity: identity);
@@ -875,6 +916,7 @@ class WebUIService {
         if (skin != null &&
             (!identical(skin, previousSkin) || pendingGeneration)) {
           _server = null;
+          _servedPath = null;
           cancelledServers.add(skin);
         }
         final entry = _entryServer;
@@ -937,6 +979,7 @@ class WebUIService {
     _aliasServers.clear();
     _server = null;
     _entryServer = null;
+    _servedPath = null;
     _path = "";
     _activeSkinIdentity = null;
     _skinListenerId = null;

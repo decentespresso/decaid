@@ -12,6 +12,7 @@ import 'package:reaprime/src/models/device/impl/bengle/bengle_milk_probe.dart';
 import 'package:reaprime/src/models/device/impl/bengle/bengle_virtual_scale.dart';
 import 'package:reaprime/src/models/device/remembered_device.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
+import 'package:reaprime/src/plugins/plugin_scale.dart';
 import 'package:reaprime/src/services/storage/new_owner_retention_preflight.dart';
 import 'package:reaprime/src/services/wifi/bonsoir_wifi_scale_browser.dart';
 import 'package:reaprime/src/services/wifi/wifi_scale_discovery_service.dart';
@@ -309,6 +310,21 @@ final class _RecordingManualEndpointLookup implements WifiManualEndpointLookup {
   }
 }
 
+final class _FixedServingSelection implements SkinServingSelectionSource {
+  _FixedServingSelection(this._selection);
+
+  final SkinServingSelection _selection;
+
+  @override
+  SkinServingSelection observeServingSelection() => _selection;
+}
+
+final class _ThrowingServingSelection implements SkinServingSelectionSource {
+  @override
+  SkinServingSelection observeServingSelection() =>
+      throw StateError('simulated serving selection read failure');
+}
+
 final class _InertBengle implements BengleInterface {
   _InertBengle({this.transportType = TransportType.serial});
 
@@ -508,7 +524,9 @@ void main() {
   }
 
   Future<NewOwnerRetentionPreflightResult> runPreflight({
-    SkinOverride runtimeSkinSelection = const SkinOverride.registry(),
+    SkinOverride declaredOverride = const SkinOverride.registry(),
+    SkinServingSelectionSource? runtimeOwner,
+    bool omitRuntimeOwner = false,
     ManagedSkinFileAccess? skinFileAccess,
     WifiManualEndpointLookup? manualEndpoints,
     bool omitRootOverride = false,
@@ -521,7 +539,15 @@ void main() {
     final result = await NewOwnerRetentionPreflight(
       settings: settings,
       storage: storage,
-      runtimeSkinSelection: runtimeSkinSelection,
+      runtimeOwner: omitRuntimeOwner
+          ? null
+          : runtimeOwner ??
+                _FixedServingSelection(
+                  SkinServingSelection.notServing(
+                    declaredOverride: declaredOverride,
+                  ),
+                ),
+      legacySkinSelection: SharedPrefsLegacySelectedSkinLookup(),
       manualEndpoints: manualEndpoints ?? SharedPrefsWifiManualEndpointStore(),
     ).observe();
     expect(
@@ -648,7 +674,7 @@ void main() {
 
         final allowlist = acceptedAllowlist(
           await runPreflight(
-            runtimeSkinSelection: SkinOverride.path(
+            declaredOverride: SkinOverride.path(
               p.join(webUiDir.path, 'insight'),
             ),
           ),
@@ -669,7 +695,7 @@ void main() {
 
         final allowlist = acceptedAllowlist(
           await runPreflight(
-            runtimeSkinSelection: const SkinOverride.id('insight'),
+            declaredOverride: const SkinOverride.id('insight'),
           ),
         );
 
@@ -786,7 +812,7 @@ void main() {
 
       final allowlist = acceptedAllowlist(
         await runPreflight(
-          runtimeSkinSelection: SkinOverride.path(
+          declaredOverride: SkinOverride.path(
             p.join(webUiDir.path, 'streamline'),
           ),
         ),
@@ -1530,9 +1556,7 @@ void main() {
 
       expect(
         rejectionOf(
-          await runPreflight(
-            runtimeSkinSelection: SkinOverride.path(alias.path),
-          ),
+          await runPreflight(declaredOverride: SkinOverride.path(alias.path)),
         ),
         NewOwnerRetentionRejection.runtimeSkinSelectionUnsupported,
       );
@@ -1551,7 +1575,7 @@ void main() {
         expect(
           rejectionOf(
             await runPreflight(
-              runtimeSkinSelection: SkinOverride.path(
+              declaredOverride: SkinOverride.path(
                 p.join(webUiDir.path, 'insight-legacy'),
               ),
             ),
@@ -1598,9 +1622,7 @@ void main() {
 
       expect(
         rejectionOf(
-          await runPreflight(
-            runtimeSkinSelection: SkinOverride.path(outside.path),
-          ),
+          await runPreflight(declaredOverride: SkinOverride.path(outside.path)),
         ),
         NewOwnerRetentionRejection.runtimeSkinSelectionUnsupported,
       );
@@ -1615,7 +1637,7 @@ void main() {
       expect(
         rejectionOf(
           await runPreflight(
-            runtimeSkinSelection: const SkinOverride.id('insight'),
+            declaredOverride: const SkinOverride.id('insight'),
           ),
         ),
         NewOwnerRetentionRejection.runtimeSkinSelectionUnsupported,
@@ -1630,7 +1652,7 @@ void main() {
       expect(
         rejectionOf(
           await runPreflight(
-            runtimeSkinSelection: SkinOverride.path(
+            declaredOverride: SkinOverride.path(
               p.join(webUiDir.path, 'missing-skin'),
             ),
           ),
@@ -2038,7 +2060,7 @@ void main() {
         expect(
           rejectionOf(
             await runPreflight(
-              runtimeSkinSelection: SkinOverride.path(outside.path),
+              declaredOverride: SkinOverride.path(outside.path),
               skinFileAccess: spy,
             ),
           ),
@@ -2048,5 +2070,324 @@ void main() {
         expectNoStateChange(before);
       },
     );
+  });
+
+  group('runtime serving reconciliation', () {
+    const entryPort = 3019;
+
+    WebUIService? serving;
+
+    setUp(() {
+      WebUIService.resolveWifiIP = () async => 'localhost';
+      WebUIService.skinPortRangeStart = 27000;
+      WebUIService.skinPortRangeSize = 32;
+      WebUIService.aliasBindBarrier = null;
+    });
+
+    tearDown(() async {
+      WebUIService.aliasBindBarrier = null;
+      await serving?.stopServing();
+      serving = null;
+    });
+
+    Future<WebUIService> serve(String path) async {
+      final service = WebUIService(
+        listLocalAddresses: () async => const <String>[],
+      );
+      serving = service;
+      await service.serveFolderAtPath(path, port: entryPort);
+      return service;
+    }
+
+    test('rejects a different managed package actually served', () async {
+      seedSkin('streamline.js');
+      seedSkin('insight');
+      final service = await serve(p.join(webUiDir.path, 'insight'));
+      final generation = service.serveGeneration.value;
+      final before = observeState();
+
+      expect(
+        rejectionOf(await runPreflight(runtimeOwner: service)),
+        NewOwnerRetentionRejection.runtimeSkinSelectionUnsupported,
+      );
+      expect(service.serveGeneration.value, generation);
+      expect(service.serverPath(), p.join(webUiDir.path, 'insight'));
+      expectNoStateChange(before);
+    });
+
+    test('rejects an unmanaged path actually served', () async {
+      seedSkin('streamline.js');
+      final outside = Directory(p.join(workspace.path, 'outside-skin'))
+        ..createSync();
+      File(p.join(outside.path, 'index.html'))
+          .writeAsStringSync('<html></html>');
+      final service = await serve(outside.path);
+      final spy = _RecordingSkinFileAccess();
+      final generation = service.serveGeneration.value;
+      final before = observeState();
+
+      expect(
+        rejectionOf(
+          await runPreflight(runtimeOwner: service, skinFileAccess: spy),
+        ),
+        NewOwnerRetentionRejection.runtimeSkinSelectionUnsupported,
+      );
+      expect(spy.operations, isEmpty);
+      expect(service.serveGeneration.value, generation);
+      expect(service.observeServingSelection().servedPath, outside.path);
+      expectNoStateChange(before);
+    });
+
+    test('accepts a served selection naming the selected default', () async {
+      seedSkin('streamline.js');
+      seedSkin('insight');
+      platform.values[SettingsKeys.defaultSkinId.name] = 'insight';
+      final service = await serve(p.join(webUiDir.path, 'insight'));
+      final generation = service.serveGeneration.value;
+      final before = observeState();
+
+      final allowlist = acceptedAllowlist(
+        await runPreflight(runtimeOwner: service),
+      );
+
+      expect(allowlist.skin.skinId, 'insight');
+      expect(allowlist.skin.directoryName, 'insight');
+      expect(service.serveGeneration.value, generation);
+      expectNoStateChange(before);
+    });
+
+    test('accepts an owner that is explicitly not serving', () async {
+      seedSkin('streamline.js');
+      seedSkin('insight');
+      final service = WebUIService(
+        listLocalAddresses: () async => const <String>[],
+      );
+      serving = service;
+      platform.values[SettingsKeys.defaultSkinId.name] = 'insight';
+      final before = observeState();
+
+      final allowlist = acceptedAllowlist(
+        await runPreflight(runtimeOwner: service),
+      );
+
+      expect(service.isServing, isFalse);
+      expect(allowlist.skin.skinId, 'insight');
+      expectNoStateChange(before);
+    });
+
+    test('rejects an absent runtime serving owner', () async {
+      seedSkin('streamline.js');
+      final before = observeState();
+
+      expect(
+        rejectionOf(await runPreflight(omitRuntimeOwner: true)),
+        NewOwnerRetentionRejection.skinServingSelectionUnavailable,
+      );
+      expectNoStateChange(before);
+    });
+
+    test('rejects a runtime owner that cannot be observed', () async {
+      seedSkin('streamline.js');
+      final before = observeState();
+
+      expect(
+        rejectionOf(
+          await runPreflight(runtimeOwner: _ThrowingServingSelection()),
+        ),
+        NewOwnerRetentionRejection.skinServingSelectionUnreadable,
+      );
+      expectNoStateChange(before);
+    });
+
+    test('rejects an inactive other managed package after recovery', () async {
+      seedSkin('streamline.js');
+      seedSkin('insight');
+      final otherPackage = p.join(webUiDir.path, 'insight');
+      final service = await serve(otherPackage);
+      final generation = service.serveGeneration.value;
+      await service.closeSkinListenerForTesting();
+      expect(service.isServing, isTrue);
+      final before = observeState();
+
+      expect(
+        rejectionOf(await runPreflight(runtimeOwner: service)),
+        NewOwnerRetentionRejection.runtimeSkinSelectionUnsupported,
+      );
+
+      await service.recover().timeout(const Duration(seconds: 15));
+
+      expect(service.isServing, isTrue);
+      expect(service.serveGeneration.value, generation + 1);
+      expect(service.observeServingSelection().servedPath, otherPackage);
+      expect(
+        rejectionOf(await runPreflight(runtimeOwner: service)),
+        NewOwnerRetentionRejection.runtimeSkinSelectionUnsupported,
+      );
+      expectNoStateChange(before);
+    });
+
+    test(
+      'rejects a declared path that disagrees with the served one',
+      () async {
+        seedSkin('streamline.js');
+        seedSkin('insight');
+        final service = await serve(p.join(webUiDir.path, 'streamline.js'));
+        service.skinOverride = SkinOverride.path(
+          p.join(webUiDir.path, 'insight'),
+        );
+        final before = observeState();
+
+        expect(
+          rejectionOf(await runPreflight(runtimeOwner: service)),
+          NewOwnerRetentionRejection.runtimeSkinSelectionUnsupported,
+        );
+        expectNoStateChange(before);
+      },
+    );
+  });
+
+  group('legacy saved skin selection', () {
+    void seedLegacySelected(String skinId) =>
+        legacyPreferences.values['flutter.selected_webui_skin_id'] = skinId;
+
+    test('rejects a saved skin that disagrees with the default', () async {
+      seedSkin('streamline.js');
+      seedSkin('insight');
+      seedLegacySelected('insight');
+      final before = observeState();
+
+      expect(
+        rejectionOf(await runPreflight()),
+        NewOwnerRetentionRejection.skinSelectionDisagreement,
+      );
+      expect(legacyPreferences.reads, isNotEmpty);
+      expect(platform.reads, isNot(contains('selected_webui_skin_id')));
+      expectNoStateChange(before);
+    });
+
+    test('accepts an equivalent normalized alias of the default', () async {
+      seedSkin('streamline.js');
+      platform.values[SettingsKeys.defaultSkinId.name] =
+          'streamline_project-main';
+      seedLegacySelected('streamline.js');
+      final before = observeState();
+
+      final allowlist = acceptedAllowlist(await runPreflight());
+
+      expect(allowlist.skin.skinId, 'streamline.js');
+      expectNoStateChange(before);
+    });
+
+    test(
+      'rejects a saved legacy alias beside its own managed package',
+      () async {
+        seedSkin('streamline.js');
+        seedSkin('streamline_project-main');
+        final service = WebUIService(
+          listLocalAddresses: () async => const <String>[],
+        );
+        seedLegacySelected('streamline_project-main');
+        final before = observeState();
+
+        expect(
+          rejectionOf(await runPreflight(runtimeOwner: service)),
+          NewOwnerRetentionRejection.skinSelectionDisagreement,
+        );
+        expect(service.isServing, isFalse);
+        expectNoStateChange(before);
+      },
+    );
+
+    test(
+      'accepts a canonical saved skin when only the default aliases',
+      () async {
+        seedSkin('streamline.js');
+        seedSkin('streamline_project-main');
+        platform.values[SettingsKeys.defaultSkinId.name] =
+            'streamline_project-main';
+        seedLegacySelected('streamline.js');
+        final before = observeState();
+
+        final allowlist = acceptedAllowlist(await runPreflight());
+
+        expect(allowlist.skin.skinId, 'streamline.js');
+        expect(allowlist.skin.directoryName, 'streamline.js');
+        expectNoStateChange(before);
+      },
+    );
+
+    test('reads the absent legacy selection from its own backend', () async {
+      seedSkin('streamline.js');
+      final before = observeState();
+
+      final allowlist = acceptedAllowlist(await runPreflight());
+
+      expect(allowlist.skin.skinId, 'streamline.js');
+      expect(legacyPreferences.reads, isNotEmpty);
+      expect(platform.reads, isNot(contains('selected_webui_skin_id')));
+      expectNoStateChange(before);
+    });
+
+    test('accepts a saved skin that names the selected default', () async {
+      seedSkin('streamline.js');
+      seedSkin('insight');
+      platform.values[SettingsKeys.defaultSkinId.name] = 'insight';
+      seedLegacySelected('insight');
+      final before = observeState();
+
+      final allowlist = acceptedAllowlist(await runPreflight());
+
+      expect(allowlist.skin.skinId, 'insight');
+      expectNoStateChange(before);
+    });
+
+    test('reports a legacy selection read failure distinctly', () async {
+      seedSkin('streamline.js');
+      legacyPreferences.failReads = true;
+      final before = observeState();
+
+      expect(
+        rejectionOf(await runPreflight()),
+        NewOwnerRetentionRejection.legacySkinSelectionUnreadable,
+      );
+      expect(
+        platform.reads,
+        containsAllInOrder([
+          SettingsKeys.preferredMachineId.name,
+          SettingsKeys.preferredScaleId.name,
+          SettingsKeys.defaultSkinId.name,
+        ]),
+      );
+      expectNoStateChange(before);
+    });
+  });
+
+  group('plugin-backed preferred scales', () {
+    for (final transport in [TransportType.ble, TransportType.unknown]) {
+      test(
+        'rejects an owner-built plugin scale over ${transport.name}',
+        () async {
+          seedSkin('streamline.js');
+          final scale = PluginScale(
+            deviceId: 'plugin:com.example.scale:driver-a:instance-a',
+            name: 'Plugin Scale',
+            capabilities: {},
+            invoke: (operation, payload) async => {},
+            transportType: transport,
+          );
+          addTearDown(scale.dispose);
+          platform.values[SettingsKeys.preferredScaleId.name] = scale.deviceId;
+          platform.values[SettingsKeys.rememberedDevices.name] =
+              ownerEncodedRegistry(scale);
+          final before = observeState();
+
+          expect(
+            rejectionOf(await runPreflight()),
+            NewOwnerRetentionRejection.preferredScalePluginUnsupported,
+          );
+          expectNoStateChange(before);
+        },
+      );
+    }
   });
 }

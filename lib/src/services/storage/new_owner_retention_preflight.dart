@@ -28,9 +28,14 @@ enum NewOwnerRetentionRejection {
   preferredScaleAmbiguous,
   preferredScaleMetadataIncomplete,
   preferredScaleMetadataInconsistent,
+  preferredScalePluginUnsupported,
   preferredScaleManualEndpointUnreadable,
   preferredScaleManualEndpointMalformed,
   preferredScaleManualEndpointAmbiguous,
+  legacySkinSelectionUnreadable,
+  skinSelectionDisagreement,
+  skinServingSelectionUnavailable,
+  skinServingSelectionUnreadable,
   runtimeSkinSelectionUnsupported,
   skinIdInvalid,
   skinPackageMissing,
@@ -221,13 +226,15 @@ final class NewOwnerRetentionPreflight {
   NewOwnerRetentionPreflight({
     required this._settings,
     required this._storage,
-    required this._runtimeSkinSelection,
+    required this._runtimeOwner,
+    required this._legacySkinSelection,
     required this._manualEndpoints,
   });
 
   final SettingsService _settings;
   final WebUIStorage _storage;
-  final SkinOverride _runtimeSkinSelection;
+  final SkinServingSelectionSource? _runtimeOwner;
+  final LegacySelectedSkinLookup _legacySkinSelection;
   final WifiManualEndpointLookup _manualEndpoints;
 
   Future<NewOwnerRetentionPreflightResult> observe() async {
@@ -280,22 +287,61 @@ final class NewOwnerRetentionPreflight {
       return NewOwnerRetentionRejected(rejection);
     }
 
-    final skinId = normalizePersistedDefaultSkinId(storedSkinId);
-    final runtimeSelection = _runtimeSkinSelection;
-    final skin = await _storage.resolveManagedSelectedSkin(
-      skinId,
-      runtimePath: runtimeSelection.source == SkinSource.path
-          ? runtimeSelection.value
-          : null,
-    );
-    if (!skin.isResolved) {
-      return NewOwnerRetentionRejected(
-        runtimeSelection.source == SkinSource.path
-            ? NewOwnerRetentionRejection.runtimeSkinSelectionUnsupported
-            : _skinRejection(skin.status),
+    final String? legacySkinId;
+    try {
+      legacySkinId = await _legacySkinSelection.selectedSkinId();
+    } catch (_) {
+      return const NewOwnerRetentionRejected(
+        NewOwnerRetentionRejection.legacySkinSelectionUnreadable,
       );
     }
-    if (!_runtimeSelectionMatches(skin)) {
+
+    final skinId = normalizePersistedDefaultSkinId(storedSkinId);
+    if (legacySkinId != null && legacySkinId != skinId) {
+      return const NewOwnerRetentionRejected(
+        NewOwnerRetentionRejection.skinSelectionDisagreement,
+      );
+    }
+
+    final runtimeOwner = _runtimeOwner;
+    if (runtimeOwner == null) {
+      return const NewOwnerRetentionRejected(
+        NewOwnerRetentionRejection.skinServingSelectionUnavailable,
+      );
+    }
+    final SkinServingSelection serving;
+    try {
+      serving = runtimeOwner.observeServingSelection();
+    } catch (_) {
+      return const NewOwnerRetentionRejected(
+        NewOwnerRetentionRejection.skinServingSelectionUnreadable,
+      );
+    }
+
+    final declared = serving.declaredOverride;
+    final runtimePaths = <String?>{
+      if (serving.servedPath != null) serving.servedPath,
+      if (declared.source == SkinSource.path) declared.value,
+    };
+    if (runtimePaths.isEmpty) runtimePaths.add(null);
+
+    ManagedSkinLookup? selected;
+    for (final runtimePath in runtimePaths) {
+      final lookup = await _storage.resolveManagedSelectedSkin(
+        skinId,
+        runtimePath: runtimePath,
+      );
+      if (!lookup.isResolved) {
+        return NewOwnerRetentionRejected(
+          runtimePath == null
+              ? _skinRejection(lookup.status)
+              : NewOwnerRetentionRejection.runtimeSkinSelectionUnsupported,
+        );
+      }
+      selected = lookup;
+    }
+    final skin = selected!;
+    if (!_runtimeSelectionMatches(declared, skin)) {
       return const NewOwnerRetentionRejected(
         NewOwnerRetentionRejection.runtimeSkinSelectionUnsupported,
       );
@@ -433,6 +479,12 @@ final class NewOwnerRetentionPreflight {
     if (implementation == null || transportType == null) {
       return _Selection.rejected(incomplete);
     }
+    if (implementation == DeviceImplementation.plugin &&
+        expectedType == DeviceType.scale) {
+      return _Selection.rejected(
+        NewOwnerRetentionRejection.preferredScalePluginUnsupported,
+      );
+    }
     final support = _reconnectSupport[implementation];
     if (support == null ||
         !support.roles.contains(expectedType) ||
@@ -447,15 +499,14 @@ final class NewOwnerRetentionPreflight {
     );
   }
 
-  bool _runtimeSelectionMatches(ManagedSkinLookup skin) {
-    switch (_runtimeSkinSelection.source) {
+  bool _runtimeSelectionMatches(SkinOverride declared, ManagedSkinLookup skin) {
+    switch (declared.source) {
       case SkinSource.registry:
         return true;
       case SkinSource.id:
-        return _runtimeSkinSelection.value != null &&
-            _runtimeSkinSelection.value == skin.skinId;
+        return declared.value != null && declared.value == skin.skinId;
       case SkinSource.path:
-        return _runtimeSkinSelection.value != null;
+        return declared.value != null;
     }
   }
 
