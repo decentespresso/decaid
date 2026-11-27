@@ -117,17 +117,26 @@ succeed.
 BLE notifications remain the primary completion signal. Some BLE connections do
 not expose readable A009/FWMapRequest even though notifications work. After the
 transport reports the characteristic unavailable, polling is disabled for that
-connection rather than repeatedly issuing unsupported reads. Serial retains its
-fresh-read request path, and other transports retain bounded polling fallback.
-The FWMap protocol has no request identifier, so a late frame that is
-indistinguishable from a current frame cannot be perfectly correlated; sequence
-fences only reject frames observed before dispatch.
+connection rather than repeatedly issuing unsupported reads; the latch resets on
+reconnect. Serial retains its fresh-read request path, and other transports
+retain bounded polling fallback. Polling requires a post-dispatch,
+stage-appropriate busy/pending observation before it accepts erase completion or
+verification success. A poll-only device that completes before that brief frame
+is observed may time out safely; terminal verification failures, including zero,
+remain failures. The FWMap protocol has no request identifier, so a late frame
+that is indistinguishable from a current frame cannot be perfectly correlated;
+sequence fences only reject frames observed before dispatch and are not a
+universal delayed-frame freshness guarantee.
 
 The uploader validates size and, when the canonical DE1 marker is present,
-header bounds before erase. Unrecognized images are accepted size-only as an
-explicit validation gap: no legacy or Bengle family is inferred without a
-source-backed parser. Manifest-backed managed artifacts receive the stricter
-validator in the firmware service. Header readback after upload is not used:
+header bounds before erase. Full-image safety caps are 512 KiB for the DE1/legacy
+route and 960 KiB for the Bengle route, including every header, checksum, and
+padding byte. Canonical DE1 headers additionally cap the declared body at 504 KiB
+and retain the `image.length - 64` completeness lower bound. Unrecognized images
+use the actual device route's full-image cap; header bytes never infer a family.
+Manifest-backed managed artifacts receive the stricter validator in the firmware
+service. The outer HTTP 16 MiB request-body limit remains unchanged. Header
+readback after upload is not used:
 the upstream [`de1_comms.tcl` firmware flow](https://github.com/decentespresso/de1app/blob/9f5eebb32db2b283a951887ffc4cda9c5edcdd81/de1plus/de1_comms.tcl#L993-L1150)
 contains map requests and image writes but no established inactive-slot header
 readback operation, and no destructive probe is introduced.

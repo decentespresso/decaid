@@ -6,8 +6,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/device/device.dart' as device;
 import 'package:reaprime/src/models/device/firmware_update_state.dart';
+import 'package:reaprime/src/models/device/impl/bengle/bengle.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/machine.dart';
+import 'package:reaprime/src/services/firmware/de1_firmware_header.dart';
 import 'package:reaprime/src/models/device/transport/ble_timeout_exception.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
 import 'package:reaprime/src/models/errors.dart';
@@ -104,6 +106,59 @@ void main() {
       ),
       isFalse,
     );
+  });
+
+  test(
+    'rejects an unrecognized image above the DE1 cap before erase',
+    () async {
+      transport.writes.clear();
+      final image = Uint8List(
+        De1FirmwareHeader.maxDe1FirmwareImageByteLength + 1,
+      );
+      await expectLater(
+        de1.updateFirmware(image, onProgress: (_) {}),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            'Firmware image exceeds 524288 bytes for DE1/legacy target',
+          ),
+        ),
+      );
+      expect(
+        transport.writes.any(
+          (write) => write.characteristicUUID == Endpoint.fwMapRequest.uuid,
+        ),
+        isFalse,
+      );
+      expect(
+        transport.writes.any(
+          (write) => write.characteristicUUID == Endpoint.writeToMMR.uuid,
+        ),
+        isFalse,
+      );
+    },
+  );
+
+  test('Bengle route applies its full-image cap before erase', () async {
+    final bengleTransport = _SynchronousConnectionFakeBleTransport();
+    addTearDown(bengleTransport.dispose);
+    final bengle = Bengle(transport: bengleTransport);
+    final image = Uint8List(
+      De1FirmwareHeader.maxBengleFirmwareImageByteLength + 1,
+    );
+
+    await expectLater(
+      bengle.updateFirmware(image, onProgress: (_) {}),
+      throwsA(
+        isA<FormatException>().having(
+          (error) => error.message,
+          'message',
+          'Firmware image exceeds 983040 bytes for Bengle target',
+        ),
+      ),
+    );
+    expect(bengleTransport.writes, isEmpty);
   });
 
   test('completes only after successful verification response', () async {

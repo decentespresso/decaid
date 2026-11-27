@@ -28,7 +28,12 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
     _throwIfFirmwareCancelled(cancelToken);
     late final De1FirmwareImageClassification imageClassification;
     try {
-      imageClassification = De1FirmwareHeader.validateUpload(fwImage);
+      imageClassification = De1FirmwareHeader.validateUpload(
+        fwImage,
+        target: implementation == DeviceImplementation.bengle
+            ? De1FirmwareTarget.bengle
+            : De1FirmwareTarget.de1,
+      );
     } on FormatException catch (error, stackTrace) {
       _log.warning(
         'firmware stage=validation failed cause=$error',
@@ -141,6 +146,7 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
           firmwareEraseTimeout,
           'Timed out waiting for firmware erase',
           _isEraseComplete,
+          _FirmwarePollStage.erase,
         );
         _log.info('firmware stage=erase complete');
       } catch (error, stackTrace) {
@@ -190,6 +196,7 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
           firmwareVerificationTimeout,
           'Timed out waiting for firmware verification',
           _isTerminalVerificationResponse,
+          _FirmwarePollStage.verification,
         );
         if (!_isSuccessfulFirmwareVerification(verification)) {
           throw StateError(
@@ -250,6 +257,7 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
     Duration timeout,
     String timeoutMessage,
     bool Function(FWMapRequestData response) predicate,
+    _FirmwarePollStage stage,
   ) async {
     final stop = Completer<void>();
     try {
@@ -260,7 +268,7 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
         cancelToken.cancelled.then<FWMapRequestData>(
           (_) => throw const FirmwareUpdateCancelledException(),
         ),
-        _pollFirmwareResponse(predicate, cancelToken, stop.future),
+        _pollFirmwareResponse(predicate, stage, cancelToken, stop.future),
       ]).timeout(
         timeout,
         onTimeout: () => throw TimeoutException(timeoutMessage),
@@ -272,17 +280,26 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
 
   Future<FWMapRequestData> _pollFirmwareResponse(
     bool Function(FWMapRequestData response) predicate,
+    _FirmwarePollStage stage,
     _FirmwareCancellationToken cancelToken,
     Future<void> stop,
   ) async {
     var stopped = false;
+    var busyObserved = false;
     unawaited(stop.then((_) => stopped = true));
     while (!stopped && !cancelToken.isCancelled) {
       try {
         final data = await _transport.readFwMapRequestFresh();
         if (stopped || cancelToken.isCancelled) break;
         final response = FWMapRequestData.from(data);
-        if (predicate(response)) return response;
+        if (_isFirmwarePollBusy(stage, response)) busyObserved = true;
+        if (predicate(response) &&
+            ((stage == _FirmwarePollStage.erase && busyObserved) ||
+                (stage == _FirmwarePollStage.verification &&
+                    (!_isSuccessfulFirmwareVerification(response) ||
+                        busyObserved)))) {
+          return response;
+        }
       } on GattAttributeUnavailableException catch (error) {
         _log.info(
           'firmware map polling unavailable; using notifications: $error',
@@ -318,6 +335,21 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
 
   bool _isSuccessfulFirmwareVerification(FWMapRequestData response) {
     return _hasFirmwareError(response, const [0xff, 0xff, 0xfd]);
+  }
+
+  bool _isFirmwarePollBusy(
+    _FirmwarePollStage stage,
+    FWMapRequestData response,
+  ) {
+    return switch (stage) {
+      _FirmwarePollStage.erase =>
+        response.firmwareToErase == 1 && response.firmwareToMap == 1,
+      _FirmwarePollStage.verification =>
+        response.windowIncrement == 0 &&
+            response.firmwareToErase == 0 &&
+            response.firmwareToMap == 1 &&
+            _hasFirmwareError(response, const [0xff, 0xff, 0xff]),
+    };
   }
 
   bool _hasFirmwareError(FWMapRequestData response, List<int> expected) {
@@ -386,6 +418,8 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
     }
   }
 }
+
+enum _FirmwarePollStage { erase, verification }
 
 final class _FirmwareResponseCoordinator {
   _FirmwareResponseWaiter? _waiter;
