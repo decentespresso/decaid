@@ -170,6 +170,7 @@ In-depth guides and API references are available in the [`doc/`](doc/) directory
 | [Plugins.md](doc/Plugins.md) | JavaScript plugin development — host API, event system, manifest structure, and examples |
 | [Profiles.md](doc/Profiles.md) | Profiles API — content-based hash IDs, version tracking, import/export, and storage architecture |
 | [DeviceManagement.md](doc/DeviceManagement.md) | Device discovery and connection management — transport abstraction, auto-connect logic, adding new device types |
+| [cafe-provisioning.md](doc/deployment/cafe-provisioning.md) | Café and commercial device provisioning — hardening a tablet in a shared space: protected mode, network restrictions, API tokens, remote management and upkeep |
 | [RELEASE.md](doc/RELEASE.md) | Release process — Git tag workflow, GitHub Actions CI, versioning conventions |
 
 ## Building

@@ -24,8 +24,7 @@ The 0.9.3 release notes have to lead with this, in this order:
 3. **What to do.** Open Settings → Security, turn the switch on for a shared or
    café device, and restrict network access to the device. The café hardening
    and provisioning guide is
-   [github.com/decentespresso/decaid/issues/1192](https://github.com/decentespresso/decaid/issues/1192)
-   and is forthcoming.
+   [`doc/deployment/cafe-provisioning.md`](deployment/cafe-provisioning.md).
 4. **What is separate.** The switch covers extension management only. Tokens
    travel over plain HTTP on port 8080, so they are readable on a hostile LAN;
    HTTPS is issue #925 and optional full REST/WS authentication is issue #1135.

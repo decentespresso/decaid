@@ -315,7 +315,7 @@ void main() {
       });
     }
 
-    testWidgets('the café hardening guide opens the live issue externally', (
+    testWidgets('the café hardening guide opens the guide page externally', (
       tester,
     ) async {
       await useStoredMode(requireAuthorization: false);
@@ -326,14 +326,19 @@ void main() {
 
       await pumpSecurityPage(tester);
 
-      expect(find.textContaining('Future/planned guide'), findsOneWidget);
-      expect(find.textContaining('#1192'), findsWidgets);
+      expect(
+        find.text('Securing a tablet on a shared or commercial network'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Future/planned'), findsNothing);
 
       await tester.tap(find.text('Café hardening guide'));
       await tester.pumpAndSettle();
 
       expect(launcher.launched, [
-        Uri.parse('https://github.com/decentespresso/decaid/issues/1192'),
+        Uri.parse(
+          'https://github.com/decentespresso/decaid/blob/main/doc/deployment/cafe-provisioning.md',
+        ),
       ]);
       expect(launcher.modes, [PreferredLaunchMode.externalApplication]);
     });

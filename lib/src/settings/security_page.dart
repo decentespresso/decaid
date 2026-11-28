@@ -9,7 +9,7 @@ class SecurityPage extends StatefulWidget {
   const SecurityPage({super.key, required this.controller});
 
   static const cafeHardeningGuideUrl =
-      'https://github.com/decentespresso/decaid/issues/1192';
+      'https://github.com/decentespresso/decaid/blob/main/doc/deployment/cafe-provisioning.md';
 
   final SettingsController controller;
 
@@ -222,8 +222,7 @@ class _SecurityPageState extends State<SecurityPage> {
               leading: const Icon(Icons.menu_book_outlined),
               title: const Text('Café hardening guide'),
               subtitle: const Text(
-                'Future/planned guide (issue #1192) for securing a shared '
-                'device',
+                'Securing a tablet on a shared or commercial network',
               ),
               trailing: const Icon(Icons.open_in_new, size: 20),
               onTap: _openCafeHardeningGuide,
