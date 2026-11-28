@@ -437,8 +437,8 @@ Decaid 0.9.2 shipped the decaid#1031 policy always on. 0.9.3 removes that
 always-on protection for both new and existing installations and makes it an
 opt-in setting, so upgrading is a deliberate security downgrade until the
 toggle is turned on. Fleet and café operators should turn the toggle on and
-restrict network access to the device; the provisioning guide is issue #1192
-and is not published yet.
+restrict network access to the device, following
+[Café and commercial device provisioning](deployment/cafe-provisioning.md).
 
 ---
 
