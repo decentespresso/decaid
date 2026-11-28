@@ -19,7 +19,7 @@ Print this and tick it off per tablet. The links lead to each step.
 - [ ] Decaid is on a release you have tested, and so are its plugins and skin
       ([Set the tablet up](#1-set-the-tablet-up))
 - [ ] Every installed plugin is one you chose, and you have read its
-      permissions; the rest are removed or switched off
+      permissions; the rest are removed, or unloaded with auto-load off
 - [ ] Plugin settings are filled in (accounts, upload options)
 - [ ] **Automatic update checks** is off
 - [ ] Old API tokens are revoked
@@ -113,8 +113,8 @@ In protected mode a skin or a plugin page has no authority to manage
 extensions, so its own management controls answer `HTTP 401`:
 
 - Streamline's plugin on and off switches and plugin settings, its DYE2
-  install, its plugin update
-  and approval buttons, and its skin switching over the API;
+  install, its plugin update and approval buttons, and its skin switching over
+  the API;
 - DYE2's Visualizer settings dialog;
 - the plugin and skin controls on the bundled settings page
   (`/api/v1/plugins/settings.reaplugin/ui`).
@@ -228,7 +228,7 @@ It is full trust, and the trust reaches further than the plugin:
 So install one only from a source you would give the keys to, and keep few
 other plugins on those tablets.
 
-Installing such a plugin from the **Plugins** screen asks **Allow <name> to
+Installing such a plugin from the **Plugins** screen asks **Allow \<name\> to
 manage plugins and skins?**, and an update that adds the permission waits
 under **Review** until someone chooses **Approve and update**. A manager token
 can install or approve one without that prompt, so treat a manager token as
