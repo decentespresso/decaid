@@ -19,7 +19,7 @@ Print this and tick it off per tablet. The links lead to each step.
 - [ ] Decaid is on a release you have tested, and so are its plugins and skin
       ([Set the tablet up](#1-set-the-tablet-up))
 - [ ] Every installed plugin is one you chose, and you have read its
-      permissions; the rest are removed
+      permissions; the rest are removed or switched off
 - [ ] Plugin settings are filled in (accounts, upload options)
 - [ ] **Automatic update checks** is off
 - [ ] Old API tokens are revoked
@@ -48,8 +48,7 @@ reach the tablet over the network, unless something stops it.
 |---|---|---|
 | Install, replace, configure or remove plugins and skins, and approve new plugin permissions. A plugin is code, so this is running code on the tablet | Yes | Only with an `extensions:manage` token |
 | Start a shot or steam, change machine settings and calibration, upload machine firmware | Yes | Yes |
-| Read and change shots, beans, profiles and plugin data, and read the logs | Yes | Yes |
-| Use your linked Decent account | Only with an account token | Only with an account token |
+| Read and change shots, beans, profiles and plugin data, read the logs, and read through your linked Decent account | Yes | Yes |
 
 Two things follow.
 
@@ -82,6 +81,8 @@ Do this before you turn protected mode on. Some of it is awkward afterwards.
    [Keep it that way](#6-keep-it-that-way) covers updating by hand.
 3. **Review what is installed.** In **Plugins**, check where each plugin came
    from and read its permissions. Remove any you don't use or don't recognise.
+   A plugin that comes with the app returns at the next start if removed, so
+   for those choose **Unload** and turn **Auto-load on startup** off instead.
    A plugin that holds `manage.extensions` can manage plugins and skins, which
    is full control of the tablet; keep one only if you mean to manage the
    tablet through it ([Manage it remotely](#4-manage-it-remotely)).
@@ -111,7 +112,8 @@ API, by a plugin, or by restoring a backup, and a backup does not contain it.
 In protected mode a skin or a plugin page has no authority to manage
 extensions, so its own management controls answer `HTTP 401`:
 
-- Streamline's plugin on and off switches, its DYE2 install, its plugin update
+- Streamline's plugin on and off switches and plugin settings, its DYE2
+  install, its plugin update
   and approval buttons, and its skin switching over the API;
 - DYE2's Visualizer settings dialog;
 - the plugin and skin controls on the bundled settings page
@@ -163,11 +165,8 @@ To check it, try from a phone or laptop on the guest Wi-Fi:
 curl --max-time 5 "http://<tablet address>:8080/api/v1/info"
 ```
 
-It must fail to connect or time out. If it prints anything, the network is
-still open.
-
-A token is not a substitute for any of this. It protects one part of the API,
-and it can be copied off the network it crosses.
+It must end in a curl error such as `Failed to connect` or `timed out`. If it
+prints Decaid's version, the network is still open.
 
 ## 4. Manage it remotely
 
@@ -229,10 +228,11 @@ It is full trust, and the trust reaches further than the plugin:
 So install one only from a source you would give the keys to, and keep few
 other plugins on those tablets.
 
-Granting it takes a person at the tablet. Installing such a plugin from the
-**Plugins** screen asks **Allow <name> to manage plugins and skins?**, and an
-update that adds the permission waits under **Review** until someone chooses
-**Approve and update**. Plan one visit per tablet. See
+Installing such a plugin from the **Plugins** screen asks **Allow <name> to
+manage plugins and skins?**, and an update that adds the permission waits
+under **Review** until someone chooses **Approve and update**. A manager token
+can install or approve one without that prompt, so treat a manager token as
+the same grant. See
 [`Plugins.md`](../Plugins.md) for the permission and `host.localApi`.
 
 ## 5. The tablet itself
@@ -287,8 +287,8 @@ Decaid cannot protect itself from its own tablet.
   client, and keep one record that lists every tablet with its site, owner,
   versions and token names.
 - Addresses move. Before changing anything remotely, confirm which tablet you
-  have reached: `GET /api/v1/machine/info` returns the machine's model and
-  serial number.
+  have reached: `GET /api/v1/machine/info` returns the connected machine's
+  model and serial number.
 - Update one tablet, then one site, then the rest.
 - Keep the tablets alike. Two tablets with different plugins need two
   reviews.
