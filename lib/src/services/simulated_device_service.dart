@@ -28,6 +28,14 @@ class SimulatedDeviceService
 
   Set<SimulatedDevicesTypes> enabledDevices = {};
 
+  bool _mockDe1GhcPresent = const bool.fromEnvironment('MOCK_DE1_GHC');
+  bool get mockDe1GhcPresent => _mockDe1GhcPresent;
+  set mockDe1GhcPresent(bool value) {
+    _mockDe1GhcPresent = value;
+    final de1 = _devices["MockDe1"];
+    if (de1 is MockDe1) de1.groupHeadControllerPresent = value;
+  }
+
   @override
   Stream<List<Device>> get devices => _deviceStreamController.stream;
 
@@ -48,7 +56,10 @@ class SimulatedDeviceService
       return;
     }
     if (enabledDevices.contains(SimulatedDevicesTypes.machine)) {
-      _devices.putIfAbsent("MockDe1", () => MockDe1());
+      _devices.putIfAbsent(
+        "MockDe1",
+        () => MockDe1(groupHeadControllerPresent: _mockDe1GhcPresent),
+      );
     } else {
       _devices.remove("MockDe1");
     }

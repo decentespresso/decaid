@@ -48,37 +48,47 @@ Each tagged release attaches these desktop files (plus the Android APK and unsig
 
 | Platform | Artifact | Install |
 | --- | --- | --- |
-| macOS (Intel + Apple Silicon) | `decaid-macos-<version>.dmg` | Open the DMG and drag Decaid to Applications. Signed and notarized. |
-| macOS (portable / auto-update) | `decaid-macos-<version>.zip` | Extract and run `Decaid.app`; also the Sparkle auto-update payload. |
-| Windows x64 | `decaid-windows-x64-<version>.zip` | Extract the whole ZIP and run `Decaid.exe`. Portable and unsigned; the VC++ runtime is bundled. |
-| Linux x86_64 | `decaid-linux-x86_64-<version>.AppImage` | `chmod +x` and run. No installation needed. |
-| Linux ARM64 | `decaid-linux-aarch64-<version>.AppImage` | `chmod +x` and run. No installation needed. |
-| Linux portable | `decaid-linux-x64-<version>.tar.gz`, `decaid-linux-arm64-<version>.tar.gz` | Extract and run `decaid` from the bundle directory. |
+| macOS (Intel + Apple Silicon) | `decaid-macos-<tag>.dmg` | Open the DMG and drag Decaid to Applications. Signed and notarized. |
+| macOS (portable / auto-update) | `decaid-macos-<tag>.zip` | Extract and run `Decaid.app`; also the Sparkle auto-update payload. |
+| Windows x64 | `decaid-windows-x64-<tag>.zip` | Extract the whole ZIP and run `Decaid.exe`. Portable and unsigned; the VC++ runtime is bundled. |
+| Linux x86_64 | `decaid-linux-x86_64-<tag>.AppImage` | `chmod +x` and run. No installation needed. |
+| Linux ARM64 | `decaid-linux-aarch64-<tag>.AppImage` | `chmod +x` and run. No installation needed. |
+| Linux portable | `decaid-linux-x64-<tag>.tar.gz`, `decaid-linux-arm64-<tag>.tar.gz` | Extract and run `decaid` from the bundle directory. |
 
-All files are covered by `decaid-<version>-SHA256SUMS.txt` in the release.
+`<tag>` is the full git tag, including its leading `v`: tag `v0.9.4` publishes
+`decaid-android-v0.9.4.apk`, `decaid-macos-v0.9.4.zip`, `decaid-macos-v0.9.4.dmg`,
+`decaid-windows-x64-v0.9.4.zip`, `decaid-linux-x64-v0.9.4.tar.gz`,
+`decaid-linux-x86_64-v0.9.4.AppImage`, `decaid-linux-arm64-v0.9.4.tar.gz`,
+`decaid-linux-aarch64-v0.9.4.AppImage` and `decaid-ios-unsigned-v0.9.4.ipa`; a beta tag keeps
+the whole tag, so `v0.9.4-beta.1` publishes `decaid-macos-v0.9.4-beta.1.zip`. Only filenames carry
+the tag: release titles, app versions and channel selection keep the bare `MAJOR.MINOR.PATCH`
+version. Releases published before #1240 kept the bare version in their filenames; those assets
+are not renamed and stay downloadable from their own tag.
 
-Every file also ships as a `-latest` alias (`decaid-android-latest.apk`, `decaid-macos-latest.dmg`, `decaid-linux-x86_64-latest.AppImage`, ...), so `https://github.com/decentespresso/decaid/releases/latest/download/decaid-android-latest.apk` always points at the newest stable release. The aliases are covered by `decaid-latest-SHA256SUMS.txt`.
+All files are covered by `decaid-<tag>-SHA256SUMS.txt` in the release.
+
+Every file also ships as a `-latest` alias (`decaid-android-latest.apk`, `decaid-macos-latest.dmg`, `decaid-linux-x86_64-latest.AppImage`, ...), so `https://github.com/decentespresso/decaid/releases/latest/download/decaid-android-latest.apk` always points at the newest stable release. Aliases never include a version. The aliases are covered by `decaid-latest-SHA256SUMS.txt`.
 
 ### Verifying checksums
 
 ```bash
 # macOS / Linux
-curl -sL -O https://github.com/decentespresso/decaid/releases/download/v<version>/decaid-<version>-SHA256SUMS.txt
-shasum -a 256 -c decaid-<version>-SHA256SUMS.txt --ignore-missing
+curl -sL -O https://github.com/decentespresso/decaid/releases/download/<tag>/decaid-<tag>-SHA256SUMS.txt
+shasum -a 256 -c decaid-<tag>-SHA256SUMS.txt --ignore-missing
 # download every artifact into the same directory first, or use --ignore-missing
 ```
 
 ```powershell
 # Windows PowerShell
-curl.exe -L -O https://github.com/decentespresso/decaid/releases/download/v<version>/decaid-<version>-SHA256SUMS.txt
-Get-FileHash decaid-windows-x64-<version>.zip -Algorithm SHA256
+curl.exe -L -O https://github.com/decentespresso/decaid/releases/download/<tag>/decaid-<tag>-SHA256SUMS.txt
+Get-FileHash decaid-windows-x64-<tag>.zip -Algorithm SHA256
 # compare the hash against the manifest entry
 ```
 
 ### AppImage notes
 
 - Optional desktop integration (menu entry, icon) is handled by AppImageLauncher or `appimaged` when installed; the AppImage itself always runs standalone.
-- On systems without FUSE, run `./decaid-linux-<arch>-<version>.AppImage --appimage-extract-and-run` instead.
+- On systems without FUSE, run `./decaid-linux-<arch>-<tag>.AppImage --appimage-extract-and-run` instead.
 - Removal is deleting the file; the app stores its data under `~/.local/share` (or `$XDG_DATA_HOME`).
 
 ### Windows notes
@@ -89,7 +99,7 @@ The Windows build is unsigned, so a clean machine may show an unknown-publisher 
 
 `Create Release` also accepts `workflow_dispatch`, which builds every platform job and then stops: `create-release` and `publish-appcast` are guarded by `if: github.event_name == 'push'`, so a dispatch never creates a release, uploads assets to one, or touches the `gh-pages` appcast feed. This is the way to validate a change to the workflow itself, or a new action/runtime version, without cutting a tag.
 
-Dispatch it on the branch that contains the workflow change and pass an optional `version` label (default `0.0.0-dryrun`) used only in the artifact filenames:
+Dispatch it on the branch that contains the workflow change and pass an optional `version` label (default `0.0.0-dryrun`). The job synthesizes the tag by prefixing `v` when the label does not already have one, so the dry run produces the same filenames a tag push would:
 
 ```bash
 gh workflow run "Create Release" --ref <branch> -f version=0.0.0-dryrun
@@ -201,7 +211,7 @@ the feed.
 2. `create-release` attaches the artifacts, then `publish-appcast` (macOS runner):
    - reads the currently deployed feed from the **`gh-pages` branch through git** (not the Pages
      CDN), so a transient Pages/TLS failure is never mistaken for a first publication;
-   - downloads `decaid-macos-<version>.zip` from the release;
+   - downloads `decaid-macos-<tag>.zip` from the release;
    - downloads Sparkle 2.9.5's tools with a pinned SHA-256 check;
    - reads `CFBundleVersion` from the ZIP and refuses to publish unless it is strictly greater than
      every item already in the feed (see the version policy below);

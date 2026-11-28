@@ -11,6 +11,7 @@ import 'package:reaprime/src/services/apk_install_coordinator.dart';
 import 'package:reaprime/src/services/github_credentials.dart';
 import 'package:reaprime/src/services/github_rate_limit.dart';
 import 'package:reaprime/src/services/github_request.dart';
+import 'package:reaprime/src/services/release_request.dart';
 import 'package:reaprime/src/util/remote_error.dart';
 
 export 'apk_install_coordinator.dart'
@@ -165,10 +166,13 @@ class AndroidUpdater {
     try {
       _log.info('Downloading update from ${updateInfo.downloadUrl}');
 
-      final request = http.Request('GET', Uri.parse(updateInfo.downloadUrl));
-      final response = await _httpClient.send(request);
+      final response = await releaseStreamRequest(
+        _httpClient,
+        Uri.parse(updateInfo.downloadUrl),
+      );
 
       if (response.statusCode != 200) {
+        await response.stream.drain<void>();
         throw remoteHttpError(response.statusCode);
       }
 

@@ -31,9 +31,9 @@ abstract interface class MachineSettingsStore {
   Future<void> clear(String identity);
 
   /// Clears fan and refill-kit entries for [identity] while preserving the
-  /// saved flow-calibration and refill-level overrides. A generic
-  /// machine-settings reset uses this because it writes neither value, so
-  /// both keep their saved intent across the reset.
+  /// saved refill-level override, which still restores on connect, and any
+  /// legacy flow-calibration value, which is kept as inert compatibility data
+  /// and is never written back to the machine.
   Future<void> clearResetOverrides(String identity);
 }
 

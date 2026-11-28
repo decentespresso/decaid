@@ -1,16 +1,44 @@
 import 'dart:async';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/connection/scale_watch.dart';
+import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/models/device/device_scanner.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 
 import '../../helpers/mock_device_scanner.dart';
 import '../../helpers/test_scale.dart';
 
+class _HandoverScanner extends MockDeviceScanner
+    implements ScaleWatchHandoverScanner {
+  final token = Object();
+  int claimCalls = 0;
+  int cancelCalls = 0;
+  Completer<void>? stopGate;
+
+  @override
+  Object? claimScaleWatchHandover(Device device) {
+    claimCalls++;
+    return token;
+  }
+
+  @override
+  void cancelScaleWatchHandover(Object claim) {
+    if (identical(claim, token)) cancelCalls++;
+  }
+
+  @override
+  Future<void> stopScaleWatch() async {
+    await stopGate?.future;
+    await super.stopScaleWatch();
+  }
+}
+
 void main() {
   const scaleId = 'pref-scale';
 
-  late MockDeviceScanner scanner;
+  late _HandoverScanner scanner;
 
   late bool gate;
   late String? preferredId;
@@ -36,7 +64,7 @@ void main() {
   );
 
   setUp(() {
-    scanner = MockDeviceScanner()..supportsWatch = true;
+    scanner = _HandoverScanner()..supportsWatch = true;
     gate = true;
     preferredId = scaleId;
     connectCalls = [];
@@ -190,25 +218,142 @@ void main() {
     expect(scanner.watchActive, isTrue);
   });
 
-  test('failed connect (gate still true) restarts the watch', () async {
-    connectSucceeds = false;
-    await watch.arm();
-    scanner.addDevice(TestScale(deviceId: scaleId));
-    await pump();
+  test(
+    'failed connect backs off instead of immediately restarting the watch',
+    () async {
+      connectSucceeds = false;
+      await watch.arm();
+      scanner.addDevice(TestScale(deviceId: scaleId));
+      await pump();
 
-    expect(connectCalls, hasLength(1));
-    expect(
-      scanner.startWatchCallCount,
-      2,
-      reason: 'gate still holds after the attempt — keep watching',
-    );
-    expect(watch.armed, isTrue);
-    expect(watch.diagnostics['deviceSubscriptionInstalled'], isTrue);
+      expect(connectCalls, hasLength(1));
+      expect(
+        scanner.startWatchCallCount,
+        1,
+        reason: 'a failed attempt must not create a scan restart storm',
+      );
+      expect(watch.armed, isFalse);
 
-    scanner.removeDevice(scaleId);
-    scanner.addDevice(TestScale(deviceId: scaleId));
-    await pump();
-    expect(connectCalls, hasLength(2));
+      scanner.removeDevice(scaleId);
+      scanner.addDevice(TestScale(deviceId: scaleId));
+      await pump();
+      expect(
+        connectCalls,
+        hasLength(1),
+        reason: 'repeated sightings before backoff expiry are coalesced',
+      );
+    },
+  );
+
+  test('failed attempts use bounded 1, 2, 5 and capped 15 second backoff', () {
+    fakeAsync((async) {
+      connectSucceeds = false;
+      watch.arm();
+      async.flushMicrotasks();
+      scanner.addDevice(TestScale(deviceId: scaleId));
+      async.flushMicrotasks();
+
+      void sighting() {
+        scanner.removeDevice(scaleId);
+        scanner.addDevice(TestScale(deviceId: scaleId));
+        async.flushMicrotasks();
+      }
+
+      expect(connectCalls, hasLength(1));
+      expect(scanner.startWatchCallCount, 1);
+
+      async.elapse(const Duration(milliseconds: 999));
+      async.flushMicrotasks();
+      expect(scanner.startWatchCallCount, 1);
+      async.elapse(const Duration(milliseconds: 1));
+      async.flushMicrotasks();
+      expect(scanner.startWatchCallCount, 2);
+      sighting();
+      expect(connectCalls, hasLength(2));
+
+      async.elapse(const Duration(milliseconds: 1999));
+      async.flushMicrotasks();
+      expect(scanner.startWatchCallCount, 2);
+      async.elapse(const Duration(milliseconds: 1));
+      async.flushMicrotasks();
+      expect(scanner.startWatchCallCount, 3);
+      sighting();
+      expect(connectCalls, hasLength(3));
+
+      async.elapse(const Duration(milliseconds: 4999));
+      async.flushMicrotasks();
+      expect(scanner.startWatchCallCount, 3);
+      async.elapse(const Duration(milliseconds: 1));
+      async.flushMicrotasks();
+      expect(scanner.startWatchCallCount, 4);
+      sighting();
+      expect(connectCalls, hasLength(4));
+
+      async.elapse(const Duration(milliseconds: 14999));
+      async.flushMicrotasks();
+      expect(scanner.startWatchCallCount, 4);
+      async.elapse(const Duration(milliseconds: 1));
+      async.flushMicrotasks();
+      expect(scanner.startWatchCallCount, 5);
+      sighting();
+      expect(connectCalls, hasLength(5));
+
+      async.elapse(const Duration(milliseconds: 14999));
+      async.flushMicrotasks();
+      expect(scanner.startWatchCallCount, 5);
+      async.elapse(const Duration(milliseconds: 1));
+      async.flushMicrotasks();
+      expect(scanner.startWatchCallCount, 6);
+    });
+  });
+
+  test('cancellation clears retry work and success resets its delay', () {
+    fakeAsync((async) {
+      connectSucceeds = false;
+      watch.arm();
+      async.flushMicrotasks();
+      scanner.addDevice(TestScale(deviceId: scaleId));
+      async.flushMicrotasks();
+      expect(connectCalls, hasLength(1));
+
+      watch.disarm();
+      async.flushMicrotasks();
+      async.elapse(const Duration(seconds: 30));
+      async.flushMicrotasks();
+      expect(connectCalls, hasLength(1));
+      expect(scanner.startWatchCallCount, 1);
+
+      gate = true;
+      scanner.removeDevice(scaleId);
+      watch.arm();
+      async.flushMicrotasks();
+      scanner.addDevice(TestScale(deviceId: scaleId));
+      async.flushMicrotasks();
+      expect(connectCalls, hasLength(2));
+
+      async.elapse(const Duration(seconds: 1));
+      async.flushMicrotasks();
+      expect(scanner.startWatchCallCount, 3);
+      connectSucceeds = true;
+      scanner.removeDevice(scaleId);
+      scanner.addDevice(TestScale(deviceId: scaleId));
+      async.flushMicrotasks();
+      expect(connectCalls, hasLength(3));
+      expect(watch.armed, isFalse);
+
+      gate = true;
+      connectSucceeds = false;
+      scanner.removeDevice(scaleId);
+      watch.arm();
+      async.flushMicrotasks();
+      scanner.addDevice(TestScale(deviceId: scaleId));
+      async.flushMicrotasks();
+      expect(connectCalls, hasLength(4));
+      expect(scanner.startWatchCallCount, 4);
+      async.elapse(const Duration(seconds: 1));
+      async.flushMicrotasks();
+      expect(scanner.startWatchCallCount, 5);
+    });
   });
 
   test('concurrent sightings coalesce into one connect', () async {
@@ -263,6 +408,28 @@ void main() {
     expect(scanner.watchActive, isFalse);
     expect(scanner.stopWatchCallCount, 1);
   });
+
+  test(
+    'disarm during handover stop cancels the claim before connecting',
+    () async {
+      scanner.stopGate = Completer<void>();
+      await watch.arm();
+      scanner.addDevice(TestScale(deviceId: scaleId));
+      await pump();
+
+      expect(scanner.claimCalls, 1);
+      final disarming = watch.disarm();
+      await pump();
+      expect(scanner.cancelCalls, 1);
+      expect(connectCalls, isEmpty);
+
+      scanner.stopGate!.complete();
+      await disarming;
+      await pump();
+      expect(connectCalls, isEmpty);
+      expect(watch.armed, isFalse);
+    },
+  );
 
   test('stop failure during a sighting prevents the connect attempt', () async {
     scanner.failNextWatchStopWith = Exception('stop denied');

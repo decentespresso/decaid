@@ -40,6 +40,9 @@ extension UnifiedDe1Raw on UnifiedDe1 {
   }
 
   void notifyFrom(Endpoint e, Uint8List data) {
+    if (_rawMessageController.isClosed || !_rawMessageController.hasListener) {
+      return;
+    }
     _rawMessageController.add(
       packToRaw(De1RawOperationType.notify, e.uuid, data),
     );

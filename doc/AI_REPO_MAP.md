@@ -7,6 +7,8 @@ Use this for unfamiliar or multi-subsystem tasks. For known files or exact symbo
 | Task | Read first | Then |
 |------|-----------|------|
 | Any Dart code or test change | `doc/AI_TESTING_NOTES.md` | Domain-specific file below |
+| Independent PR review / post-push delta review | `.agents/skills/decent-review/SKILL.md` | `doc/AGENT_WORKFLOW.md` (G4), linked issue, actual PR diff and evidence |
+| Related-PR integration / merge-batch analysis | `.agents/skills/decent-integration/SKILL.md` | `doc/AGENT_WORKFLOW.md` §5 (authoritative G5 report), live PR SHAs/diffs and combined evidence |
 | BLE transport, connection, GATT errors | `doc/AI_BLE_NOTES.md` | `lib/src/services/ble/`, `lib/src/controllers/connection/` |
 | Bengle machine (MMR surface, capability mixins, wake sync) | `doc/device-notes/bengle.md` | `lib/src/models/device/impl/bengle/`, `lib/src/models/device/impl/de1/unified_de1/*_capability.dart` |
 | DE1 firmware, serial behavior, profile sync | `doc/device-notes/de1.md` | `lib/src/models/device/impl/de1/`, `lib/src/controllers/de1_controller.dart` |

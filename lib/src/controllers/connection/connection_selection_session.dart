@@ -12,6 +12,7 @@ class ConnectionSelectionSession {
   final String? preferredMachineId;
   final String? preferredScaleId;
   final ScanReportBuilder scanReport;
+  final bool serialDiscoveryComplete;
 
   ConnectionSelectionSessionState _state =
       ConnectionSelectionSessionState.active;
@@ -22,6 +23,7 @@ class ConnectionSelectionSession {
     required this.preferredMachineId,
     required this.preferredScaleId,
     required this.scanReport,
+    this.serialDiscoveryComplete = true,
   }) : machines = List.unmodifiable(machines),
        scales = List.unmodifiable(scales);
 

@@ -41,7 +41,7 @@ void main() {
 
         try {
           await bengle
-              .updateFirmware(Uint8List(0), onProgress: (_) {})
+              .updateFirmware(Uint8List(16), onProgress: (_) {})
               .timeout(const Duration(seconds: 1));
         } on TimeoutException catch (_) {}
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,15 +10,32 @@ import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/display_controller.dart';
 import 'package:reaprime/src/launcher/launcher_view.dart';
+import 'package:reaprime/src/services/listener_recovery_coordinator.dart';
+import 'package:reaprime/src/services/webserver/api_listener.dart';
 import 'package:reaprime/src/services/webview_compatibility_checker.dart';
 import 'package:reaprime/src/services/webview_log_service.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/skin_feature/simulated_webview_device.dart';
 import 'package:reaprime/src/skin_feature/skin_view.dart';
+import 'package:reaprime/src/skin_feature/skin_switch_coordinator.dart';
+import 'package:reaprime/src/webui_support/webui_service.dart';
+import 'package:shelf/shelf.dart' as shelf;
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
 import '../../helpers/mock_de1_controller.dart';
 import '../../helpers/mock_settings_service.dart';
+
+class _RealHttpOverrides extends HttpOverrides {}
+
+Future<HttpServer> _bindUnhealthyListener(int port) async {
+  final server = await HttpServer.bind('0.0.0.0', port);
+  server.listen((request) async {
+    await request.drain<void>();
+    request.response.statusCode = HttpStatus.serviceUnavailable;
+    await request.response.close();
+  });
+  return server;
+}
 
 class _WebViewPlatform extends InAppWebViewPlatform {
   final Future<String?> version;
@@ -55,14 +73,38 @@ class _WebView extends PlatformInAppWebViewWidget {
   _WebView(super.params) : super.implementation();
 
   @override
-  Widget build(BuildContext context) => const SizedBox.expand();
+  Widget build(BuildContext context) => const _NativeView();
 
   @override
   T controllerFromPlatform<T>(PlatformInAppWebViewController controller) =>
       InAppWebViewController.fromPlatform(platform: controller) as T;
 
   @override
-  void dispose() {}
+  void dispose() {
+    onDispose?.call();
+  }
+
+  VoidCallback? onDispose;
+}
+
+class _NativeView extends StatefulWidget {
+  const _NativeView();
+
+  @override
+  State<_NativeView> createState() => _NativeViewState();
+}
+
+class _NativeViewState extends State<_NativeView> {
+  _TimerController? controller;
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.expand();
+
+  @override
+  void dispose() {
+    controller?.dispose();
+    super.dispose();
+  }
 }
 
 class _Controller extends PlatformInAppWebViewController {
@@ -89,9 +131,16 @@ class _StaticController extends _Controller {
 
 class _TimerController extends _Controller {
   final calls = <String>[];
+  bool disposed = false;
+
+  @override
+  void dispose({bool isKeepAlive = false}) {
+    if (!isKeepAlive) disposed = true;
+  }
 
   Iterable<String> callsTo(String method) =>
       calls.where((call) => call == method);
+  Future<void> Function()? onLoad;
   Future<void> Function()? onPause;
   Future<void> Function()? onResume;
   Future<void> Function()? onPauseTimers;
@@ -126,7 +175,26 @@ class _TimerController extends _Controller {
     required URLRequest urlRequest,
     Uri? iosAllowingReadAccessTo,
     WebUri? allowingReadAccessTo,
-  }) async => calls.add('load:${urlRequest.url}');
+  }) async {
+    if (disposed) throw StateError('load on removed native view');
+    calls.add('load:${urlRequest.url}');
+    await onLoad?.call();
+  }
+}
+
+void _expectSkinReload(_TimerController controller, {int port = 24800}) {
+  final loads = controller.calls.where((call) => call.startsWith('load:'));
+  expect(loads, hasLength(1));
+  _expectSkinUri(Uri.parse(loads.single.substring('load:'.length)), port: port);
+}
+
+void _expectSkinUri(Uri uri, {int port = 24800}) {
+  expect(uri.scheme, 'http');
+  expect(uri.host, 'localhost');
+  expect(uri.port, port);
+  expect(uri.path, '/');
+  expect(uri.queryParameters.keys, ['_']);
+  expect(int.tryParse(uri.queryParameters['_']!), isNotNull);
 }
 
 class _UrlLauncher extends Fake
@@ -153,6 +221,9 @@ class _UrlLauncher extends Fake
 Future<void> _pumpSkin(
   WidgetTester tester, {
   Future<CompatibilityResult> Function()? checkCompatibility,
+  Future<bool> Function()? onResumeListeners,
+  Future<bool> Function()? onRetryListeners,
+  Future<SkinSwitchOutcome> Function(String)? onSwitchSkin,
   Set<PlatformInAppWebViewControllerMethod> unsupported = const {},
   Widget Function(SkinView)? wrap,
 }) async {
@@ -189,6 +260,9 @@ Future<void> _pumpSkin(
     deviceIp: '127.0.0.1',
     displayController: display,
     port: 24800,
+    onResumeListeners: onResumeListeners,
+    onRetryListeners: onRetryListeners,
+    onSwitchSkin: onSwitchSkin,
     checkCompatibility:
         checkCompatibility ?? WebViewCompatibilityChecker.checkCompatibility,
   );
@@ -525,6 +599,519 @@ void main() {
     TargetPlatform.android,
     TargetPlatform.iOS,
   });
+
+  testWidgets(
+    'listener readiness gates initial skin creation and resume reload',
+    (tester) async {
+      final ready = Completer<bool>();
+      final resumeReady = Completer<bool>();
+      var calls = 0;
+      var waitForResume = false;
+      await _pumpSkin(
+        tester,
+        onResumeListeners: () {
+          calls++;
+          if (!ready.isCompleted) return ready.future;
+          if (waitForResume) return resumeReady.future;
+          return Future.value(false);
+        },
+      );
+      expect(find.byType(InAppWebView), findsNothing);
+
+      ready.complete(false);
+      await tester.pump();
+      expect(find.byType(InAppWebView), findsOneWidget);
+      expect(calls, 1);
+      _expectSkinUri(_params(tester).initialUrlRequest!.url!);
+
+      final controller = _TimerController();
+      _params(tester).onWebViewCreated!(
+        InAppWebViewController.fromPlatform(platform: controller),
+      );
+      waitForResume = true;
+      _lifecycle(tester, AppLifecycleState.resumed);
+      await tester.pump();
+      expect(
+        controller.calls.where((call) => call.startsWith('load:')),
+        isEmpty,
+      );
+      expect(calls, 2);
+      resumeReady.complete(true);
+      await tester.pump();
+      _expectSkinReload(controller);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+    variant: mobile,
+  );
+
+  testWidgets(
+    'host adopts replacement port after retrying a partial listener recovery',
+    (tester) async {
+      const entryPort = 3024;
+      const bound = Duration(seconds: 15);
+      Future<T?> network<T>(Future<T> Function() action) => tester.runAsync(
+        () => HttpOverrides.runWithHttpOverrides(
+          action,
+          _RealHttpOverrides(),
+        ).timeout(bound),
+      );
+      final previousResolver = WebUIService.resolveWifiIP;
+      WebUIService.resolveWifiIP = () async => 'localhost';
+      addTearDown(() => WebUIService.resolveWifiIP = previousResolver);
+      final webUI = WebUIService(listLocalAddresses: () async => const []);
+      final api = ApiListener(
+        handler: (_) => shelf.Response.ok(
+          '{}',
+          headers: {'content-type': 'application/json'},
+        ),
+        port: 0,
+      );
+      final recovery = ListenerRecoveryCoordinator(
+        apiListener: api,
+        webUIService: webUI,
+        maxAttempts: 2,
+        retryDelay: Duration.zero,
+      );
+      Directory? directory;
+      HttpServer? skinSquatter;
+      HttpServer? entrySquatter;
+      Future<bool>? pendingRetry;
+      try {
+        await network(() async {
+          final skin = await Directory.systemTemp.createTemp('host_recovery');
+          directory = skin;
+          await File('${skin.path}/index.html').writeAsString('skin');
+          await webUI.serveFolderAtPath(skin.path, port: entryPort);
+          await api.start();
+        });
+        final oldPort = webUI.port;
+        final generation = webUI.serveGeneration.value;
+        await _pumpSkin(
+          tester,
+          checkCompatibility: () async =>
+              const CompatibilityResult.compatible(),
+          onRetryListeners: () {
+            final pending = network(recovery.retry).then((result) => result!);
+            pendingRetry = pending;
+            return pending;
+          },
+          wrap: (skin) => SkinViewHost(
+            serveGeneration: webUI.serveGeneration,
+            port: () => webUI.port,
+            builder: (port) => SkinView(
+              settingsController: skin.settingsController,
+              webViewLogService: skin.webViewLogService,
+              deviceIp: skin.deviceIp,
+              displayController: skin.displayController,
+              port: port,
+              onRetryListeners: skin.onRetryListeners,
+              checkCompatibility: skin.checkCompatibility,
+            ),
+          ),
+        );
+        _expectSkinUri(_params(tester).initialUrlRequest!.url!, port: oldPort);
+        final oldController = await _createTimerView(tester);
+        final oldView = tester.element(find.byType(InAppWebView));
+        final oldNative = tester.state<_NativeViewState>(
+          find.byType(_NativeView),
+        );
+        oldNative.controller = oldController;
+
+        await network(() async {
+          await webUI.closeListenersForTesting();
+          expect(webUI.isServing, isTrue);
+          skinSquatter = await _bindUnhealthyListener(oldPort);
+          entrySquatter = await _bindUnhealthyListener(entryPort);
+          await expectLater(
+            recovery.onResumed().timeout(bound),
+            throwsA(isA<SocketException>()),
+          );
+        });
+        final replacementPort = webUI.port;
+        expect(replacementPort, isNot(oldPort));
+        expect(recovery.failure.value, isNotNull);
+        expect(webUI.serveGeneration.value, generation);
+        await tester.pump();
+        expect(tester.widget<SkinView>(find.byType(SkinView)).port, oldPort);
+        expect(tester.element(find.byType(InAppWebView)), same(oldView));
+
+        _params(tester).onReceivedError!(
+          InAppWebViewController.fromPlatform(platform: oldController),
+          WebResourceRequest(
+            url: WebUri('http://localhost:$oldPort/'),
+            isForMainFrame: true,
+          ),
+          WebResourceError(
+            type: WebResourceErrorType.CANNOT_CONNECT_TO_HOST,
+            description: 'listener recovery failed',
+          ),
+        );
+        await tester.pump();
+        expect(find.text('Retry').hitTestable(), findsOneWidget);
+        expect(
+          tester.state<_NativeViewState>(find.byType(_NativeView)),
+          same(oldNative),
+        );
+        expect(oldController.disposed, isFalse);
+        await network(() async {
+          await entrySquatter!.close(force: true);
+          entrySquatter = null;
+        });
+        await tester.tap(find.text('Retry'));
+        expect(pendingRetry, isNotNull);
+        await pendingRetry!;
+        pendingRetry = null;
+        await tester.pump();
+        await network(() async {
+          expect(recovery.failure.value, isNull);
+          expect(await api.checkHealth(), isTrue);
+          expect(await webUI.checkHealth(), isTrue);
+        });
+        await tester.pump();
+
+        expect(webUI.port, replacementPort);
+        expect(
+          tester.widget<SkinView>(find.byType(SkinView)).port,
+          replacementPort,
+        );
+        expect(webUI.serveGeneration.value, generation + 1);
+        expect(tester.element(find.byType(InAppWebView)), isNot(same(oldView)));
+        expect(oldNative.mounted, isFalse);
+        expect(oldController.disposed, isTrue);
+        await expectLater(
+          oldController.loadUrl(
+            urlRequest: URLRequest(url: WebUri('http://localhost:$oldPort/')),
+          ),
+          throwsStateError,
+        );
+        _expectSkinUri(
+          _params(tester).initialUrlRequest!.url!,
+          port: replacementPort,
+        );
+        final replacementController = await _createTimerView(tester);
+        tester.state<_NativeViewState>(find.byType(_NativeView)).controller =
+            replacementController;
+        _params(tester).onReceivedError!(
+          InAppWebViewController.fromPlatform(platform: replacementController),
+          WebResourceRequest(
+            url: WebUri('http://localhost:$replacementPort/'),
+            isForMainFrame: true,
+          ),
+          WebResourceError(
+            type: WebResourceErrorType.CANNOT_CONNECT_TO_HOST,
+            description: 'retry navigation',
+          ),
+        );
+        await tester.pump();
+        await tester.tap(find.text('Retry'));
+        expect(pendingRetry, isNotNull);
+        await pendingRetry!;
+        pendingRetry = null;
+        await tester.pump();
+        _expectSkinReload(replacementController, port: replacementPort);
+        expect(webUI.serveGeneration.value, generation + 1);
+        expect(tester.takeException(), isNull);
+      } finally {
+        await pendingRetry?.catchError((Object _) => false);
+        await tester.pumpWidget(const SizedBox.shrink());
+        recovery.dispose();
+        await network(() async {
+          await api.stop();
+          await webUI.stopServing();
+          await entrySquatter?.close(force: true);
+          await skinSquatter?.close(force: true);
+          if (directory != null) await directory!.delete(recursive: true);
+        });
+      }
+    },
+    variant: mobile,
+  );
+
+  testWidgets('pending listener resume cannot lose dispose timer balancing', (
+    tester,
+  ) async {
+    final ready = Completer<bool>();
+    var calls = 0;
+    await _pumpSkin(
+      tester,
+      onResumeListeners: () {
+        calls++;
+        return calls == 1 ? Future.value(false) : ready.future;
+      },
+    );
+    final controller = await _createTimerView(tester);
+    final pause = Completer<void>();
+    controller.onPauseTimers = () => pause.future;
+    _lifecycle(tester, AppLifecycleState.paused);
+    await tester.pump();
+    _lifecycle(tester, AppLifecycleState.resumed);
+    await tester.pump();
+    expect(calls, 2);
+    expect(controller.callsTo('resumeTimers'), isEmpty);
+    await tester.pumpWidget(const SizedBox.shrink());
+    pause.complete();
+    await tester.pump();
+    expect(controller.callsTo('resumeTimers'), hasLength(1));
+    ready.complete(true);
+    await tester.pump();
+    expect(controller.callsTo('resume'), isEmpty);
+    expect(controller.calls.where((call) => call.startsWith('load:')), isEmpty);
+    expect(tester.takeException(), isNull);
+  }, variant: mobile);
+
+  testWidgets('listener bind failure offers a persistent retry', (
+    tester,
+  ) async {
+    await _pumpSkin(
+      tester,
+      onResumeListeners: () async => throw StateError('bind failed'),
+      onRetryListeners: () async => false,
+    );
+    await tester.pump();
+    expect(
+      find.textContaining('Failed to recover skin server'),
+      findsOneWidget,
+    );
+    expect(find.text('Retry'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+  }, variant: mobile);
+
+  testWidgets('retry failure then healthy retry reloads the current skin', (
+    tester,
+  ) async {
+    var retries = 0;
+    await _pumpSkin(
+      tester,
+      onRetryListeners: () async {
+        retries++;
+        if (retries == 1) throw StateError('still unavailable');
+        return false;
+      },
+    );
+    final controller = _TimerController();
+    _params(tester).onWebViewCreated!(
+      InAppWebViewController.fromPlatform(platform: controller),
+    );
+    final nativeView =
+        tester.widget<InAppWebView>(find.byType(InAppWebView)).platform
+            as _WebView;
+    nativeView.onDispose = () => controller.disposed = true;
+    _params(tester).onReceivedError!(
+      InAppWebViewController.fromPlatform(platform: controller),
+      WebResourceRequest(url: url, isForMainFrame: true),
+      WebResourceError(
+        type: WebResourceErrorType.CANNOT_CONNECT_TO_HOST,
+        description: 'connection refused',
+      ),
+    );
+    await tester.pump();
+    expect(find.byType(InAppWebView), findsOneWidget);
+    expect(controller.disposed, isFalse);
+    expect(find.text('Retry').hitTestable(), findsOneWidget);
+    await tester.tap(find.text('Retry'));
+    await tester.pump();
+    expect(retries, 1);
+    expect(
+      find.textContaining('Failed to recover skin server'),
+      findsOneWidget,
+    );
+    expect(find.text('Retry').hitTestable(), findsOneWidget);
+    await tester.tap(find.text('Retry'));
+    await tester.pump();
+    expect(retries, 2);
+    _expectSkinReload(controller);
+    await tester.pumpWidget(const SizedBox.shrink());
+  }, variant: mobile);
+
+  for (final outcome in [
+    SkinSwitchOutcome.unchanged,
+    SkinSwitchOutcome.unknownSkin,
+    SkinSwitchOutcome.busy,
+  ]) {
+    testWidgets('surviving view callbacks remain live after ${outcome.name}', (
+      tester,
+    ) async {
+      var switches = 0;
+      await _pumpSkin(
+        tester,
+        onSwitchSkin: (_) async {
+          switches++;
+          return outcome;
+        },
+      );
+      final params = _params(tester);
+      final controller = InAppWebViewController.fromPlatform(
+        platform: _TimerController(),
+      );
+      params.onWebViewCreated!(controller);
+      params.onLoadStart!(controller, url);
+      final script = params.initialUserScripts!.first.source;
+      final nonce = RegExp(r'value: "([^"]+)"').firstMatch(script)!.group(1)!;
+      final switchUrl = WebUri(
+        'http://localhost:24800/__decent/switch-skin?id=other&nonce=$nonce',
+      );
+      await params.shouldOverrideUrlLoading!(
+        controller,
+        NavigationAction(
+          request: URLRequest(url: switchUrl),
+          isForMainFrame: true,
+        ),
+      );
+      await tester.pump();
+      expect(switches, 1);
+      await params.shouldOverrideUrlLoading!(
+        controller,
+        NavigationAction(
+          request: URLRequest(url: switchUrl),
+          isForMainFrame: true,
+        ),
+      );
+      await tester.pump();
+      expect(switches, 2);
+      expect(
+        await params.shouldOverrideUrlLoading!(
+          controller,
+          NavigationAction(request: URLRequest(url: url), isForMainFrame: true),
+        ),
+        NavigationActionPolicy.ALLOW,
+      );
+      params.onReceivedError!(
+        controller,
+        WebResourceRequest(url: url, isForMainFrame: true),
+        WebResourceError(
+          type: WebResourceErrorType.CANNOT_CONNECT_TO_HOST,
+          description: 'live callback',
+        ),
+      );
+      await tester.pump();
+      expect(find.textContaining('live callback'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+    }, variant: mobile);
+  }
+
+  testWidgets(
+    'retry navigation failure remains actionable without retry storms',
+    (tester) async {
+      var retries = 0;
+      await _pumpSkin(
+        tester,
+        onRetryListeners: () async {
+          retries++;
+          return true;
+        },
+      );
+      final controller = await _createTimerView(tester);
+      final native = InAppWebViewController.fromPlatform(platform: controller);
+      _params(tester).onReceivedError!(
+        native,
+        WebResourceRequest(url: url, isForMainFrame: true),
+        WebResourceError(
+          type: WebResourceErrorType.CANNOT_CONNECT_TO_HOST,
+          description: 'offline',
+        ),
+      );
+      await tester.pump();
+      controller.onLoad = () async => throw StateError('navigation failed');
+      await tester.tap(find.text('Retry'));
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(retries, 1);
+      expect(find.textContaining('Failed to reload skin'), findsOneWidget);
+      expect(find.text('Retry').hitTestable(), findsOneWidget);
+      controller.onLoad = null;
+      await tester.tap(find.text('Retry'));
+      await tester.pump();
+      expect(retries, 2);
+      expect(find.text('Retry'), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+    variant: mobile,
+  );
+
+  testWidgets('actual recreation rejects retired native callbacks', (
+    tester,
+  ) async {
+    final previous = simulatedWebViewDevice.value;
+    addTearDown(() => simulatedWebViewDevice.value = previous);
+    await _pumpSkin(tester);
+    final old = _params(tester);
+    final controller = InAppWebViewController.fromPlatform(
+      platform: _TimerController(),
+    );
+    old.onWebViewCreated!(controller);
+    simulatedWebViewDevice.value = SimulatedWebViewDevice.teclastP80X;
+    await tester.pump();
+    old.onReceivedError!(
+      controller,
+      WebResourceRequest(url: url, isForMainFrame: true),
+      WebResourceError(
+        type: WebResourceErrorType.CANNOT_CONNECT_TO_HOST,
+        description: 'retired callback',
+      ),
+    );
+    expect(
+      await old.shouldOverrideUrlLoading!(
+        controller,
+        NavigationAction(request: URLRequest(url: url), isForMainFrame: true),
+      ),
+      NavigationActionPolicy.CANCEL,
+    );
+    await tester.pump();
+    expect(find.textContaining('retired callback'), findsNothing);
+    expect(find.byType(InAppWebView), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+  }, variant: mobile);
+
+  testWidgets('stale listener readiness is ignored after recreation', (
+    tester,
+  ) async {
+    final previous = simulatedWebViewDevice.value;
+    addTearDown(() => simulatedWebViewDevice.value = previous);
+    final firstReset = Completer<bool>();
+    final secondReset = Completer<bool>();
+    var calls = 0;
+    await _pumpSkin(
+      tester,
+      onResumeListeners: () {
+        calls++;
+        return switch (calls) {
+          1 => Future.value(false),
+          2 => firstReset.future,
+          _ => secondReset.future,
+        };
+      },
+    );
+    expect(find.byType(InAppWebView), findsOneWidget);
+
+    simulatedWebViewDevice.value = SimulatedWebViewDevice.teclastP80X;
+    await tester.pump();
+    expect(find.byType(InAppWebView), findsNothing);
+    simulatedWebViewDevice.value = SimulatedWebViewDevice.teclastP85Pro;
+    await tester.pump();
+
+    firstReset.complete(false);
+    await tester.pump();
+    expect(find.byType(InAppWebView), findsNothing);
+    secondReset.complete(false);
+    await tester.pump();
+    expect(calls, 3);
+    expect(find.byType(InAppWebView), findsOneWidget);
+    _expectSkinUri(_params(tester).initialUrlRequest!.url!);
+    await tester.pumpWidget(const SizedBox.shrink());
+  }, variant: mobile);
+
+  testWidgets('disposed listener readiness does not recreate the skin', (
+    tester,
+  ) async {
+    final ready = Completer<bool>();
+    await _pumpSkin(tester, onResumeListeners: () => ready.future);
+    expect(find.byType(InAppWebView), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+    ready.complete(false);
+    await tester.pump();
+    expect(find.byType(InAppWebView), findsNothing);
+    expect(tester.takeException(), isNull);
+  }, variant: mobile);
 
   for (final operation in ['pause', 'resume']) {
     for (final failure in [

@@ -33,6 +33,38 @@ abstract class WifiManualEndpointStore {
   Future<void> save(List<String> hosts);
 }
 
+/// Read-only lookup of one persisted manual WiFi scale endpoint.
+///
+/// Implementations read only the manual endpoint preference and never start
+/// discovery, build a scale, probe the network or write preferences.
+abstract class WifiManualEndpointLookup {
+  Future<WifiManualEndpointMatch> findManualEndpoint(String host);
+}
+
+sealed class WifiManualEndpointMatch {
+  const WifiManualEndpointMatch();
+}
+
+/// The persisted manual endpoints contain exactly the selected host.
+final class WifiManualEndpointFound extends WifiManualEndpointMatch {
+  const WifiManualEndpointFound();
+}
+
+/// The persisted manual endpoints do not contain the selected host.
+final class WifiManualEndpointAbsent extends WifiManualEndpointMatch {
+  const WifiManualEndpointAbsent();
+}
+
+/// Two or more persisted entries denote the selected host.
+final class WifiManualEndpointAmbiguous extends WifiManualEndpointMatch {
+  const WifiManualEndpointAmbiguous();
+}
+
+/// The persisted manual endpoint preference is not a list of host strings.
+final class WifiManualEndpointMalformed extends WifiManualEndpointMatch {
+  const WifiManualEndpointMalformed();
+}
+
 typedef WifiReachabilityProbe = Future<bool> Function(String host, int port);
 
 Future<bool> _defaultReachabilityProbe(String host, int port) async {

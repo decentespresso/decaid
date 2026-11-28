@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reaprime/src/models/device/device.dart' as device;
 import 'package:reaprime/src/models/device/firmware_update_state.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
@@ -9,8 +11,23 @@ import 'package:reaprime/src/models/device/transport/ble_timeout_exception.dart'
 
 import '../../../../../../helpers/fake_ble_transport.dart';
 
+final class _FakeAsyncConnectionBleTransport extends FakeBleTransport {
+  final device.ConnectionState _connectionState =
+      device.ConnectionState.connected;
+  @override
+  Stream<device.ConnectionState> get connectionState => Stream.multi((events) {
+    events.add(_connectionState);
+    events.close();
+  });
+
+  @override
+  Future<device.ConnectionState> getConnectionState() async => _connectionState;
+}
+
 /// Terminal frame: window, erase, map, then three error bytes.
-final _eraseTerminal = Uint8List.fromList([0, 0, 0, 1, 0xff, 0xff, 0xff]);
+final _eraseBusy = Uint8List.fromList([0, 0, 1, 1, 0, 0, 0]);
+final _eraseTerminal = Uint8List.fromList([0, 0, 0, 1, 0, 0, 0]);
+final _verifyPending = Uint8List.fromList([0, 0, 0, 1, 0xff, 0xff, 0xff]);
 final _verifySuccess = Uint8List.fromList([0, 0, 0, 1, 0xff, 0xff, 0xfd]);
 
 void main() {
@@ -18,7 +35,7 @@ void main() {
   late UnifiedDe1 de1;
 
   setUp(() async {
-    transport = FakeBleTransport();
+    transport = _FakeAsyncConnectionBleTransport();
     addTearDown(transport.dispose);
     transport.queueOnConnectResponses(v13Model: 3);
     transport.queueMmrResponseInt(MMRItem.calFlowEst, 0);
@@ -31,12 +48,25 @@ void main() {
   });
 
   test(
-    'POLL-only: completes via GATT read when NO notify is ever emitted',
+    'POLL-only: requires busy before erase and verify terminal reads',
     () async {
+      transport.queueRead(Endpoint.fwMapRequest.uuid, _eraseBusy);
       transport.queueRead(Endpoint.fwMapRequest.uuid, _eraseTerminal);
+      transport.queueRead(Endpoint.fwMapRequest.uuid, _verifyPending);
       transport.queueRead(Endpoint.fwMapRequest.uuid, _verifySuccess);
 
-      await de1.updateFirmware(Uint8List(16), onProgress: (_) {});
+      Future<void>? update;
+      fakeAsync((async) {
+        update = de1.updateFirmware(Uint8List(16), onProgress: (_) {});
+        unawaited(
+          update!.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+        );
+        async.elapse(Duration.zero);
+        async.flushMicrotasks();
+        async.elapse(const Duration(milliseconds: 750));
+        async.flushMicrotasks();
+      });
+      await update!;
 
       expect(de1.firmwareUpdateState, FirmwareUpdateState.idle);
     },
@@ -48,15 +78,229 @@ void main() {
       // No queued reads, so the poll only ever sees the non-terminal default.
       transport.queueFirmwareMapResponse(_eraseTerminal);
       var completed = false;
-      final update = de1
-          .updateFirmware(Uint8List(16), onProgress: (_) {})
-          .whenComplete(() => completed = true);
+      Future<void>? update;
+      fakeAsync((async) {
+        update = de1
+            .updateFirmware(Uint8List(16), onProgress: (_) {})
+            .whenComplete(() => completed = true);
+        unawaited(
+          update!.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+        );
+        async.elapse(Duration.zero);
+        async.flushMicrotasks();
+        expect(de1.firmwareUpdateState, FirmwareUpdateState.verifying);
+        expect(completed, isFalse, reason: 'verify awaits its notify');
 
-      await _waitForState(de1, FirmwareUpdateState.verifying);
-      expect(completed, isFalse, reason: 'verify awaits its notify');
+        transport.emitFirmwareMapResponse(_verifySuccess);
+        async.elapse(Duration.zero);
+        async.flushMicrotasks();
+      });
+      await update!;
+      expect(completed, isTrue);
+      expect(de1.firmwareUpdateState, FirmwareUpdateState.idle);
+    },
+  );
 
+  test(
+    'retained verification zero cannot complete erase without busy',
+    () async {
+      transport.queueRead(Endpoint.fwMapRequest.uuid, _eraseTerminal);
+      transport.writes.clear();
+      Future<void>? update;
+      Object? failure;
+      fakeAsync((async) {
+        update = de1.updateFirmware(Uint8List(16), onProgress: (_) {});
+        unawaited(
+          update!.then<void>(
+            (_) {},
+            onError: (Object error, StackTrace _) => failure = error,
+          ),
+        );
+        async.elapse(Duration.zero);
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 1));
+        async.flushMicrotasks();
+      });
+      await update!.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+
+      expect(failure, isA<TimeoutException>());
+      expect(
+        transport.writes.where(
+          (write) => write.characteristicUUID == Endpoint.writeToMMR.uuid,
+        ),
+        isEmpty,
+      );
+    },
+  );
+
+  test(
+    'retained erase zero fails verification without requiring busy',
+    () async {
+      transport.queueRead(Endpoint.fwMapRequest.uuid, _eraseBusy);
+      transport.queueRead(Endpoint.fwMapRequest.uuid, _eraseTerminal);
+      transport.queueRead(Endpoint.fwMapRequest.uuid, _eraseTerminal);
+      Future<void>? update;
+      Object? failure;
+      fakeAsync((async) {
+        update = de1.updateFirmware(Uint8List(16), onProgress: (_) {});
+        unawaited(
+          update!.then<void>(
+            (_) {},
+            onError: (Object error, StackTrace _) => failure = error,
+          ),
+        );
+        async.elapse(Duration.zero);
+        async.flushMicrotasks();
+        async.elapse(const Duration(milliseconds: 500));
+        async.flushMicrotasks();
+      });
+      await update!.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+
+      expect(failure, isA<StateError>());
+      expect(failure.toString(), contains('0x000000'));
+    },
+  );
+
+  test(
+    'retained verification success cannot complete before verify busy',
+    () async {
+      transport.queueRead(Endpoint.fwMapRequest.uuid, _eraseBusy);
+      transport.queueRead(Endpoint.fwMapRequest.uuid, _eraseTerminal);
+      transport.queueRead(Endpoint.fwMapRequest.uuid, _verifySuccess);
+      Future<void>? update;
+      Object? failure;
+      fakeAsync((async) {
+        update = de1.updateFirmware(Uint8List(16), onProgress: (_) {});
+        unawaited(
+          update!.then<void>(
+            (_) {},
+            onError: (Object error, StackTrace _) => failure = error,
+          ),
+        );
+        async.elapse(Duration.zero);
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 3));
+        async.flushMicrotasks();
+      });
+      await update!.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+
+      expect(failure, isA<TimeoutException>());
+      expect(de1.firmwareUpdateState, FirmwareUpdateState.idle);
+    },
+  );
+
+  test(
+    'current zero after verify busy is a terminal verification failure',
+    () async {
+      transport.queueRead(Endpoint.fwMapRequest.uuid, _eraseBusy);
+      transport.queueRead(Endpoint.fwMapRequest.uuid, _eraseTerminal);
+      transport.queueRead(Endpoint.fwMapRequest.uuid, _verifyPending);
+      transport.queueRead(Endpoint.fwMapRequest.uuid, _eraseTerminal);
+      Future<void>? update;
+      Object? failure;
+      fakeAsync((async) {
+        update = de1.updateFirmware(Uint8List(16), onProgress: (_) {});
+        unawaited(
+          update!.then<void>(
+            (_) {},
+            onError: (Object error, StackTrace _) => failure = error,
+          ),
+        );
+        async.elapse(Duration.zero);
+        async.flushMicrotasks();
+        async.elapse(const Duration(milliseconds: 750));
+        async.flushMicrotasks();
+      });
+      await update!.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+
+      expect(failure, isA<StateError>());
+      expect(failure.toString(), contains('0x000000'));
+    },
+  );
+
+  test('BLE missing A009 uses notifications without repeated reads', () async {
+    transport.firmwareMapReadUnavailable = true;
+    transport.queueFirmwareMapResponse(_eraseTerminal);
+    Future<void>? update;
+    fakeAsync((async) {
+      update = de1.updateFirmware(Uint8List(16), onProgress: (_) {});
+      unawaited(
+        update!.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+      );
+      async.elapse(Duration.zero);
+      expect(de1.firmwareUpdateState, FirmwareUpdateState.verifying);
+      expect(transport.firmwareMapReadCalls, 1);
+      async.elapse(const Duration(milliseconds: 750));
+      expect(transport.firmwareMapReadCalls, 1);
       transport.emitFirmwareMapResponse(_verifySuccess);
-      await update;
+      async.elapse(Duration.zero);
+    });
+    await update!;
+
+    expect(transport.firmwareMapReadCalls, 1);
+    expect(de1.firmwareUpdateState, FirmwareUpdateState.idle);
+  });
+
+  test(
+    'BLE unreadable A009 uses notifications without repeated reads',
+    () async {
+      transport.firmwareMapReadNotReadable = true;
+      transport.queueFirmwareMapResponse(_eraseTerminal);
+      Future<void>? update;
+      fakeAsync((async) {
+        update = de1.updateFirmware(Uint8List(16), onProgress: (_) {});
+        unawaited(
+          update!.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+        );
+        async.elapse(Duration.zero);
+        expect(de1.firmwareUpdateState, FirmwareUpdateState.verifying);
+        expect(transport.firmwareMapReadCalls, 1);
+        async.elapse(const Duration(milliseconds: 750));
+        expect(transport.firmwareMapReadCalls, 1);
+        transport.emitFirmwareMapResponse(_verifySuccess);
+        async.elapse(Duration.zero);
+      });
+      await update!;
+
+      expect(transport.firmwareMapReadCalls, 1);
+      expect(de1.firmwareUpdateState, FirmwareUpdateState.idle);
+    },
+  );
+
+  test(
+    'unavailable A009 latch resets after disconnect and reconnect',
+    () async {
+      transport.firmwareMapReadUnavailable = true;
+      transport.queueFirmwareMapResponse(_eraseTerminal);
+      transport.queueFirmwareMapResponse(_verifySuccess);
+      await de1.updateFirmware(Uint8List(16), onProgress: (_) {});
+      expect(transport.firmwareMapReadCalls, 1);
+
+      transport.emitConnectionState(device.ConnectionState.disconnected);
+      await de1.disconnect();
+      transport.emitConnectionState(device.ConnectionState.connected);
+      transport.firmwareMapReadUnavailable = false;
+      transport.queueMmrResponseInt(MMRItem.calFlowEst, 0);
+      await de1.onConnect();
+
+      transport.queueRead(Endpoint.fwMapRequest.uuid, _eraseBusy);
+      transport.queueRead(Endpoint.fwMapRequest.uuid, _eraseTerminal);
+      transport.queueRead(Endpoint.fwMapRequest.uuid, _verifyPending);
+      transport.queueRead(Endpoint.fwMapRequest.uuid, _verifySuccess);
+      Future<void>? update;
+      fakeAsync((async) {
+        update = de1.updateFirmware(Uint8List(16), onProgress: (_) {});
+        unawaited(
+          update!.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+        );
+        async.elapse(Duration.zero);
+        async.flushMicrotasks();
+        async.elapse(const Duration(milliseconds: 750));
+        async.flushMicrotasks();
+      });
+      await update!;
+
+      expect(transport.firmwareMapReadCalls, 5);
       expect(de1.firmwareUpdateState, FirmwareUpdateState.idle);
     },
   );
@@ -75,10 +319,29 @@ void main() {
       await timeoutDe1.onConnect();
 
       final writesBefore = transport.writes.length;
-      await expectLater(
-        timeoutDe1.updateFirmware(Uint8List(16), onProgress: (_) {}),
-        throwsA(isA<TimeoutException>()),
-      );
+      var completed = false;
+      Object? failure;
+      Future<void>? update;
+      fakeAsync((async) {
+        update = timeoutDe1
+            .updateFirmware(Uint8List(16), onProgress: (_) {})
+            .whenComplete(() => completed = true);
+        unawaited(
+          update!.then<void>(
+            (_) {},
+            onError: (Object error, StackTrace _) => failure = error,
+          ),
+        );
+        async.elapse(Duration.zero);
+        async.flushMicrotasks();
+        expect(completed, isFalse);
+        async.elapse(const Duration(milliseconds: 100));
+        async.flushMicrotasks();
+      });
+      await update!.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+
+      expect(completed, isTrue);
+      expect(failure, isA<TimeoutException>());
       expect(
         transport.writes
             .skip(writesBefore)
@@ -91,16 +354,34 @@ void main() {
   test(
     'a failed verify poll read still fails: non-success terminal throws',
     () async {
+      transport.queueRead(Endpoint.fwMapRequest.uuid, _eraseBusy);
       transport.queueRead(Endpoint.fwMapRequest.uuid, _eraseTerminal);
+      transport.queueRead(Endpoint.fwMapRequest.uuid, _verifyPending);
       transport.queueRead(
         Endpoint.fwMapRequest.uuid,
         Uint8List.fromList([0, 0, 0, 1, 0xff, 0xff, 0x01]),
       );
 
-      await expectLater(
-        de1.updateFirmware(Uint8List(16), onProgress: (_) {}),
-        throwsA(isA<StateError>()),
-      );
+      var completed = false;
+      Object? failure;
+      Future<void>? update;
+      fakeAsync((async) {
+        update = de1
+            .updateFirmware(Uint8List(16), onProgress: (_) {})
+            .whenComplete(() => completed = true);
+        unawaited(
+          update!.then<void>(
+            (_) {},
+            onError: (Object error, StackTrace _) => failure = error,
+          ),
+        );
+        async.elapse(const Duration(milliseconds: 750));
+        async.flushMicrotasks();
+      });
+      await update!.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+
+      expect(completed, isTrue);
+      expect(failure, isA<StateError>());
       expect(de1.firmwareUpdateState, FirmwareUpdateState.idle);
     },
   );
@@ -108,7 +389,9 @@ void main() {
   test(
     'a thrown poll read does not disturb the link: retries and still completes',
     () async {
+      transport.queueRead(Endpoint.fwMapRequest.uuid, _eraseBusy);
       transport.queueRead(Endpoint.fwMapRequest.uuid, _eraseTerminal);
+      transport.queueRead(Endpoint.fwMapRequest.uuid, _verifyPending);
       transport.queueReadError(
         Endpoint.fwMapRequest.uuid,
         BleTimeoutException('GATT read(fwMapRequest)'),
@@ -117,9 +400,21 @@ void main() {
 
       final connectsBefore = transport.connectCalls;
       final disconnectsBefore = transport.disconnectCalls;
+      var completed = false;
+      Future<void>? update;
+      fakeAsync((async) {
+        update = de1
+            .updateFirmware(Uint8List(16), onProgress: (_) {})
+            .whenComplete(() => completed = true);
+        unawaited(
+          update!.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+        );
+        async.elapse(const Duration(seconds: 1));
+        async.flushMicrotasks();
+      });
+      await update!;
 
-      await de1.updateFirmware(Uint8List(16), onProgress: (_) {});
-
+      expect(completed, isTrue);
       expect(de1.firmwareUpdateState, FirmwareUpdateState.idle);
       expect(
         transport.connectCalls,
@@ -129,14 +424,4 @@ void main() {
       expect(transport.disconnectCalls, disconnectsBefore);
     },
   );
-}
-
-Future<void> _waitForState(UnifiedDe1 de1, FirmwareUpdateState state) async {
-  final deadline = DateTime.now().add(const Duration(seconds: 1));
-  while (de1.firmwareUpdateState != state) {
-    if (DateTime.now().isAfter(deadline)) {
-      throw TimeoutException('State did not become ${state.name}');
-    }
-    await Future<void>.delayed(const Duration(milliseconds: 1));
-  }
 }

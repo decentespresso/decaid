@@ -47,6 +47,21 @@ class _TrackingOnboardingController extends OnboardingController {
   }
 }
 
+class _TrackingDeviceController extends DeviceController {
+  int stopScanCalls = 0;
+
+  _TrackingDeviceController(super.services);
+
+  @override
+  void stopScan() {
+    stopScanCalls++;
+    super.stopScan();
+  }
+}
+
+const skipLabel = 'Skip device setup';
+const skipHelp = 'You can connect your machine later from the dashboard.';
+
 void main() {
   late MockConnectionManager mockConnectionManager;
   late MockBleDiscoveryService mockBleService;
@@ -56,6 +71,7 @@ void main() {
   late MockDeviceScanner mockDeviceScanner;
   late MockDe1Controller mockDe1Controller;
   late MockScaleController mockScaleController;
+  late _TrackingDeviceController deviceController;
 
   setUp(() async {
     mockDeviceScanner = MockDeviceScanner();
@@ -76,6 +92,7 @@ void main() {
 
     onboardingController = _TrackingOnboardingController();
     await onboardingController.initialize();
+    deviceController = _TrackingDeviceController([]);
   });
 
   tearDown(() {
@@ -83,15 +100,16 @@ void main() {
     scanStateGuardian.dispose();
     mockBleService.dispose();
     mockDeviceScanner.dispose();
+    deviceController.dispose();
   });
 
-  Widget buildSubject() {
+  Widget buildSubject({DeviceController? controller}) {
     return ShadApp(
       home: Scaffold(
         body: ScanStepView(
           onboardingController: onboardingController,
           connectionManager: mockConnectionManager,
-          deviceController: DeviceController([]),
+          deviceController: controller ?? deviceController,
           settingsController: settingsController,
           scanStateGuardian: scanStateGuardian,
         ),
@@ -99,24 +117,24 @@ void main() {
     );
   }
 
-  testWidgets(
-    'immediate dashboard exit ignores ready after onboarding disposal',
-    (tester) async {
-      await tester.pumpWidget(buildSubject());
-      await tester.pump();
-      await tester.tap(find.text('Continue to Dashboard'));
-      expect(mockConnectionManager.cancelActiveScanCallCount, 1);
-      expect(onboardingController.advanceCallCount, 1);
-      onboardingController.dispose();
-      mockConnectionManager.emitStatus(
-        const ConnectionStatus(phase: ConnectionPhase.ready),
-      );
-      scanStateGuardian.onAppResumed();
-      await tester.pump();
-      expect(onboardingController.advanceCallCount, 1);
-      expect(tester.takeException(), isNull);
-    },
-  );
+  testWidgets('immediate skip ignores ready after onboarding disposal', (
+    tester,
+  ) async {
+    await tester.pumpWidget(buildSubject());
+    await tester.pump();
+    await tester.tap(find.text(skipLabel));
+    expect(mockConnectionManager.cancelActiveScanCallCount, 1);
+    expect(deviceController.stopScanCalls, 1);
+    expect(onboardingController.advanceCallCount, 1);
+    onboardingController.dispose();
+    mockConnectionManager.emitStatus(
+      const ConnectionStatus(phase: ConnectionPhase.ready),
+    );
+    scanStateGuardian.onAppResumed();
+    await tester.pump();
+    expect(onboardingController.advanceCallCount, 1);
+    expect(tester.takeException(), isNull);
+  });
 
   group('scanning phase', () {
     testWidgets('shows progress indicator during scanning', (tester) async {
@@ -170,9 +188,10 @@ void main() {
       expect(find.text('Re-start scan'), findsOneWidget);
       expect(find.text('Troubleshoot'), findsOneWidget);
       expect(find.text('Export logs'), findsOneWidget);
+      expect(find.widgetWithText(ListTile, skipLabel), findsOneWidget);
       expect(
         find.widgetWithText(ListTile, 'Continue to Dashboard'),
-        findsOneWidget,
+        findsNothing,
       );
     });
 
@@ -196,7 +215,7 @@ void main() {
       expect(mockConnectionManager.scanAndConnectCallCount, before + 1);
     });
 
-    testWidgets('Continue to Dashboard calls advance', (tester) async {
+    testWidgets('Skip device setup advances onboarding', (tester) async {
       await tester.pumpWidget(buildSubject());
       await tester.pump();
       await tester.pump(ScanStepView.scanTooLongThreshold);
@@ -207,11 +226,12 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
 
       final before = onboardingController.advanceCallCount;
-      await tester.tap(find.widgetWithText(ListTile, 'Continue to Dashboard'));
+      await tester.tap(find.widgetWithText(ListTile, skipLabel));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
 
       expect(onboardingController.advanceCallCount, before + 1);
+      expect(mockConnectionManager.cancelActiveScanCallCount, 1);
     });
   });
 
@@ -356,10 +376,10 @@ void main() {
 
       expect(find.text('No Bluetooth Devices Found'), findsOneWidget);
       expect(find.text('Scan Again'), findsOneWidget);
-      expect(find.text('Continue to Dashboard'), findsOneWidget);
+      expect(find.text(skipLabel), findsOneWidget);
     });
 
-    testWidgets('Continue to Dashboard advances onboarding', (tester) async {
+    testWidgets('Skip device setup advances onboarding', (tester) async {
       await tester.pumpWidget(buildSubject());
       await tester.pump();
 
@@ -379,7 +399,7 @@ void main() {
       );
       await tester.pump();
 
-      await tester.tap(find.text('Continue to Dashboard'));
+      await tester.tap(find.text(skipLabel));
       await tester.pump();
 
       expect(onboardingController.advanceCallCount, 1);
@@ -646,6 +666,147 @@ void main() {
       await tester.pump();
 
       expect(find.byType(ShadProgress), findsOneWidget);
+    });
+  });
+
+  group('skip device setup exit', () {
+    testWidgets('scanning exit reads Skip device setup with dashboard help', (
+      tester,
+    ) async {
+      await tester.pumpWidget(buildSubject());
+      await tester.pump();
+
+      expect(find.text(skipLabel), findsOneWidget);
+      expect(find.text(skipHelp), findsOneWidget);
+      expect(find.text('Continue to Dashboard'), findsNothing);
+    });
+
+    testWidgets('skip is available while connecting and advances once', (
+      tester,
+    ) async {
+      await tester.pumpWidget(buildSubject());
+      await tester.pump();
+      mockConnectionManager.emitStatus(
+        const ConnectionStatus(phase: ConnectionPhase.connectingMachine),
+      );
+      await tester.pump();
+
+      expect(find.text('Connecting to your machine...'), findsOneWidget);
+      expect(find.text(skipLabel), findsOneWidget);
+      expect(find.text(skipHelp), findsOneWidget);
+
+      await tester.tap(find.text(skipLabel));
+      await tester.pump();
+
+      expect(onboardingController.advanceCallCount, 1);
+      expect(mockConnectionManager.cancelActiveScanCallCount, 1);
+      expect(deviceController.stopScanCalls, 1);
+    });
+
+    testWidgets('skip from the picker advances once and ignores late ready', (
+      tester,
+    ) async {
+      mockConnectionManager.emitStatus(
+        ConnectionStatus(
+          phase: ConnectionPhase.idle,
+          pendingAmbiguity: AmbiguityReason.machinePicker,
+          foundMachines: [FakeDe1(deviceId: 'm1', name: 'DE1 #1')],
+        ),
+      );
+      await tester.pumpWidget(buildSubject());
+      await tester.pump();
+
+      expect(find.text('Machines'), findsOneWidget);
+      await tester.tap(find.text(skipLabel));
+      await tester.pump();
+      expect(onboardingController.advanceCallCount, 1);
+      expect(mockConnectionManager.cancelActiveScanCallCount, 1);
+
+      mockConnectionManager.emitStatus(
+        const ConnectionStatus(phase: ConnectionPhase.ready),
+      );
+      scanStateGuardian.onAppResumed();
+      await tester.pump(
+        ScanStepView.scanTooLongThreshold + const Duration(seconds: 1),
+      );
+
+      expect(onboardingController.advanceCallCount, 1);
+      expect(mockConnectionManager.selectMachineCallCount, 0);
+    });
+
+    testWidgets('skip from the error state advances once', (tester) async {
+      mockConnectionManager.emitStatus(
+        ConnectionStatus(
+          phase: ConnectionPhase.idle,
+          error: ConnectionError(
+            kind: ConnectionErrorKind.machineConnectFailed,
+            severity: ConnectionErrorSeverity.error,
+            timestamp: DateTime.utc(2026),
+            message: 'Connection timed out',
+          ),
+        ),
+      );
+      await tester.pumpWidget(buildSubject());
+      await tester.pump();
+
+      expect(find.text('Connection Error'), findsOneWidget);
+      await tester.tap(find.text(skipLabel));
+      await tester.pump();
+
+      expect(onboardingController.advanceCallCount, 1);
+      expect(mockConnectionManager.cancelActiveScanCallCount, 1);
+    });
+
+    testWidgets('launcher wording is not offered in onboarding', (
+      tester,
+    ) async {
+      await tester.pumpWidget(buildSubject());
+      await tester.pump();
+
+      expect(find.text('Cancel'), findsNothing);
+      expect(find.text('Continue to Dashboard'), findsNothing);
+    });
+
+    testWidgets('skip control exposes an accessible label', (tester) async {
+      final handle = tester.ensureSemantics();
+      try {
+        await tester.pumpWidget(buildSubject());
+        await tester.pump();
+
+        expect(find.bySemanticsLabel(skipLabel), findsOneWidget);
+      } finally {
+        handle.dispose();
+      }
+    });
+  });
+
+  group('onboarding live discovery', () {
+    testWidgets('shows recognized names and roles alongside the skip exit', (
+      tester,
+    ) async {
+      final discoveryService = MockDeviceDiscoveryService();
+      final controller = _TrackingDeviceController([discoveryService]);
+      addTearDown(discoveryService.dispose);
+      addTearDown(controller.dispose);
+      discoveryService.addDevice(FakeDe1(deviceId: 'm1', name: 'DE1-Cafe'));
+      discoveryService.addDevice(
+        TestScale(deviceId: 's1', name: 'Decent Scale'),
+      );
+      await controller.initialize();
+
+      await tester.pumpWidget(buildSubject(controller: controller));
+      await tester.pump();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+      await tester.pump(const Duration(milliseconds: 20));
+
+      expect(find.text('Machine'), findsOneWidget);
+      expect(find.text('DE1-Cafe'), findsOneWidget);
+      expect(find.text('Scale'), findsOneWidget);
+      expect(find.text('Decent Scale'), findsOneWidget);
+      expect(find.text(skipLabel), findsOneWidget);
+      expect(find.text(skipHelp), findsOneWidget);
     });
   });
 }

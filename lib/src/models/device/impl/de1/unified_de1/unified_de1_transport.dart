@@ -35,6 +35,11 @@ class UnifiedDe1Transport {
   final DataTransport _transport;
   final TransportType transportType;
   final Logger _log;
+  final void Function(Endpoint, Uint8List)? onNotification;
+  final void Function(int token)? onSessionRecoveryStarted;
+  final void Function(int token)? onSessionRecovered;
+  int _notificationGeneration = 0;
+  int _recoveryToken = 0;
 
   StreamSubscription<String>? _transportSubscription;
   StreamSubscription<device.ConnectionState>? _connectionStateSubscription;
@@ -42,35 +47,45 @@ class UnifiedDe1Transport {
   bool _cacheCleared = false;
 
   bool _recovering = false;
+  bool _firmwareMapReadUnavailable = false;
 
   Stream<device.ConnectionState> get connectionState => _transport
       .connectionState
       .where((s) => !(_recovering && s == device.ConnectionState.disconnected));
 
   String get id => _transport.id;
+  int get connectionGeneration => _notificationGeneration;
 
-  BehaviorSubject<ByteData> _stateSubject = BehaviorSubject();
-  BehaviorSubject<ByteData> _shotSampleSubject = BehaviorSubject();
-  BehaviorSubject<ByteData> _shotSettingsSubject = BehaviorSubject();
-  BehaviorSubject<ByteData> _waterLevelsSubject = BehaviorSubject();
+  BehaviorSubject<ByteData?> _stateSubject = BehaviorSubject();
+  BehaviorSubject<ByteData?> _shotSampleSubject = BehaviorSubject();
+  BehaviorSubject<ByteData?> _shotSettingsSubject = BehaviorSubject();
+  BehaviorSubject<ByteData?> _waterLevelsSubject = BehaviorSubject();
   final PublishSubject<ByteData> _mmrSubject = PublishSubject();
-  BehaviorSubject<ByteData> _fwMapRequestSubject = BehaviorSubject();
-  ReplaySubject<ByteData> _bengleShotSampleSubject = ReplaySubject(maxSize: 1);
+  BehaviorSubject<ByteData?> _fwMapRequestSubject = BehaviorSubject();
+  ReplaySubject<ByteData?> _bengleShotSampleSubject = ReplaySubject(maxSize: 1);
   PublishSubject<ByteData> _calibrationSubject = PublishSubject();
   bool _bengleShotSampleEnabled = false;
 
-  Stream<ByteData> get state => _stateSubject.asBroadcastStream();
+  Stream<ByteData> get state => _stateSubject.stream.whereType<ByteData>();
   ByteData? get latestStateInfo => _stateSubject.valueOrNull;
-  Stream<ByteData> get shotSample => _shotSampleSubject.asBroadcastStream();
-  Stream<ByteData> get shotSettings => _shotSettingsSubject.asBroadcastStream();
-  Stream<ByteData> get waterLevels => _waterLevelsSubject.stream;
+  Stream<ByteData> get shotSample =>
+      _shotSampleSubject.stream.whereType<ByteData>();
+  Stream<ByteData> get shotSettings =>
+      _shotSettingsSubject.stream.whereType<ByteData>();
+  Stream<ByteData> get waterLevels =>
+      _waterLevelsSubject.stream.whereType<ByteData>();
 
   @visibleForTesting
   bool get debugHasWaterLevelsListener => _waterLevelsSubject.hasListener;
-  Stream<ByteData> get mmr => _mmrSubject.asBroadcastStream();
-  Stream<ByteData> get fwMapRequest => _fwMapRequestSubject.asBroadcastStream();
-  Stream<ByteData> get bengleShotSample => _bengleShotSampleSubject.stream;
-  Stream<ByteData> get calibration => _calibrationSubject.asBroadcastStream();
+  @visibleForTesting
+  bool get debugHasShotSettingsListener => _shotSettingsSubject.hasListener;
+  bool get debugHasCalibrationListener => _calibrationSubject.hasListener;
+  Stream<ByteData> get mmr => _mmrSubject.stream;
+  Stream<ByteData> get fwMapRequest =>
+      _fwMapRequestSubject.stream.whereType<ByteData>();
+  Stream<ByteData> get bengleShotSample =>
+      _bengleShotSampleSubject.stream.whereType<ByteData>();
+  Stream<ByteData> get calibration => _calibrationSubject.stream;
 
   String _currentBuffer = "";
 
@@ -82,10 +97,14 @@ class UnifiedDe1Transport {
   // it from live frames and from every local write.
   Uint8List _localShotSettings = Uint8List.fromList(_defaultShotSettingsFrame);
 
-  UnifiedDe1Transport({required DataTransport transport})
-    : _transport = transport,
-      transportType = transport.transportType,
-      _log = Logger("UnifiedDe1Transport-${transport.id}");
+  UnifiedDe1Transport({
+    required DataTransport transport,
+    this.onNotification,
+    this.onSessionRecoveryStarted,
+    this.onSessionRecovered,
+  }) : _transport = transport,
+       transportType = transport.transportType,
+       _log = Logger("UnifiedDe1Transport-${transport.id}");
   Future<void> connect() async {
     final wasConnected =
         transportType == TransportType.ble &&
@@ -120,6 +139,19 @@ class UnifiedDe1Transport {
 
     await _transport.connect();
     _cacheCleared = false;
+    await _connectionStateSubscription?.cancel();
+    _connectionStateSubscription = _transport.connectionState.listen((state) {
+      if (state == device.ConnectionState.disconnected && !_recovering) {
+        _serialResponses.failAll(
+          StateError(
+            transportType == TransportType.serial
+                ? 'Serial transport disconnected'
+                : 'BLE transport disconnected',
+          ),
+        );
+        _resetCachedState();
+      }
+    });
 
     switch (transportType) {
       case TransportType.ble:
@@ -137,6 +169,8 @@ class UnifiedDe1Transport {
     if (_transport is! BLETransport) {
       throw "wrong transport type";
     }
+    _notificationGeneration++;
+    _firmwareMapReadUnavailable = false;
     final services = await _transport.discoverServices();
     final de1Service = BleServiceIdentifier.parse(de1ServiceUUID);
     if (!de1Service.matchesAny(services)) {
@@ -158,29 +192,45 @@ class UnifiedDe1Transport {
       ),
     );
 
-    await _transport.subscribe(de1ServiceUUID, Endpoint.stateInfo.uuid, (d) {
-      _stateNotification(ByteData.sublistView(Uint8List.fromList(d)));
-    });
-    await _transport.subscribe(de1ServiceUUID, Endpoint.shotSample.uuid, (d) {
-      _shotSampleNotification(ByteData.sublistView(Uint8List.fromList(d)));
-    });
-    await _transport.subscribe(de1ServiceUUID, Endpoint.waterLevels.uuid, (d) {
-      _waterLevelsNotification(ByteData.sublistView(Uint8List.fromList(d)));
-    });
-    await _transport.subscribe(de1ServiceUUID, Endpoint.shotSettings.uuid, (d) {
-      _shotSettingsNotification(ByteData.sublistView(Uint8List.fromList(d)));
-    });
-    await _transport.subscribe(de1ServiceUUID, Endpoint.readFromMMR.uuid, (d) {
-      _mmrNotification(ByteData.sublistView(Uint8List.fromList(d)));
-    });
+    await _subscribeNotification(Endpoint.stateInfo, _stateNotification);
+    await _subscribeNotification(Endpoint.shotSample, _shotSampleNotification);
+    await _subscribeNotification(
+      Endpoint.waterLevels,
+      _waterLevelsNotification,
+    );
+    await _subscribeNotification(
+      Endpoint.shotSettings,
+      _shotSettingsNotification,
+    );
+    await _subscribeNotification(Endpoint.readFromMMR, _mmrNotification);
+    final firmwareMapGeneration = _notificationGeneration;
     await _transport.subscribe(de1ServiceUUID, Endpoint.fwMapRequest.uuid, (d) {
+      if (firmwareMapGeneration != _notificationGeneration) return;
       _fwMapNotification(ByteData.sublistView(Uint8List.fromList(d)));
     });
-    await _transport.subscribe(
+    final calibrationGeneration = _notificationGeneration;
+    await _transport.subscribe(de1ServiceUUID, Endpoint.calibration.uuid, (
+      data,
+    ) {
+      if (calibrationGeneration != _notificationGeneration) return;
+      _calibrationNotification(ByteData.sublistView(Uint8List.fromList(data)));
+    });
+  }
+
+  Future<void> _subscribeNotification(
+    Endpoint endpoint,
+    void Function(ByteData) receive,
+  ) {
+    final generation = _notificationGeneration;
+    return (_transport as BLETransport).subscribe(
       de1ServiceUUID,
-      Endpoint.calibration.uuid,
-      (d) =>
-          _calibrationNotification(ByteData.sublistView(Uint8List.fromList(d))),
+      endpoint.uuid,
+      (data) {
+        if (generation != _notificationGeneration) return;
+        final bytes = Uint8List.fromList(data);
+        receive(ByteData.sublistView(bytes));
+        onNotification?.call(endpoint, bytes);
+      },
     );
   }
 
@@ -190,12 +240,9 @@ class UnifiedDe1Transport {
         if (_transport is! BLETransport) {
           throw StateError('Expected BLE transport');
         }
-        await _transport.subscribe(
-          de1ServiceUUID,
-          Endpoint.bengleShotSample.uuid,
-          (data) => _bengleShotSampleNotification(
-            ByteData.sublistView(Uint8List.fromList(data)),
-          ),
+        await _subscribeNotification(
+          Endpoint.bengleShotSample,
+          _bengleShotSampleNotification,
         );
       case TransportType.serial:
         if (_transport is! SerialTransport) {
@@ -221,14 +268,10 @@ class UnifiedDe1Transport {
       throw "Wrong transport type";
     }
     await _transportSubscription?.cancel();
-    await _connectionStateSubscription?.cancel();
 
-    _transportSubscription = _transport.readStream.listen(_processSerialInput);
-    _connectionStateSubscription = _transport.connectionState.listen((state) {
-      if (state == device.ConnectionState.disconnected) {
-        _serialResponses.failAll(StateError('Serial transport disconnected'));
-        _resetCachedState();
-      }
+    final generation = ++_notificationGeneration;
+    _transportSubscription = _transport.readStream.listen((input) {
+      if (generation == _notificationGeneration) _processSerialInput(input);
     });
 
     await _transport.writeCommand("<+${Endpoint.stateInfo.representation}>");
@@ -249,6 +292,7 @@ class UnifiedDe1Transport {
   }
 
   Future<void> dispose() async {
+    _notificationGeneration++;
     _serialResponses.failAll(StateError('Serial transport disposed'));
     await _transportSubscription?.cancel();
     _transportSubscription = null;
@@ -270,6 +314,7 @@ class UnifiedDe1Transport {
   }
 
   Future<void> disconnect() async {
+    _notificationGeneration++;
     _serialResponses.failAll(StateError('Serial transport disconnected'));
     _log.warning('disconnect() called by app code', null, StackTrace.current);
     switch (transportType) {
@@ -325,6 +370,8 @@ class UnifiedDe1Transport {
   void _resetCachedState() {
     if (_cacheCleared) return;
     _cacheCleared = true;
+    _notificationGeneration++;
+    _currentBuffer = '';
     _stateSubject.close();
     _shotSampleSubject.close();
     _shotSettingsSubject.close();
@@ -411,20 +458,26 @@ class UnifiedDe1Transport {
       switch (representation) {
         case "M":
           _shotSampleNotification(data);
+          onNotification?.call(Endpoint.shotSample, payload);
         case "N":
           _stateNotification(data);
+          onNotification?.call(Endpoint.stateInfo, payload);
         case "Q":
           _waterLevelsNotification(data);
+          onNotification?.call(Endpoint.waterLevels, payload);
         case "K":
           _shotSettingsNotification(data);
+          onNotification?.call(Endpoint.shotSettings, payload);
         case "E":
           _mmrNotification(data);
+          onNotification?.call(Endpoint.readFromMMR, payload);
         case "I":
           _fwMapNotification(data);
         case "R":
           _calibrationNotification(data);
         case "S":
           _bengleShotSampleNotification(data);
+          onNotification?.call(Endpoint.bengleShotSample, payload);
         default:
           if (!_serialResponses.complete(representation, data)) {
             _log.warning("unhandled de1 message: $input");
@@ -598,24 +651,24 @@ class UnifiedDe1Transport {
       case Endpoint.deleteShotRange:
         throw UnsupportedError('Endpoint ${e.name} has no serial read path');
       case Endpoint.fwMapRequest:
-        return _latestSerialFrame(e, _fwMapRequestSubject, timeout);
+        return _latestSerialFrame(e, fwMapRequest, timeout);
       case Endpoint.shotSettings:
-        return _latestSerialFrame(e, _shotSettingsSubject, timeout);
+        return _latestSerialFrame(e, shotSettings, timeout);
       case Endpoint.deprecatedShotDesc:
         throw UnsupportedError('Endpoint ${e.name} has no serial read path');
       case Endpoint.shotSample:
-        return _latestSerialFrame(e, _shotSampleSubject, timeout);
+        return _latestSerialFrame(e, shotSample, timeout);
       case Endpoint.bengleShotSample:
-        return _latestSerialFrame(e, _bengleShotSampleSubject, timeout);
+        return _latestSerialFrame(e, bengleShotSample, timeout);
       case Endpoint.stateInfo:
-        return _latestSerialFrame(e, _stateSubject, timeout);
+        return _latestSerialFrame(e, state, timeout);
       case Endpoint.calibration:
         return _latestSerialFrame(e, _calibrationSubject, timeout);
       case Endpoint.headerWrite:
       case Endpoint.frameWrite:
         throw UnsupportedError('Endpoint ${e.name} is write-only');
       case Endpoint.waterLevels:
-        return _latestSerialFrame(e, _waterLevelsSubject, timeout);
+        return _latestSerialFrame(e, waterLevels, timeout);
     }
   }
 
@@ -623,12 +676,19 @@ class UnifiedDe1Transport {
     Endpoint endpoint,
     Stream<ByteData> frames,
     Duration timeout,
-  ) {
-    return frames.first.timeout(
-      timeout,
-      onTimeout: () =>
-          throw EndpointUnavailableException(endpoint.name, timeout),
-    );
+  ) async {
+    final response = StreamIterator(frames);
+    try {
+      final received = await response.moveNext().timeout(
+        timeout,
+        onTimeout: () =>
+            throw EndpointUnavailableException(endpoint.name, timeout),
+      );
+      if (!received) throw StateError('No element');
+      return response.current;
+    } finally {
+      await response.cancel();
+    }
   }
 
   void recordLocalShotSettings(ByteData data) {
@@ -706,19 +766,30 @@ class UnifiedDe1Transport {
       // The subject replays its current value, so skip one - but only when it
       // holds one, or the first poll of a connection swallows the frame it
       // provoked.
-      final source = _fwMapRequestSubject.hasValue
-          ? _fwMapRequestSubject.stream.skip(1)
-          : _fwMapRequestSubject.stream;
+      final source = _fwMapRequestSubject.valueOrNull != null
+          ? fwMapRequest.skip(1)
+          : fwMapRequest;
       final next = source.first.timeout(_firmwareMapPollReadTimeout);
       next.ignore();
       await t.writeCommand('<+${Endpoint.fwMapRequest.representation}>');
       return next;
     }
     if (transportType == TransportType.ble) {
-      return _bleRead(
-        Endpoint.fwMapRequest,
-        timeout: _firmwareMapPollReadTimeout,
-      );
+      if (_firmwareMapReadUnavailable) {
+        throw const GattAttributeUnavailableException(
+          operation: 'read',
+          path: 'fwMapRequest',
+        );
+      }
+      try {
+        return await _bleRead(
+          Endpoint.fwMapRequest,
+          timeout: _firmwareMapPollReadTimeout,
+        );
+      } on GattAttributeUnavailableException {
+        _firmwareMapReadUnavailable = true;
+        rethrow;
+      }
     }
     return read(Endpoint.fwMapRequest);
   }
@@ -850,8 +921,21 @@ class UnifiedDe1Transport {
   Future<bool> _handleBleTimeout(Object error, StackTrace st) async {
     _log.warning('BLE write timed out, attempting reconnect');
     _recovering = true;
+    final token = ++_recoveryToken;
+    onSessionRecoveryStarted?.call(token);
     final restoreBengleShotSample = _bengleShotSampleEnabled;
     try {
+      _notificationGeneration++;
+      for (final subject in [
+        _stateSubject,
+        _shotSampleSubject,
+        _shotSettingsSubject,
+        _waterLevelsSubject,
+        _fwMapRequestSubject,
+        _bengleShotSampleSubject,
+      ]) {
+        if (!subject.isClosed) subject.add(null);
+      }
       await _transport.disconnect();
       await _transport.connect();
       await _bleConnect();
@@ -859,6 +943,7 @@ class UnifiedDe1Transport {
         await subscribeBengleShotSample();
       }
       _log.info('BLE reconnect successful after timeout');
+      onSessionRecovered?.call(token);
       return true;
     } catch (reconnectError) {
       _log.severe('BLE reconnect failed, disconnecting', reconnectError);

@@ -1,17 +1,53 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/device/device.dart' as device;
 import 'package:reaprime/src/models/device/firmware_update_state.dart';
+import 'package:reaprime/src/models/device/impl/bengle/bengle.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
+import 'package:reaprime/src/models/device/machine.dart';
+import 'package:reaprime/src/services/firmware/de1_firmware_header.dart';
 import 'package:reaprime/src/models/device/transport/ble_timeout_exception.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
 import 'package:reaprime/src/models/errors.dart';
 
 import '../../../../../../helpers/barrier_ble_transport.dart';
 import '../../../../../../helpers/fake_ble_transport.dart';
+
+final class _SynchronousConnectionFakeBleTransport extends FakeBleTransport {
+  device.ConnectionState _connectionState = device.ConnectionState.connected;
+
+  @override
+  Stream<device.ConnectionState> get connectionState => Stream.multi((events) {
+    events.add(_connectionState);
+    events.close();
+  });
+
+  @override
+  Future<device.ConnectionState> getConnectionState() async => _connectionState;
+
+  @override
+  void emitConnectionState(device.ConnectionState state) {
+    _connectionState = state;
+  }
+}
+
+final class _FirmwareTestDe1 extends UnifiedDe1 {
+  _FirmwareTestDe1({
+    required super.transport,
+    required super.firmwareEraseTimeout,
+    required super.firmwareVerificationTimeout,
+  });
+
+  @override
+  Future<void> requestState(MachineState newState) async {}
+
+  @override
+  Future<void> beforeFirmwareUpload() async {}
+}
 
 class _TimeoutAfterDispatchFakeTransport extends FakeBleTransport {
   final Map<String, int> _timeoutsRemaining = {};
@@ -48,7 +84,7 @@ void main() {
   late UnifiedDe1 de1;
 
   setUp(() async {
-    transport = FakeBleTransport();
+    transport = _SynchronousConnectionFakeBleTransport();
     addTearDown(transport.dispose);
     transport.queueOnConnectResponses(v13Model: 3, calFlowEst: 0);
     de1 = UnifiedDe1(
@@ -59,8 +95,74 @@ void main() {
     await de1.onConnect();
   });
 
+  test('rejects an empty image before destructive erase', () async {
+    await expectLater(
+      de1.updateFirmware(Uint8List(0), onProgress: (_) {}),
+      throwsA(isA<FormatException>()),
+    );
+    expect(
+      transport.writes.any(
+        (write) => write.characteristicUUID == Endpoint.fwMapRequest.uuid,
+      ),
+      isFalse,
+    );
+  });
+
+  test(
+    'rejects an unrecognized image above the DE1 cap before erase',
+    () async {
+      transport.writes.clear();
+      final image = Uint8List(
+        De1FirmwareHeader.maxDe1FirmwareImageByteLength + 1,
+      );
+      await expectLater(
+        de1.updateFirmware(image, onProgress: (_) {}),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'message',
+            'Firmware image exceeds 524288 bytes for DE1/legacy target',
+          ),
+        ),
+      );
+      expect(
+        transport.writes.any(
+          (write) => write.characteristicUUID == Endpoint.fwMapRequest.uuid,
+        ),
+        isFalse,
+      );
+      expect(
+        transport.writes.any(
+          (write) => write.characteristicUUID == Endpoint.writeToMMR.uuid,
+        ),
+        isFalse,
+      );
+    },
+  );
+
+  test('Bengle route applies its full-image cap before erase', () async {
+    final bengleTransport = _SynchronousConnectionFakeBleTransport();
+    addTearDown(bengleTransport.dispose);
+    final bengle = Bengle(transport: bengleTransport);
+    final image = Uint8List(
+      De1FirmwareHeader.maxBengleFirmwareImageByteLength + 1,
+    );
+
+    await expectLater(
+      bengle.updateFirmware(image, onProgress: (_) {}),
+      throwsA(
+        isA<FormatException>().having(
+          (error) => error.message,
+          'message',
+          'Firmware image exceeds 983040 bytes for Bengle target',
+        ),
+      ),
+    );
+    expect(bengleTransport.writes, isEmpty);
+  });
+
   test('completes only after successful verification response', () async {
-    transport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
+    transport.queueFirmwareMapResponse([0, 0, 0, 1, 0, 0, 0]);
     var completed = false;
     final update = de1
         .updateFirmware(Uint8List(16), onProgress: (_) {})
@@ -74,8 +176,45 @@ void main() {
     expect(de1.firmwareUpdateState, FirmwareUpdateState.idle);
   });
 
+  test('uses protocol-specific erase and verification map payloads', () async {
+    final firmwareTransport = _SynchronousConnectionFakeBleTransport();
+    addTearDown(firmwareTransport.dispose);
+    firmwareTransport.queueOnConnectResponses(v13Model: 3, calFlowEst: 0);
+    final firmwareDe1 = _FirmwareTestDe1(
+      transport: firmwareTransport,
+      firmwareEraseTimeout: const Duration(seconds: 1),
+      firmwareVerificationTimeout: const Duration(seconds: 1),
+    );
+    await firmwareDe1.onConnect();
+    firmwareTransport.writes.clear();
+    firmwareTransport.queueFirmwareMapResponse([0, 0, 0, 1, 0, 0, 0]);
+    firmwareTransport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xfd]);
+    Future<void>? update;
+    fakeAsync((async) {
+      firmwareTransport.emitConnectionState(device.ConnectionState.connected);
+      update = firmwareDe1.updateFirmware(Uint8List(16), onProgress: (_) {});
+      unawaited(
+        update!.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+      );
+      async.flushMicrotasks();
+      async.elapse(Duration.zero);
+      async.flushMicrotasks();
+    });
+    await update!;
+
+    final mapWrites = firmwareTransport.writes
+        .where(
+          (write) => write.characteristicUUID == Endpoint.fwMapRequest.uuid,
+        )
+        .map((write) => write.data)
+        .toList();
+    expect(mapWrites, hasLength(2));
+    expect(mapWrites[0], [0, 0, 1, 1, 0, 0, 0]);
+    expect(mapWrites[1], [0, 0, 0, 1, 0xff, 0xff, 0xff]);
+  });
+
   test('verification failure does not complete successfully', () async {
-    transport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
+    transport.queueFirmwareMapResponse([0, 0, 0, 1, 0, 0, 0]);
     transport.queueFirmwareMapResponse([0, 0, 0, 1, 0, 0, 1]);
 
     await expectLater(
@@ -160,7 +299,7 @@ void main() {
     final faultTransport = _TimeoutAfterDispatchFakeTransport();
     addTearDown(faultTransport.dispose);
     faultTransport.queueOnConnectResponses(v13Model: 3, calFlowEst: 0);
-    faultTransport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
+    faultTransport.queueFirmwareMapResponse([0, 0, 0, 1, 0, 0, 0]);
     final faultDe1 = UnifiedDe1(
       transport: faultTransport,
       firmwareEraseTimeout: const Duration(milliseconds: 100),
@@ -223,7 +362,7 @@ void main() {
     final update = blockedDe1.updateFirmware(Uint8List(16), onProgress: (_) {});
 
     await preflightTransport.waitForConnectionPreflight();
-    preflightTransport.emitFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
+    preflightTransport.emitFirmwareMapResponse([0, 0, 0, 1, 0, 0, 0]);
     preflightBarrier.complete();
     await eraseWrite;
 
@@ -237,26 +376,146 @@ void main() {
       isTrue,
     );
 
-    preflightTransport.emitFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
+    preflightTransport.emitFirmwareMapResponse([0, 0, 0, 1, 0, 0, 0]);
     await _waitForState(blockedDe1, FirmwareUpdateState.uploading);
     await blockedDe1.cancelFirmwareUpload();
     uploadBarrier.complete();
     await expectLater(update, throwsA(isA<FirmwareUpdateCancelledException>()));
   });
 
-  test('late erase response does not complete verification', () async {
-    transport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
-    final update = de1.updateFirmware(Uint8List(16), onProgress: (_) {});
+  test(
+    'zero-offset verification response fails instead of succeeding',
+    () async {
+      final firmwareTransport = _SynchronousConnectionFakeBleTransport();
+      addTearDown(firmwareTransport.dispose);
+      firmwareTransport.queueOnConnectResponses(v13Model: 3, calFlowEst: 0);
+      final firmwareDe1 = _FirmwareTestDe1(
+        transport: firmwareTransport,
+        firmwareEraseTimeout: const Duration(seconds: 1),
+        firmwareVerificationTimeout: const Duration(seconds: 1),
+      );
+      await firmwareDe1.onConnect();
+      firmwareTransport.writes.clear();
+      Future<void>? update;
+      fakeAsync((async) {
+        firmwareTransport.emitConnectionState(device.ConnectionState.connected);
+        update = firmwareDe1.updateFirmware(Uint8List(16), onProgress: (_) {});
+        unawaited(
+          update!.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+        );
+        async.elapse(Duration.zero);
+        expect(
+          firmwareTransport.writes.where(
+            (write) =>
+                write.characteristicUUID == Endpoint.fwMapRequest.uuid &&
+                write.data[2] == 1,
+          ),
+          hasLength(1),
+        );
+        firmwareTransport.emitFirmwareMapResponse([0, 0, 0, 1, 0, 0, 0]);
+        async.elapse(Duration.zero);
+        expect(
+          firmwareTransport.writes.where(
+            (write) =>
+                write.characteristicUUID == Endpoint.fwMapRequest.uuid &&
+                write.data[2] == 0,
+          ),
+          hasLength(1),
+        );
+        firmwareTransport.emitFirmwareMapResponse([0, 0, 0, 1, 0, 0, 0]);
+        async.elapse(Duration.zero);
+      });
 
-    await _waitForState(de1, FirmwareUpdateState.verifying);
-    transport.emitFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
+      final failure = await update!.then<Object?>(
+        (_) => null,
+        onError: (Object error, StackTrace _) => error,
+      );
+      expect(failure, isA<StateError>());
+      expect(
+        failure.toString(),
+        contains('Firmware verification failed at 0x000000'),
+      );
+      expect(firmwareDe1.firmwareUpdateState, FirmwareUpdateState.idle);
+    },
+  );
 
-    await Future<void>.delayed(Duration.zero);
-    expect(de1.firmwareUpdateState, FirmwareUpdateState.verifying);
-    transport.emitFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xfd]);
-    await update;
-    expect(de1.firmwareUpdateState, FirmwareUpdateState.idle);
-  });
+  test(
+    'observed early error is followed by erase before verification dispatch',
+    () async {
+      final sequenceTransport = _SynchronousConnectionFakeBleTransport();
+      addTearDown(sequenceTransport.dispose);
+      sequenceTransport.queueOnConnectResponses(v13Model: 3, calFlowEst: 0);
+      final sequenceDe1 = _FirmwareTestDe1(
+        transport: sequenceTransport,
+        firmwareEraseTimeout: const Duration(seconds: 1),
+        firmwareVerificationTimeout: const Duration(seconds: 1),
+      );
+      await sequenceDe1.onConnect();
+      sequenceTransport.writes.clear();
+      sequenceTransport.queueFirmwareMapResponse([
+        0,
+        0,
+        0,
+        1,
+        0xff,
+        0xff,
+        0xff,
+      ]);
+      Future<void>? update;
+      fakeAsync((async) {
+        sequenceTransport.emitConnectionState(device.ConnectionState.connected);
+        update = sequenceDe1.updateFirmware(Uint8List(16), onProgress: (_) {});
+        unawaited(
+          update!.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+        );
+        async.elapse(Duration.zero);
+        async.flushMicrotasks();
+        expect(sequenceDe1.firmwareUpdateState, FirmwareUpdateState.erasing);
+        expect(
+          sequenceTransport.writes.where(
+            (write) => write.characteristicUUID == Endpoint.fwMapRequest.uuid,
+          ),
+          hasLength(1),
+        );
+
+        sequenceTransport.emitFirmwareMapResponse([0, 0, 0, 1, 0, 0, 0]);
+        sequenceTransport.emitFirmwareMapResponse([
+          0,
+          0,
+          0,
+          1,
+          0xff,
+          0xff,
+          0xff,
+        ]);
+        async.elapse(Duration.zero);
+        async.flushMicrotasks();
+        async.elapse(Duration.zero);
+        async.flushMicrotasks();
+        expect(sequenceDe1.firmwareUpdateState, FirmwareUpdateState.verifying);
+        expect(
+          sequenceTransport.writes.where(
+            (write) =>
+                write.characteristicUUID == Endpoint.fwMapRequest.uuid &&
+                write.data[2] == 0,
+          ),
+          hasLength(1),
+        );
+
+        sequenceTransport.emitFirmwareMapResponse([
+          0,
+          0,
+          0,
+          1,
+          0xff,
+          0xff,
+          0xfd,
+        ]);
+        async.elapse(Duration.zero);
+      });
+      await update!;
+    },
+  );
 
   test('verification response must follow the verification request', () async {
     final barrierTransport = BarrierBleTransport();
@@ -271,7 +530,7 @@ void main() {
     barrierTransport.writes.clear();
     final uploadBarrier = Completer<void>();
     barrierTransport.pauseNextWrite(Endpoint.writeToMMR.uuid, uploadBarrier);
-    barrierTransport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
+    barrierTransport.queueFirmwareMapResponse([0, 0, 0, 1, 0, 0, 0]);
     final uploadWrite = barrierTransport.nextWrite(Endpoint.writeToMMR.uuid);
     final update = blockedDe1.updateFirmware(Uint8List(16), onProgress: (_) {});
 
@@ -299,7 +558,7 @@ void main() {
     preflightTransport.writes.clear();
     final uploadBarrier = Completer<void>();
     preflightTransport.pauseNextWrite(Endpoint.writeToMMR.uuid, uploadBarrier);
-    preflightTransport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
+    preflightTransport.queueFirmwareMapResponse([0, 0, 0, 1, 0, 0, 0]);
     final uploadWrite = preflightTransport.nextWrite(Endpoint.writeToMMR.uuid);
     final verificationWrite = preflightTransport.nextWrite(
       Endpoint.fwMapRequest.uuid,
@@ -322,7 +581,15 @@ void main() {
   });
 
   test('cancellation while verifying is typed and returns to idle', () async {
-    transport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
+    final previousRootLevel = Logger.root.level;
+    Logger.root.level = Level.ALL;
+    final logs = <LogRecord>[];
+    final logSubscription = Logger.root.onRecord.listen(logs.add);
+    addTearDown(() async {
+      await logSubscription.cancel();
+      Logger.root.level = previousRootLevel;
+    });
+    transport.queueFirmwareMapResponse([0, 0, 0, 1, 0, 0, 0]);
     final update = de1.updateFirmware(Uint8List(16), onProgress: (_) {});
     final cancellation = expectLater(
       update,
@@ -333,6 +600,14 @@ void main() {
     await de1.cancelFirmwareUpload();
     await cancellation;
     expect(de1.firmwareUpdateState, FirmwareUpdateState.idle);
+    expect(
+      logs.any(
+        (record) =>
+            record.level == Level.INFO &&
+            record.message.contains('firmware terminal outcome=cancelled'),
+      ),
+      isTrue,
+    );
   });
 
   test('disconnect cancels an active update', () async {
@@ -370,7 +645,7 @@ void main() {
     successTransport.trace.clear();
     successTransport.queueMmrResponseInt(MMRItem.calFlowEst, 1000);
     expect(await successDe1.getFlowEstimation(), 1.0);
-    successTransport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
+    successTransport.queueFirmwareMapResponse([0, 0, 0, 1, 0, 0, 0]);
     final uploadBarrier = Completer<void>();
     successTransport.pauseNextWrite(Endpoint.writeToMMR.uuid, uploadBarrier);
     final success = successDe1.updateFirmware(
@@ -382,6 +657,14 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     successTransport.emitFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xfd]);
     await success;
+    expect(
+      logs.any(
+        (record) =>
+            record.level == Level.INFO &&
+            record.message.contains('firmware terminal outcome=success'),
+      ),
+      isTrue,
+    );
     final imageWriteLogs = logs
         .where(
           (record) =>
@@ -443,6 +726,14 @@ void main() {
     expect(stageFailureLog.message, contains('cause=TimeoutException'));
     expect(stageFailureLog.error, isA<TimeoutException>());
     expect(stageFailureLog.stackTrace, isNotNull);
+    expect(
+      logs.any(
+        (record) =>
+            record.level == Level.INFO &&
+            record.message.contains('firmware terminal outcome=failure'),
+      ),
+      isTrue,
+    );
     expect(failureDe1.firmwareUpdateState, FirmwareUpdateState.idle);
     expect(
       failureTransport.trace.any(
@@ -465,7 +756,7 @@ void main() {
 
     failureTransport.writes.clear();
     failureTransport.requestedStateSleepWriteTimeout = null;
-    failureTransport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
+    failureTransport.queueFirmwareMapResponse([0, 0, 0, 1, 0, 0, 0]);
     failureTransport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xfd]);
     final subsequentImage = Uint8List.fromList(
       List<int>.generate(16, (index) => index + 1),

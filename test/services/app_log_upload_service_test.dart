@@ -17,10 +17,12 @@ class _CredentialStore implements CredentialStore {
   bool failNextWrite = false;
   Completer<void>? writeStarted;
   Completer<void>? releaseWrite;
+  void Function(String key)? onRead;
 
   @override
   Future<String?> read({required String key}) async {
     if (throwOnRead) throw StateError('credential read failed');
+    onRead?.call(key);
     return values[key];
   }
 
@@ -129,6 +131,7 @@ void main() {
     Duration requestTimeout = const Duration(seconds: 30),
     Duration initialDelay = const Duration(days: 1),
     Duration uploadInterval = const Duration(hours: 1),
+    Future<void> Function()? beforeLogSnapshotValidation,
   }) {
     return AppLogUploadService(
       accountService: accountService,
@@ -141,6 +144,7 @@ void main() {
       softLimitBytes: softLimitBytes,
       hardLimitBytes: hardLimitBytes,
       requestTimeout: requestTimeout,
+      beforeLogSnapshotValidation: beforeLogSnapshotValidation,
     );
   }
 
@@ -653,5 +657,167 @@ void main() {
     expect(await upload(service), AppLogUploadResult.failed);
     expect(client.aborted.isCompleted, isTrue);
     expect(service.uploading, isFalse);
+  });
+
+  group('7-day sharing window', () {
+    final optedInAt = DateTime(2026, 8, 20, 12);
+
+    Future<AppLogUploadService> optIn() async {
+      final service = buildService();
+      addTearDown(service.dispose);
+      await service.initialize();
+      await withClock(Clock.fixed(optedInAt), () => service.setEnabled(true));
+      return service;
+    }
+
+    test('uploads inside the window', () async {
+      await File('${tempDir.path}${Platform.pathSeparator}log.txt')
+          .writeAsString(
+            '[main] 2026-08-26 11:00:00.000001 INFO Main - inside window\n',
+          );
+      final service = await optIn();
+
+      final result = await upload(
+        service,
+        at: optedInAt.add(const Duration(days: 6, hours: 23)),
+      );
+
+      expect(result, AppLogUploadResult.uploaded);
+      expect(service.enabled, isTrue);
+    });
+
+    test('turns sharing off once 7 days have passed', () async {
+      await File('${tempDir.path}${Platform.pathSeparator}log.txt')
+          .writeAsString(
+            '[main] 2026-08-27 11:00:00.000001 INFO Main - after window\n',
+          );
+      final service = await optIn();
+
+      final result = await upload(
+        service,
+        at: optedInAt.add(const Duration(days: 7)),
+      );
+
+      expect(result, AppLogUploadResult.expired);
+      expect(requests, isEmpty);
+      expect(service.enabled, isFalse);
+      expect(
+        await consentStore.read('appLogUpload'),
+        AccountConsentDecision.denied,
+      );
+      expect(preferences.containsKey('appLogUpload.enabledAt'), isFalse);
+      expect(service.lastResult, 'Sharing ended after 7 days');
+    });
+
+    Future<void> expectExpiredWithoutSending(
+      AppLogUploadService service,
+      AppLogUploadResult result,
+    ) async {
+      expect(result, AppLogUploadResult.expired);
+      expect(requests, isEmpty);
+      expect(service.enabled, isFalse);
+      expect(
+        await consentStore.read('appLogUpload'),
+        AccountConsentDecision.denied,
+      );
+      expect(preferences.containsKey('appLogUpload.cursor'), isFalse);
+      expect(service.lastResult, 'Sharing ended after 7 days');
+    }
+
+    test('does not send when the window ends during log preparation', () async {
+      await File('${tempDir.path}${Platform.pathSeparator}log.txt')
+          .writeAsString(
+            '[main] 2026-08-27 11:00:00.000001 INFO Main - pending batch\n',
+          );
+      var now = optedInAt.add(const Duration(days: 7, seconds: -1));
+      final service = buildService(
+        beforeLogSnapshotValidation: () async {
+          now = optedInAt.add(const Duration(days: 10));
+        },
+      );
+      addTearDown(service.dispose);
+      await service.initialize();
+      await withClock(Clock.fixed(optedInAt), () => service.setEnabled(true));
+
+      final result = await withClock(Clock(() => now), service.uploadNow);
+
+      await expectExpiredWithoutSending(service, result);
+    });
+
+    test(
+      'does not send when the window ends during credential reads',
+      () async {
+        await File('${tempDir.path}${Platform.pathSeparator}log.txt')
+            .writeAsString(
+              '[main] 2026-08-27 11:00:00.000001 INFO Main - pending batch\n',
+            );
+        var now = optedInAt.add(const Duration(days: 7, seconds: -1));
+        final service = buildService(
+          beforeLogSnapshotValidation: () async {
+            credentials.onRead = (key) {
+              if (key == 'password') {
+                now = optedInAt.add(const Duration(days: 10));
+              }
+            };
+          },
+        );
+        addTearDown(service.dispose);
+        await service.initialize();
+        await withClock(Clock.fixed(optedInAt), () => service.setEnabled(true));
+
+        final result = await withClock(Clock(() => now), service.uploadNow);
+
+        await expectExpiredWithoutSending(service, result);
+      },
+    );
+
+    test('startup turns off sharing that expired while closed', () async {
+      SharedPreferences.setMockInitialValues({
+        'appLogUpload.enabledAt': optedInAt.millisecondsSinceEpoch,
+      });
+      preferences = await SharedPreferences.getInstance();
+      await consentStore.write('appLogUpload', AccountConsentDecision.allowed);
+      final service = buildService();
+      addTearDown(service.dispose);
+
+      await withClock(
+        Clock.fixed(optedInAt.add(const Duration(days: 8))),
+        service.initialize,
+      );
+
+      expect(service.enabled, isFalse);
+      expect(
+        await consentStore.read('appLogUpload'),
+        AccountConsentDecision.denied,
+      );
+      expect(service.lastResult, 'Sharing ended after 7 days');
+    });
+
+    test('consent without a start time starts the window now', () async {
+      await consentStore.write('appLogUpload', AccountConsentDecision.allowed);
+      final service = buildService();
+      addTearDown(service.dispose);
+      final upgradedAt = DateTime(2026, 9, 1, 9);
+
+      await withClock(Clock.fixed(upgradedAt), service.initialize);
+
+      expect(service.enabled, isTrue);
+      expect(
+        preferences.getInt('appLogUpload.enabledAt'),
+        upgradedAt.millisecondsSinceEpoch,
+      );
+    });
+
+    test('opting out clears the start time', () async {
+      final service = await optIn();
+      expect(
+        preferences.getInt('appLogUpload.enabledAt'),
+        optedInAt.millisecondsSinceEpoch,
+      );
+
+      await service.setEnabled(false);
+
+      expect(preferences.containsKey('appLogUpload.enabledAt'), isFalse);
+    });
   });
 }

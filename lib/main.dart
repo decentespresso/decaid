@@ -55,7 +55,12 @@ import 'package:reaprime/src/services/database/mappers/shot_mapper.dart';
 import 'package:reaprime/src/services/database/mappers/steam_mapper.dart';
 import 'package:reaprime/src/services/database/mappers/bean_mapper.dart';
 import 'package:reaprime/src/services/database/mappers/grinder_mapper.dart';
+import 'package:reaprime/src/new_owner_recovery_view.dart';
 import 'package:reaprime/src/services/storage/app_directories.dart';
+import 'package:reaprime/src/services/storage/native_plugin_admission.dart';
+import 'package:reaprime/src/services/storage/new_owner_recovery_owner.dart';
+import 'package:reaprime/src/services/storage/new_owner_recovery_startup.dart';
+import 'package:reaprime/src/ui/startup_failure_shell.dart';
 import 'package:reaprime/src/services/storage/windows_preferences.dart';
 import 'package:reaprime/src/services/storage/drift_bean_storage.dart';
 import 'package:reaprime/src/services/storage/drift_grinder_storage.dart';
@@ -85,6 +90,8 @@ import 'package:reaprime/src/services/simulated_device_service.dart';
 import 'package:reaprime/src/services/webserver/data_export/backup_data_sources.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
 import 'package:reaprime/src/services/webserver/port_binding.dart';
+import 'package:reaprime/src/services/webserver/api_listener.dart';
+import 'package:reaprime/src/services/listener_recovery_coordinator.dart';
 import 'package:reaprime/src/ui/webserver_port_conflict_app.dart';
 import 'package:reaprime/src/services/macos_updater.dart';
 import 'package:reaprime/src/services/update_check_service.dart';
@@ -110,6 +117,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 
 import 'package:reaprime/src/services/telemetry/telemetry_service.dart';
+import 'package:reaprime/src/services/warmup_logger.dart';
 import 'package:reaprime/src/services/telemetry/boot_timing.dart';
 import 'package:reaprime/src/services/telemetry/log_buffer.dart';
 import 'package:reaprime/src/services/telemetry/anonymization.dart';
@@ -255,7 +263,7 @@ Future<void> persistSkinPortAssignments(Map<String, int> assignments) async {
   );
 }
 
-Future<void> prepareShotUploadStartup(
+Future<void> prepareOnboardingStartup(
   SettingsController settings, {
   required bool forceOnboarding,
   required bool bypassOnboarding,
@@ -264,11 +272,28 @@ Future<void> prepareShotUploadStartup(
       await persistedShotUploadAutoUploadEnabled()) {
     await settings.setShotUploadStepSeen(true);
   }
+  await _applyOnboardingReplayRequest(settings);
   if (bypassOnboarding && !forceOnboarding) {
     await settings.setShotUploadStepSeen(true);
   }
   if (forceOnboarding) {
     await settings.setShotUploadStepSeen(false);
+  }
+}
+
+Future<void> _applyOnboardingReplayRequest(SettingsController settings) async {
+  try {
+    if (await settings.consumeOnboardingReplayRequest()) {
+      Logger('Main')
+          .info('Reset onboarding from Advanced applied for this cold launch');
+    }
+  } catch (e, st) {
+    Logger('Main').warning(
+      'Reset onboarding not applied; the request stays armed for the next '
+      'launch',
+      e,
+      st,
+    );
   }
 }
 
@@ -286,9 +311,63 @@ Future<void> loadSettingsBeforeWebServer({
       ...dartDefineDevices,
       ...settingsController.simulatedDevices,
     };
+    simulatedDevicesService.mockDe1GhcPresent =
+        settingsController.mockDe1GhcPresent;
   });
   await settingsController.loadSettings();
   await startWebServer();
+}
+
+class _NativePluginAdmissionFailureApp extends StatelessWidget {
+  const _NativePluginAdmissionFailureApp({
+    required this.detail,
+    required this.logFilePath,
+  });
+
+  final String detail;
+  final String logFilePath;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return StartupFailureShell(
+      child: Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  spacing: 12,
+                  children: [
+                    Text(
+                      'Decaid could not start its services',
+                      style: theme.textTheme.headlineSmall,
+                    ),
+                    Text(
+                      'The native plugins this app runs on were not '
+                      'registered, so Decaid stopped instead of starting in a '
+                      'reduced state. Restart Decaid; if this repeats, send '
+                      'the log file below.',
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                    SelectableText(detail),
+                    Text(
+                      'Log file: $logFilePath',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 void main(List<String> args) async {
@@ -309,6 +388,86 @@ void main(List<String> args) async {
 
   final log = Logger("Main");
 
+  late String logDir;
+  late WebViewLogService webViewLogService;
+
+  await runNewOwnerRecoveryStartup(
+    open: () async => NewOwnerRecoveryStartup.open(
+      recoveryDirectory: await AppDirectories.newOwnerRecovery,
+    ),
+    openNormalDiagnostics: () async {
+      logDir = await AppDirectories.logs;
+      await Directory(logDir).create(recursive: true);
+      RotatingFileAppender(baseFilePath: '$logDir/log.txt')
+          .attachToLogger(Logger.root);
+      webViewLogService = WebViewLogService(logDirectoryPath: logDir);
+      await webViewLogService.initialize();
+      Logger.root.info("==== Decent starting ====");
+      BootTiming.start();
+      Logger.root.info(
+        "build: ${BuildInfo.commitShort}, branch: ${BuildInfo.branch}",
+      );
+      Logger.root.info(
+        "version: ${BuildInfo.version}, platform: ${Platform.operatingSystem}",
+      );
+    },
+    startNormalServices: () => startDecaidNormalServices(
+      log: log,
+      logDir: logDir,
+      cliArgs: cliArgs,
+      webViewLogService: webViewLogService,
+    ),
+    writeRecoveryDiagnostics: (message) async {
+      final logDirectory = await AppDirectories.logs;
+      return writeNewOwnerRecoveryDiagnostics(
+        logDirectory: logDirectory,
+        message: message,
+      );
+    },
+    presentRecovery: (admission, logFilePath) {
+      Logger.root.warning(
+        'new-owner recovery state "${admission.kind.name}" blocks normal '
+        'startup: ${admission.detail}',
+      );
+      runApp(
+        NewOwnerRecoveryApp(admission: admission, logFilePath: logFilePath),
+      );
+    },
+    presentFailure: (error, stackTrace, logFilePath) {
+      log.severe('Decaid could not start', error, stackTrace);
+      runApp(
+        NewOwnerRecoveryStartupErrorApp(
+          detail: '$error',
+          logFilePath: logFilePath,
+        ),
+      );
+    },
+  );
+}
+
+Future<void> startDecaidNormalServices({
+  required Logger log,
+  required String logDir,
+  required CliArgs cliArgs,
+  required WebViewLogService webViewLogService,
+}) async {
+  try {
+    await admitNativePlugins();
+  } catch (error, stackTrace) {
+    log.severe(
+      'Plugin registration failed, so normal services stay blocked',
+      error,
+      stackTrace,
+    );
+    runApp(
+      _NativePluginAdmissionFailureApp(
+        detail: '$error',
+        logFilePath: '$logDir/log.txt',
+      ),
+    );
+    return;
+  }
+
   if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
     await WindowManager.instance.ensureInitialized();
     if (!Platform.isLinux) {
@@ -328,26 +487,7 @@ void main(List<String> args) async {
     }
   }
 
-  final logDir = await AppDirectories.logs;
-  await Directory(logDir).create(recursive: true);
-
-  RotatingFileAppender(baseFilePath: '$logDir/log.txt')
-      .attachToLogger(Logger.root);
-
-  final webViewLogService = WebViewLogService(logDirectoryPath: logDir);
-  await webViewLogService.initialize();
-
-  Logger.root.info("==== Decent starting ====");
-  BootTiming.start();
-
   unawaited(MulticastLockService().acquire());
-
-  Logger.root.info(
-    "build: ${BuildInfo.commitShort}, branch: ${BuildInfo.branch}",
-  );
-  Logger.root.info(
-    "version: ${BuildInfo.version}, platform: ${Platform.operatingSystem}",
-  );
 
   final isDebugOrSimulate =
       kDebugMode || const String.fromEnvironment("simulate").isNotEmpty;
@@ -574,6 +714,7 @@ void main(List<String> args) async {
     rateLimit: githubRateLimit,
     credentials: githubCredentials,
   );
+  webUIService.legacySkinPathsProvider = webUIStorage.legacySkinPaths;
 
   DecentAccountService? decentAccountService;
   DecentProxyService? decentProxyService;
@@ -756,13 +897,14 @@ void main(List<String> args) async {
       ? MacOSUpdater()
       : null;
 
+  ApiListener? apiListener;
   try {
     await loadSettingsBeforeWebServer(
       settingsController: settingsController,
       simulatedDevicesService: simulatedDevicesService,
       startWebServer: () async {
         try {
-          await startWebServer(
+          apiListener = await startWebServer(
             deviceController,
             de1Controller,
             scaleController,
@@ -844,7 +986,13 @@ void main(List<String> args) async {
     return;
   }
   BootTiming.mark('webserver_up');
-  await prepareShotUploadStartup(
+  final listenerRecoveryCoordinator = apiListener == null
+      ? null
+      : ListenerRecoveryCoordinator(
+          apiListener: apiListener!,
+          webUIService: webUIService,
+        );
+  await prepareOnboardingStartup(
     settingsController,
     forceOnboarding: cliArgs.forceOnboarding,
     bypassOnboarding: cliArgs.bypassOnboarding,
@@ -912,14 +1060,18 @@ void main(List<String> args) async {
 
   updateCheckService.scheduleInitialize();
 
+  final warmupLogger = WarmupLogger(machines: de1Controller.de1);
+
   WidgetsBinding.instance.addObserver(
     AppLifecycleObserver(
       displayController: displayController,
       pluginLoaderService: pluginService,
       connectionManager: connectionManager,
       appLogUploadService: appLogUploadService,
+      warmupLogger: warmupLogger,
       updateCheckService: updateCheckService,
       settingsController: settingsController,
+      listenerRecoveryCoordinator: listenerRecoveryCoordinator,
     ),
   );
 
@@ -958,6 +1110,7 @@ void main(List<String> args) async {
         displayController: displayController,
         accountConsentStore: accountConsentStore,
         credentials: githubCredentials,
+        listenerRecoveryCoordinator: listenerRecoveryCoordinator,
       ),
     ),
   );
@@ -969,8 +1122,10 @@ class AppLifecycleObserver with WidgetsBindingObserver {
   final PluginLoaderService? pluginLoaderService;
   final ConnectionManager? connectionManager;
   final AppLogUploadService? appLogUploadService;
+  final WarmupLogger? warmupLogger;
   final UpdateCheckService? updateCheckService;
   final SettingsController? settingsController;
+  final ListenerRecoveryCoordinator? listenerRecoveryCoordinator;
 
   late Timer _memTimer;
   Future<void>? _detachFuture;
@@ -980,8 +1135,10 @@ class AppLifecycleObserver with WidgetsBindingObserver {
     this.pluginLoaderService,
     this.connectionManager,
     this.appLogUploadService,
+    this.warmupLogger,
     this.updateCheckService,
     this.settingsController,
+    this.listenerRecoveryCoordinator,
   }) {
     _memTimer = Timer.periodic(Duration(minutes: 5), (t) {
       final rss = ProcessInfo.currentRss / (1024 * 1024);
@@ -1002,6 +1159,19 @@ class AppLifecycleObserver with WidgetsBindingObserver {
       _log.info("state: resumed");
 
       updateCheckService?.onAppResumed();
+      final recoverListeners = listenerRecoveryCoordinator?.onResumed();
+      if (recoverListeners != null) {
+        unawaited(
+          recoverListeners.catchError((error, stackTrace) {
+            _log.warning(
+              'Listener recovery failed after resume',
+              error,
+              stackTrace,
+            );
+            return false;
+          }),
+        );
+      }
       unawaited(displayController?.onAppResumed() ?? Future<void>.value());
       final settings = settingsController;
       if (settings != null) {
@@ -1028,6 +1198,11 @@ class AppLifecycleObserver with WidgetsBindingObserver {
 
   Future<void> _handleDetached() async {
     try {
+      listenerRecoveryCoordinator?.dispose();
+    } catch (error, stackTrace) {
+      _log.warning('Listener recovery disposal failed', error, stackTrace);
+    }
+    try {
       updateCheckService?.dispose();
     } catch (error, stackTrace) {
       _log.warning('Update service disposal failed', error, stackTrace);
@@ -1042,6 +1217,7 @@ class AppLifecycleObserver with WidgetsBindingObserver {
     } catch (error, stackTrace) {
       _log.severe('Plugin loader disposal failed', error, stackTrace);
     }
+    await warmupLogger?.dispose();
     appLogUploadService?.dispose();
   }
 
@@ -1078,6 +1254,7 @@ class AppRoot extends StatefulWidget {
   final DisplayController displayController;
   final AccountConsentStore? accountConsentStore;
   final GithubCredentialProvider credentials;
+  final ListenerRecoveryCoordinator? listenerRecoveryCoordinator;
 
   const AppRoot({
     super.key,
@@ -1108,6 +1285,7 @@ class AppRoot extends StatefulWidget {
     required this.displayController,
     this.accountConsentStore,
     required this.credentials,
+    this.listenerRecoveryCoordinator,
   });
 
   static void restart(BuildContext context) {
@@ -1134,6 +1312,7 @@ class _AppRootState extends State<AppRoot> {
       pluginLoaderService: widget.pluginLoaderService,
       webUIStorage: widget.webUIStorage,
       webUIService: widget.webUIService,
+      listenerRecoveryCoordinator: widget.listenerRecoveryCoordinator,
     );
     if (Platform.isWindows) {
       _windowChannel.setMethodCallHandler(_handleWindowMethod);
@@ -1211,6 +1390,7 @@ class _AppRootState extends State<AppRoot> {
         displayController: widget.displayController,
         accountConsentStore: widget.accountConsentStore,
         credentials: widget.credentials,
+        listenerRecoveryCoordinator: widget.listenerRecoveryCoordinator,
         startupCoordinator: _startupCoordinator,
       ),
     );

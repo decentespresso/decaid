@@ -1,6 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/services/github_credentials.dart';
 import 'package:reaprime/src/services/github_rate_limit.dart';
 import 'package:reaprime/src/services/github_request.dart';
@@ -85,7 +88,10 @@ void main() {
           () => MockClient((request) async {
             requests++;
             expect(request.headers['accept'], 'application/vnd.github.v3+json');
-            expect(request.headers['user-agent'], 'Decaid');
+            expect(
+              request.headers['user-agent'],
+              'Decaid/${BuildInfo.version}',
+            );
             if (requests > 1) return http.Response('{"sha":"abc"}', 200);
             return http.Response(
               'quota exceeded',
@@ -178,6 +184,52 @@ void main() {
     },
   );
 
+  test(
+    'release metadata and artifact requests keep the PAT on the API origin',
+    () async {
+      const pat = 'ghp-release-secret';
+      final credentials = GithubCredentialProvider(store: _TestStore(pat));
+      final seen = <http.Request>[];
+      final client = MockClient((request) async {
+        seen.add(request);
+        if (request.url.host == 'api.github.com') {
+          return http.Response(
+            jsonEncode({
+              'tag_name': 'v1.0.0',
+              'assets': [
+                {
+                  'name': 'decaid.apk',
+                  'browser_download_url':
+                      'https://github.com/acme/decaid/releases/download/'
+                      'v1.0.0/decaid.apk',
+                },
+              ],
+            }),
+            200,
+          );
+        }
+        return http.Response.bytes([1, 2, 3], 200);
+      });
+
+      final bytes = await http.runWithClient(() async {
+        final release = await fetchLatestGitHubRelease(
+          'acme/decaid',
+          credentials: credentials,
+        );
+        return downloadGitHubArchive(release.assets.single.downloadUrl);
+      }, () => client);
+
+      expect(bytes, [1, 2, 3]);
+      expect(seen, hasLength(2));
+      expect(
+        seen.map((request) => request.headers['user-agent']),
+        everyElement('Decaid/${BuildInfo.version}'),
+      );
+      expect(seen.first.headers['authorization'], 'Bearer $pat');
+      expect(seen.last.headers.containsKey('authorization'), isFalse);
+    },
+  );
+
   test('user credentials are sent only to the exact API origin', () async {
     final credentials = GithubCredentialProvider(store: _TestStore('secret'));
     final seen = <http.BaseRequest>[];
@@ -228,6 +280,65 @@ void main() {
     );
     expect(seen, hasLength(1));
     expect(seen.single.followRedirects, isFalse);
+  });
+
+  for (final status in [301, 302, 307, 308]) {
+    test(
+      'credential-bearing $status redirects within the API origin are followed',
+      () async {
+        final credentials = GithubCredentialProvider(
+          store: _TestStore('secret'),
+        );
+        final seen = <http.BaseRequest>[];
+        final response = await githubGet(
+          'https://api.github.com/repos/acme/renamed/releases',
+          rateLimit: GithubRateLimit(),
+          client: MockClient((request) async {
+            seen.add(request);
+            if (request.url.path == '/repos/acme/renamed/releases') {
+              return http.Response(
+                '',
+                status,
+                headers: {'location': '/repositories/42/releases'},
+              );
+            }
+            return http.Response('[]', 200);
+          }),
+          credentials: credentials,
+        );
+        expect(response.body, '[]');
+        expect(seen.map((r) => r.url.toString()), [
+          'https://api.github.com/repos/acme/renamed/releases',
+          'https://api.github.com/repositories/42/releases',
+        ]);
+        for (final request in seen) {
+          expect(request.headers['authorization'], 'Bearer secret');
+          expect(request.followRedirects, isFalse);
+        }
+      },
+    );
+  }
+
+  test('credential-bearing redirect chains are bounded', () async {
+    final credentials = GithubCredentialProvider(store: _TestStore('secret'));
+    var requests = 0;
+    await expectLater(
+      githubGet(
+        'https://api.github.com/repos/acme/loop',
+        rateLimit: GithubRateLimit(),
+        client: MockClient((_) async {
+          requests++;
+          return http.Response(
+            '',
+            301,
+            headers: {'location': 'https://api.github.com/repos/acme/loop'},
+          );
+        }),
+        credentials: credentials,
+      ),
+      throwsA(isA<GithubRequestException>()),
+    );
+    expect(requests, lessThanOrEqualTo(6));
   });
 
   test(

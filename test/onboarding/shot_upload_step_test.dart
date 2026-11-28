@@ -13,9 +13,33 @@ import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/services/account/account_consent_store.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../helpers/mock_settings_service.dart';
+
+class _FailingReadStore extends SharedPreferencesStorePlatform {
+  int getAllCalls = 0;
+
+  @override
+  Future<bool> clear() async => true;
+
+  @override
+  Future<Map<String, Object>> getAll() async {
+    getAllCalls++;
+    throw StateError('preferences unavailable');
+  }
+
+  @override
+  Future<bool> remove(String key) async => true;
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async =>
+      true;
+}
+
+Future<bool?> _noPersistedAutoUpload() async => null;
 
 class _CredentialStore implements CredentialStore {
   final Map<String, String> values = {};
@@ -140,6 +164,8 @@ Future<_Harness> _build({
   bool seen = false,
   bool accountReadFails = false,
   bool accountReadDelayed = false,
+  bool productionReader = false,
+  Future<bool?> Function() persistedAutoUpload = _noPersistedAutoUpload,
 }) async {
   final events = <String>[];
   final credentials = _CredentialStore();
@@ -163,10 +189,16 @@ Future<_Harness> _build({
     httpClient: MockClient((_) async => http.Response('', 200)),
     credentialStore: credentials,
   );
-  final step = createShotUploadStep(
-    accountService: accountService,
-    settingsController: settings,
-  );
+  final step = productionReader
+      ? createShotUploadStep(
+          accountService: accountService,
+          settingsController: settings,
+        )
+      : createShotUploadStep(
+          accountService: accountService,
+          settingsController: settings,
+          persistedAutoUpload: persistedAutoUpload,
+        );
   final controller = OnboardingController(
     steps: [
       step,
@@ -228,6 +260,16 @@ Future<void> _pumpStep(WidgetTester tester, _Harness harness) async {
 }
 
 void main() {
+  setUp(() {
+    SharedPreferences.resetStatic();
+    SharedPreferences.setMockInitialValues({});
+  });
+
+  tearDown(() {
+    SharedPreferences.resetStatic();
+    SharedPreferences.setMockInitialValues({});
+  });
+
   testWidgets('renders the agreed copy verbatim', (tester) async {
     final harness = await _build();
     await _pumpStep(tester, harness);
@@ -417,6 +459,90 @@ void main() {
     expect(harness.events, isEmpty);
     expect(harness.consent.writes, isEmpty);
     expect(harness.settings.shotUploadStepSeen, isFalse);
+  });
+
+  group('an unlinked installation is not gated on the stored setting', () {
+    const unreadableSettings = <String, String>{
+      'malformed JSON': '{not json',
+      'a non-object document': '[]',
+      'a non-boolean AutoUpload': '{"AutoUpload":"true"}',
+      'an explicitly null AutoUpload': '{"AutoUpload":null}',
+    };
+
+    for (final MapEntry(key: label, value: raw) in unreadableSettings.entries) {
+      testWidgets('$label advances without reading the setting', (
+        tester,
+      ) async {
+        SharedPreferences.setMockInitialValues({
+          shotUploadPluginSettingsPreferenceKey: raw,
+        });
+        final harness = await _build(linked: false, productionReader: true);
+        await _pumpStep(tester, harness);
+
+        expect(harness.currentStepId, 'sentinel');
+        expect(find.text('Retry'), findsNothing);
+        expect(
+          find.text('Could not load your shot upload setting. Try again.'),
+          findsNothing,
+        );
+        expect(harness.events, isEmpty);
+        expect(harness.consent.writes, isEmpty);
+        expect(harness.settings.shotUploadPendingDecision, isNull);
+        expect(harness.settings.shotUploadStepSeen, isFalse);
+      });
+    }
+
+    testWidgets(
+      'a failed preferences read advances without reading the setting',
+      (tester) async {
+        final store = _FailingReadStore();
+        SharedPreferencesStorePlatform.instance = store;
+        addTearDown(() {
+          SharedPreferences.setMockInitialValues({});
+        });
+        final harness = await _build(linked: false, productionReader: true);
+        await _pumpStep(tester, harness);
+
+        expect(store.getAllCalls, 0);
+        expect(harness.currentStepId, 'sentinel');
+        expect(find.text('Retry'), findsNothing);
+        expect(
+          find.text('Could not load your shot upload setting. Try again.'),
+          findsNothing,
+        );
+        expect(harness.events, isEmpty);
+        expect(harness.consent.writes, isEmpty);
+        expect(harness.settings.shotUploadPendingDecision, isNull);
+        expect(harness.settings.shotUploadStepSeen, isFalse);
+      },
+    );
+  });
+
+  testWidgets('a delayed setting read keeps the linked body hidden', (
+    tester,
+  ) async {
+    final gate = Completer<void>();
+    final harness = await _build(
+      persistedAutoUpload: () async {
+        await gate.future;
+        return true;
+      },
+    );
+    await tester.pumpWidget(
+      ShadApp(home: _StepHost(controller: harness.controller)),
+    );
+    await tester.pump();
+
+    expect(find.text(shotUploadCopy), findsNothing);
+    expect(find.text('Not now'), findsNothing);
+    expect(find.text('Continue'), findsNothing);
+    expect(find.text('Retry'), findsNothing);
+
+    gate.complete();
+    await tester.pumpAndSettle();
+
+    expect(find.text(shotUploadCopy), findsOneWidget);
+    expect(find.text('Continue'), findsOneWidget);
   });
 
   testWidgets('a linked account renders the screen instead of advancing', (

@@ -2,6 +2,19 @@
 
 For unfamiliar or multi-subsystem tasks, read `doc/AI_REPO_MAP.md` first. For known files or exact symbols, open them directly. Read domain-specific docs only when the task needs them.
 
+For specification, PR evidence, independent review, and integration handoffs, follow [`doc/AGENT_WORKFLOW.md`](doc/AGENT_WORKFLOW.md). Its supplemental evidence fields are advisory while piloted; the verification and contribution rules below, and every other existing gate, remain required.
+
+For independent PR reviews and post-push delta reviews, use [`.agents/skills/decent-review/SKILL.md`](.agents/skills/decent-review/SKILL.md). Review conclusions must identify the reviewed head SHA and separate tested evidence from claims.
+
+For related-PR merge sequencing, shared-contract risks and disposable combined verification, use
+[`.agents/skills/decent-integration/SKILL.md`](.agents/skills/decent-integration/SKILL.md).
+The authoritative G5 merge-batch report template remains in `doc/AGENT_WORKFLOW.md` section 5;
+recommendations do not authorize merges. For all G3 handoffs, G4 first/delta reviews and G5
+batches, write the Layer 1 decision brief first using the shared plain-language, <=150-word,
+<=3-blocker, one-named-action contract (or **None — no action required**) and canonical templates in
+workflow sections 3–5; retain complete proof in Layer 2. Historical examples are linked from the
+workflow and are not templates.
+
 ## Workflow
 
 ### Starting Work
@@ -65,6 +78,12 @@ All three steps are required, not optional.
   `asset_directory_does_not_exist` warnings and `bundled_plugin_permissions_test.dart` fails (~34 cases)
   with or without your change. Copy them in from the main checkout (they stay untracked and the tree stays
   clean) or state the baseline failure explicitly in the PR.
+- **A copied bundled bundle can be stale.** `assets/plugins/*.reaplugin` are unpacked bundles carrying their
+  own version in `manifest.json`, so copying from a checkout that stopped updating them yields older plugin
+  behaviour. `shot-upload` at `0.2.1` against tests expecting `0.2.4` fails two unlinked-serial cases in
+  `test/plugins/shot_upload_reconciliation_test.dart`, and the same stale copy in the main checkout fails
+  identically, so "fails on `main` too" is not proof of a baseline. Compare `manifest.json` versions against
+  a worktree whose suite passes before declaring a baseline failure.
 - **Debug builds need `android/app/debug.keystore`** (ignored by `android/.gitignore`). Copy it from the main
   checkout only if the worktree does not already have one, and never overwrite an existing keystore. Delete
   the file after verification only if you created that copy; leave any pre-existing keystore alone.
@@ -172,4 +191,5 @@ must not alter `preferredScaleId`, shot sequencing, or legacy singular routes.
 - Don't add API endpoints without updating the OpenAPI/AsyncAPI spec in the same commit.
 - Don't add new global state without a clear ownership boundary.
 - Don't `--amend` or force-push on `main`.
+- Don't launch headless Chrome by hand. Run probes through `scripts/headless-chrome.sh run -- <command>` using its owned `CHROME_PROFILE` (Playwright: `launchPersistentContext`), and retain explicit close in `finally`. Recipe: `.agents/skills/decent-app/verification.md` → "Driving a browser". Recover managed leftovers with `scripts/headless-chrome.sh sweep`.
 - Don't create `CONTEXT.md` or `doc/adr/` — `AGENTS.md` + `doc/` are the equivalents.

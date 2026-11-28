@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/impl/eureka/eureka_scale.dart';
+import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:rxdart/rxdart.dart';
 
@@ -128,5 +129,17 @@ void main() {
     );
 
     await transport.dispose();
+  });
+
+  test('declares a 1.5 s tare retry interval', () {
+    final scale = EurekaScale(
+      transport: _MockEurekaBleTransport(serviceUUIDs: const []),
+    );
+
+    expect(scale, isA<TareRetryIntervalScale>());
+    expect(
+      (scale as TareRetryIntervalScale).tareRetryInterval,
+      const Duration(milliseconds: 1500),
+    );
   });
 }

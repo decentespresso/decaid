@@ -48,9 +48,14 @@ class MockSettingsService extends SettingsService {
   bool _lowBatteryBrightnessLimit = false;
   bool _keepAwake = true;
   bool _onboardingCompleted = true;
+  bool _onboardingReplayRequested = false;
+  int onboardingReplayRequestWrites = 0;
+  bool failOnboardingReplayWrite = false;
+  bool failOnboardingPresentationWrite = false;
   bool _shotUploadStepSeen = true;
   bool _shotUploadOptIn = false;
   bool? _shotUploadPendingDecision;
+  bool? _shotUploadRecordedAnswer;
   bool _accountStepSeen = true;
   bool _androidWarningDismissed = true;
   bool _showSkinExitInstructions = false;
@@ -137,8 +142,15 @@ class MockSettingsService extends SettingsService {
       _preferredGrinderDeviceId = deviceId;
   @override
   Future<String> defaultSkinId() async => _defaultSkinId;
+  String? _persistedDefaultSkinId;
   @override
-  Future<void> setDefaultSkinId(String skinId) async => _defaultSkinId = skinId;
+  Future<String?> persistedDefaultSkinId() async => _persistedDefaultSkinId;
+  @override
+  Future<void> setDefaultSkinId(String skinId) async {
+    _defaultSkinId = skinId;
+    _persistedDefaultSkinId = skinId;
+  }
+
   @override
   Future<bool> automaticUpdateCheck() async => _automaticUpdateCheck;
   @override
@@ -263,8 +275,24 @@ class MockSettingsService extends SettingsService {
   @override
   Future<bool> onboardingCompleted() async => _onboardingCompleted;
   @override
-  Future<void> setOnboardingCompleted(bool value) async =>
-      _onboardingCompleted = value;
+  Future<void> setOnboardingCompleted(bool value) async {
+    if (failOnboardingPresentationWrite) {
+      throw StateError('simulated onboarding progress write failure');
+    }
+    _onboardingCompleted = value;
+  }
+
+  @override
+  Future<bool> onboardingReplayRequested() async => _onboardingReplayRequested;
+  @override
+  Future<void> setOnboardingReplayRequested(bool value) async {
+    onboardingReplayRequestWrites++;
+    if (failOnboardingReplayWrite) {
+      throw StateError('simulated replay request write failure');
+    }
+    _onboardingReplayRequested = value;
+  }
+
   @override
   Future<bool> shotUploadStepSeen() async => _shotUploadStepSeen;
   @override
@@ -281,12 +309,15 @@ class MockSettingsService extends SettingsService {
   @override
   Future<void> setShotUploadDecision(bool value) async {
     _shotUploadPendingDecision = value;
+    _shotUploadRecordedAnswer = value;
     _shotUploadStepSeen = true;
   }
 
   @override
   Future<void> clearShotUploadPendingDecision() async =>
       _shotUploadPendingDecision = null;
+  @override
+  Future<bool?> shotUploadRecordedAnswer() async => _shotUploadRecordedAnswer;
   @override
   Future<bool> accountStepSeen() async => _accountStepSeen;
   @override
@@ -306,6 +337,12 @@ class MockSettingsService extends SettingsService {
   @override
   Future<void> setEnableSimulatedWebViews(bool value) async =>
       _enableSimulatedWebViews = value;
+  bool _mockDe1GhcPresent = false;
+  @override
+  Future<bool> mockDe1GhcPresent() async => _mockDe1GhcPresent;
+  @override
+  Future<void> setMockDe1GhcPresent(bool value) async =>
+      _mockDe1GhcPresent = value;
 
   @override
   Future<bool?> featureFlag(FeatureFlag flag) async => _featureFlags[flag.name];

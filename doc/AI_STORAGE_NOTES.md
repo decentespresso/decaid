@@ -53,6 +53,20 @@ Gotchas:
 
 Keep these stores independent. A settings reset must not clear account credentials unless explicitly requested.
 
+## Legacy Skin Port Assignments
+
+`webUISkinPorts` stores serving-path-to-port assignments. Skin discovery prefers
+the canonical directory when duplicate manifest IDs exist, but retains the
+same-ID legacy paths in memory. `WebUIService` transfers an existing legacy
+assignment to an unassigned canonical path before allocating or binding its
+port; `main.dart` wires the storage lookup into the service. The legacy key is
+removed from the saved map so ports stay unique. Existing canonical assignments
+and unrelated skins are unchanged. Failed persistence leaves the in-memory
+assignment usable and the unchanged persisted legacy mapping available for a
+retry after restart. No folder, browser profile, preferences key or Drift schema
+is migrated or deleted. This preserves the origin, not direct customizations to
+files replaced by a skin update.
+
 ## Native Notification Snapshot
 
 `NotificationCenter` owns `private.notificationCenter.v1`, a versioned JSON
@@ -271,7 +285,10 @@ exclude it; `GET /api/v1/settings` does not return it.
 
 App log sharing consent is stored by `AccountConsentStore` under
 `appLogUpload`. The `appLogUpload.` SharedPreferences prefix contains only
-presentation state and the cursor. The cursor stores the last uploaded log
+presentation state, the cursor, and `appLogUpload.enabledAt` (opt-in time in
+epoch milliseconds). Sharing turns itself off 7 days after `enabledAt`; opting
+out removes it, and a consent stored without it starts the window at the next
+check. The cursor stores the last uploaded log
 timestamp plus its line ordinal as one JSON value. Keep the timestamp and
 ordinal atomic so capped uploads cannot skip later lines with the same timestamp.
 Opting out clears the cursor, so a later opt-in starts with only the previous 24

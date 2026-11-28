@@ -14,6 +14,7 @@ import 'package:path/path.dart' as p;
 import 'package:reaprime/src/services/github_credentials.dart';
 import 'package:reaprime/src/services/github_rate_limit.dart';
 import 'package:reaprime/src/services/github_request.dart';
+import 'package:reaprime/src/services/release_request.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/services/storage/app_directories.dart';
 import 'package:reaprime/src/util/safe_path.dart';
@@ -144,14 +145,165 @@ class WebUISkin {
   }
 }
 
+enum ManagedSkinLookupStatus {
+  resolved,
+  invalidId,
+  missing,
+  escaped,
+  ambiguous,
+  unreadable,
+}
+
+final class ManagedSkinLookup {
+  const ManagedSkinLookup._(
+    this.status, {
+    this.skinId,
+    this.directoryName,
+    this.canonicalPath,
+  });
+
+  const ManagedSkinLookup.notManaged(ManagedSkinLookupStatus status)
+    : this._(status);
+
+  const ManagedSkinLookup.resolved({
+    required String skinId,
+    required String directoryName,
+    required String canonicalPath,
+  }) : this._(
+         ManagedSkinLookupStatus.resolved,
+         skinId: skinId,
+         directoryName: directoryName,
+         canonicalPath: canonicalPath,
+       );
+
+  final ManagedSkinLookupStatus status;
+  final String? skinId;
+  final String? directoryName;
+  final String? canonicalPath;
+
+  bool get isResolved => status == ManagedSkinLookupStatus.resolved;
+}
+
+const int _maxSkinManifestBytes = 256 * 1024;
+
+final class _ManagedSkinPackage {
+  const _ManagedSkinPackage({
+    required this.skinId,
+    required this.directoryName,
+    required this.name,
+    required this.path,
+    required this.canonicalPath,
+    this.description,
+    this.version,
+  });
+
+  final String skinId;
+  final String directoryName;
+  final String name;
+  final String path;
+  final String canonicalPath;
+  final String? description;
+  final String? version;
+}
+
+final class _ManagedSkinInspection {
+  const _ManagedSkinInspection.package(_ManagedSkinPackage this.package)
+    : status = ManagedSkinLookupStatus.resolved;
+
+  const _ManagedSkinInspection.skipped(this.status) : package = null;
+
+  final ManagedSkinLookupStatus status;
+  final _ManagedSkinPackage? package;
+}
+
+final class _ManagedSkinSnapshot {
+  const _ManagedSkinSnapshot({required this.packages, required this.skipped});
+
+  final Map<String, List<_ManagedSkinPackage>> packages;
+  final Map<String, ManagedSkinLookupStatus> skipped;
+}
+
+/// Narrow read-only filesystem seam for [WebUIStorage.resolveManagedSelectedSkin].
+abstract class ManagedSkinFileAccess {
+  /// Names of the subdirectories of [path], including links that resolve to a
+  /// directory.
+  Future<List<String>> listSubdirectoryNames(String path);
+
+  /// Type of [path]; [followLinks] is false by default so a symbolic link is
+  /// reported as a link instead of being traversed.
+  Future<FileSystemEntityType> entityType(
+    String path, {
+    bool followLinks = false,
+  });
+
+  /// Textual target of the symbolic link at [path], without traversing it.
+  Future<String> linkTarget(String path);
+
+  /// Canonical path of [path], traversing any symbolic links.
+  Future<String> canonicalPath(String path);
+
+  /// Text of the file at [path]; a file longer than [maxBytes] throws
+  /// [FormatException].
+  Future<String> readBoundedText(String path, {required int maxBytes});
+
+  /// Reads one byte of the file at [path] to prove that it is readable.
+  Future<void> probeReadableFile(String path);
+}
+
+final class SystemManagedSkinFileAccess implements ManagedSkinFileAccess {
+  const SystemManagedSkinFileAccess();
+
+  @override
+  Future<List<String>> listSubdirectoryNames(String path) async => [
+    for (final entity in Directory(path).listSync(followLinks: false))
+      if (entity is Directory || entity is Link) p.basename(entity.path),
+  ];
+
+  @override
+  Future<FileSystemEntityType> entityType(
+    String path, {
+    bool followLinks = false,
+  }) => FileSystemEntity.type(path, followLinks: followLinks);
+
+  @override
+  Future<String> linkTarget(String path) async => Link(path).targetSync();
+
+  @override
+  Future<String> canonicalPath(String path) async {
+    if (await FileSystemEntity.type(path, followLinks: true) ==
+        FileSystemEntityType.directory) {
+      return Directory(path).resolveSymbolicLinks();
+    }
+    return File(path).resolveSymbolicLinks();
+  }
+
+  @override
+  Future<String> readBoundedText(String path, {required int maxBytes}) async {
+    final chunks = await File(path).openRead(0, maxBytes + 1).toList();
+    final bytes = <int>[for (final chunk in chunks) ...chunk];
+    if (bytes.length > maxBytes) {
+      throw FormatException('File exceeds $maxBytes bytes', path);
+    }
+    return utf8.decode(bytes);
+  }
+
+  @override
+  Future<void> probeReadableFile(String path) async {
+    await File(path).openRead(0, 1).toList();
+  }
+}
+
 class WebUIStorage {
   final _log = Logger('WebUIStorage');
   static const _stagingDirName = '.webui-install-staging';
+  static const _skinManifestNames = ['skin-manifest.json', 'manifest.json'];
   final SettingsController _settingsController;
   final Directory? _webUIDirOverride;
+  final ManagedSkinFileAccess _skinFileAccess;
 
   late Directory _webUIDir;
   final Map<String, WebUISkin> _installedSkins = {};
+  final Map<String, List<String>> _skinPaths = {};
   final Map<String, WebUIReaMetadata> _skinMetadata = {};
   bool _initialized = false;
   final ValueNotifier<Future<void>?> _updateCheck = ValueNotifier(null);
@@ -167,8 +319,10 @@ class WebUIStorage {
     Directory? webUIDir,
     GithubRateLimit? rateLimit,
     this.credentials,
+    ManagedSkinFileAccess? skinFileAccess,
   }) : _webUIDirOverride = webUIDir,
-       _rateLimit = rateLimit ?? GithubRateLimit();
+       _rateLimit = rateLimit ?? GithubRateLimit(),
+       _skinFileAccess = skinFileAccess ?? const SystemManagedSkinFileAccess();
 
   Future<http.Response> _getGitHubRelease(String apiUrl) =>
       githubGet(apiUrl, rateLimit: _rateLimit, credentials: credentials);
@@ -244,6 +398,16 @@ class WebUIStorage {
 
   WebUISkin? getSkin(String id) => _installedSkins[id];
 
+  Iterable<String> legacySkinPaths(String path) {
+    final skin = _installedSkins.values
+        .where((skin) => skin.path == path)
+        .firstOrNull;
+    if (skin == null) return const [];
+    return (_skinPaths[skin.id] ?? const <String>[]).reversed.where(
+      (candidate) => candidate != path,
+    );
+  }
+
   WebUISkin? get defaultSkin {
     final preferredSkinId = _settingsController.defaultSkinId;
     _log.info(
@@ -284,6 +448,393 @@ class WebUIStorage {
     _log.info('Set default skin to: $skinId');
   }
 
+  Future<ManagedSkinLookup> resolveManagedSelectedSkin(
+    String skinId, {
+    String? runtimePath,
+  }) async {
+    if (!isSafePathComponent(skinId) || skinId == _stagingDirName) {
+      return const ManagedSkinLookup.notManaged(
+        ManagedSkinLookupStatus.invalidId,
+      );
+    }
+
+    final root = _webUIDirOverride ?? (_initialized ? _webUIDir : null);
+    if (root == null) {
+      return const ManagedSkinLookup.notManaged(
+        ManagedSkinLookupStatus.unreadable,
+      );
+    }
+
+    final rootPath = p.normalize(root.path);
+    String? runtimeDirectoryName;
+    if (runtimePath != null) {
+      final normalizedRuntimePath = p.normalize(p.absolute(runtimePath));
+      final runtimeName = p.basename(normalizedRuntimePath);
+      if (p.dirname(normalizedRuntimePath) != rootPath ||
+          runtimeName == _stagingDirName ||
+          !isSafePathComponent(runtimeName)) {
+        _log.warning(
+          'Runtime skin selection is not a managed package directory',
+        );
+        return const ManagedSkinLookup.notManaged(
+          ManagedSkinLookupStatus.escaped,
+        );
+      }
+      runtimeDirectoryName = runtimeName;
+    }
+
+    try {
+      if (await _skinFileAccess.entityType(rootPath) ==
+          FileSystemEntityType.notFound) {
+        return const ManagedSkinLookup.notManaged(
+          ManagedSkinLookupStatus.missing,
+        );
+      }
+      final String canonicalRoot;
+      try {
+        canonicalRoot = await _skinFileAccess.canonicalPath(rootPath);
+      } on FileSystemException {
+        return const ManagedSkinLookup.notManaged(
+          ManagedSkinLookupStatus.unreadable,
+        );
+      }
+      if (await _skinFileAccess.entityType(canonicalRoot) !=
+          FileSystemEntityType.directory) {
+        return const ManagedSkinLookup.notManaged(
+          ManagedSkinLookupStatus.missing,
+        );
+      }
+      final snapshot = await _readManagedSkinSelectionSnapshot(
+        rootPath,
+        canonicalRoot,
+      );
+      final canonicalFailure = snapshot.skipped[skinId];
+      if (canonicalFailure != null) {
+        return ManagedSkinLookup.notManaged(canonicalFailure);
+      }
+      final candidates = snapshot.packages[skinId];
+      if (candidates == null || candidates.isEmpty) {
+        return ManagedSkinLookup.notManaged(
+          snapshot.skipped[skinId] ?? ManagedSkinLookupStatus.missing,
+        );
+      }
+      final selected = _selectCanonicalPackage(candidates);
+      if (selected == null) {
+        _log.warning('Skin "$skinId" matches competing managed packages');
+        return const ManagedSkinLookup.notManaged(
+          ManagedSkinLookupStatus.ambiguous,
+        );
+      }
+      if (selected.directoryName != skinId && snapshot.skipped.isNotEmpty) {
+        return const ManagedSkinLookup.notManaged(
+          ManagedSkinLookupStatus.ambiguous,
+        );
+      }
+      if (runtimeDirectoryName != null) {
+        if (runtimeDirectoryName != selected.directoryName) {
+          _log.warning(
+            'Runtime skin path does not name the selected managed package',
+          );
+          return const ManagedSkinLookup.notManaged(
+            ManagedSkinLookupStatus.ambiguous,
+          );
+        }
+        final runtimeCanonicalPath = await _skinFileAccess.canonicalPath(
+          p.join(rootPath, runtimeDirectoryName),
+        );
+        if (runtimeCanonicalPath != selected.canonicalPath) {
+          _log.warning(
+            'Runtime skin path escapes the selected managed package',
+          );
+          return const ManagedSkinLookup.notManaged(
+            ManagedSkinLookupStatus.escaped,
+          );
+        }
+      }
+      final entryPointStatus = await _entryPointStatus(
+        selected.canonicalPath,
+        selected.path,
+      );
+      if (entryPointStatus != null) {
+        return ManagedSkinLookup.notManaged(entryPointStatus);
+      }
+      return ManagedSkinLookup.resolved(
+        skinId: selected.skinId,
+        directoryName: selected.directoryName,
+        canonicalPath: selected.canonicalPath,
+      );
+    } on FileSystemException catch (e, st) {
+      _log.warning('Failed to read managed skin "$skinId"', e, st);
+      return const ManagedSkinLookup.notManaged(
+        ManagedSkinLookupStatus.unreadable,
+      );
+    } on FormatException catch (e, st) {
+      _log.warning('Failed to decode managed skin "$skinId"', e, st);
+      return const ManagedSkinLookup.notManaged(
+        ManagedSkinLookupStatus.unreadable,
+      );
+    }
+  }
+
+  Future<_ManagedSkinSnapshot> _readManagedSkinSelectionSnapshot(
+    String rootPath,
+    String canonicalRoot,
+  ) async {
+    final packages = <String, List<_ManagedSkinPackage>>{};
+    final skipped = <String, ManagedSkinLookupStatus>{};
+    for (final directoryName in await _skinFileAccess.listSubdirectoryNames(
+      rootPath,
+    )) {
+      if (directoryName == _stagingDirName) continue;
+      final directoryPath = p.join(rootPath, directoryName);
+      final inspection = await _inspectManagedSkinSelectionPackage(
+        directoryPath,
+        rootPath,
+        canonicalRoot,
+      );
+      final package = inspection.package;
+      if (package == null) {
+        skipped[directoryName] = inspection.status;
+        _log.fine(
+          'Skipping skin package at $directoryPath: ${inspection.status.name}',
+        );
+        continue;
+      }
+      (packages[package.skinId] ??= <_ManagedSkinPackage>[]).add(package);
+    }
+    return _ManagedSkinSnapshot(packages: packages, skipped: skipped);
+  }
+
+  Future<_ManagedSkinInspection> _inspectManagedSkinSelectionPackage(
+    String directoryPath,
+    String rootPath,
+    String canonicalRoot,
+  ) async {
+    final String canonicalPath;
+    try {
+      final rawType = await _skinFileAccess.entityType(directoryPath);
+      if (rawType == FileSystemEntityType.notFound) {
+        return const _ManagedSkinInspection.skipped(
+          ManagedSkinLookupStatus.missing,
+        );
+      }
+      if (rawType == FileSystemEntityType.directory) {
+        canonicalPath = await _skinFileAccess.canonicalPath(directoryPath);
+      } else if (rawType == FileSystemEntityType.link) {
+        if (!await _linkTargetsWithin(directoryPath, [
+          rootPath,
+          canonicalRoot,
+        ])) {
+          return const _ManagedSkinInspection.skipped(
+            ManagedSkinLookupStatus.escaped,
+          );
+        }
+        canonicalPath = await _skinFileAccess.canonicalPath(directoryPath);
+      } else {
+        return const _ManagedSkinInspection.skipped(
+          ManagedSkinLookupStatus.unreadable,
+        );
+      }
+    } on FileSystemException {
+      return const _ManagedSkinInspection.skipped(
+        ManagedSkinLookupStatus.unreadable,
+      );
+    }
+    if (p.dirname(canonicalPath) != canonicalRoot ||
+        p.basename(canonicalPath) == _stagingDirName) {
+      return const _ManagedSkinInspection.skipped(
+        ManagedSkinLookupStatus.escaped,
+      );
+    }
+
+    final Map<String, dynamic>? manifest;
+    try {
+      manifest = await _readSelectionSkinManifest(canonicalPath, directoryPath);
+    } on FileSystemException {
+      return const _ManagedSkinInspection.skipped(
+        ManagedSkinLookupStatus.unreadable,
+      );
+    } on FormatException {
+      return const _ManagedSkinInspection.skipped(
+        ManagedSkinLookupStatus.unreadable,
+      );
+    }
+
+    final directoryName = p.basename(canonicalPath);
+    final declaredId = manifest?['id'];
+    final declaredName = manifest?['name'];
+    final description = manifest?['description'];
+    final version = manifest?['version'];
+    if ((declaredId != null && declaredId is! String) ||
+        (declaredName != null && declaredName is! String) ||
+        (description != null && description is! String) ||
+        (version != null && version is! String)) {
+      return const _ManagedSkinInspection.skipped(
+        ManagedSkinLookupStatus.unreadable,
+      );
+    }
+    final skinId = (declaredId as String?) ?? directoryName;
+    if (!isSafePathComponent(skinId) || skinId == _stagingDirName) {
+      return const _ManagedSkinInspection.skipped(
+        ManagedSkinLookupStatus.invalidId,
+      );
+    }
+    return _ManagedSkinInspection.package(
+      _ManagedSkinPackage(
+        skinId: skinId,
+        directoryName: directoryName,
+        name: (declaredName as String?) ?? directoryName,
+        path: directoryPath,
+        canonicalPath: canonicalPath,
+        description: description as String?,
+        version: version as String?,
+      ),
+    );
+  }
+
+  Future<bool> _linkTargetsWithin(
+    String linkPath,
+    List<String> containmentRoots,
+  ) async {
+    var pending = p.normalize(linkPath);
+    final visited = <String>{};
+    try {
+      for (var depth = 0; depth < 32; depth++) {
+        final root = containmentRoots
+            .where((root) => p.isWithin(root, pending))
+            .firstOrNull;
+        if (root == null) return false;
+        final components = p.split(p.relative(pending, from: root));
+        var prefix = root;
+        var redirected = false;
+        for (var index = 0; index < components.length; index++) {
+          prefix = p.join(prefix, components[index]);
+          final type = await _skinFileAccess.entityType(prefix);
+          if (type == FileSystemEntityType.link) {
+            if (!visited.add(prefix)) return false;
+            final target = await _skinFileAccess.linkTarget(prefix);
+            final resolved = p.normalize(
+              p.isAbsolute(target) ? target : p.join(p.dirname(prefix), target),
+            );
+            if (!containmentRoots.any((root) => p.isWithin(root, resolved))) {
+              return false;
+            }
+            pending = p.joinAll([resolved, ...components.skip(index + 1)]);
+            redirected = true;
+            break;
+          }
+          if (index < components.length - 1 &&
+              type != FileSystemEntityType.directory) {
+            return false;
+          }
+          if (type == FileSystemEntityType.notFound) return false;
+        }
+        if (!redirected) return true;
+      }
+    } on FileSystemException {
+      return false;
+    }
+    return false;
+  }
+
+  Future<Map<String, dynamic>?> _readSelectionSkinManifest(
+    String canonicalPackagePath,
+    String logicalPackagePath,
+  ) async {
+    for (final name in _skinManifestNames) {
+      final manifestPath = p.join(canonicalPackagePath, name);
+      final rawType = await _skinFileAccess.entityType(manifestPath);
+      if (rawType == FileSystemEntityType.notFound) continue;
+      final String resolvedPath;
+      if (rawType == FileSystemEntityType.file) {
+        resolvedPath = manifestPath;
+      } else if (rawType == FileSystemEntityType.link) {
+        if (!await _linkTargetsWithin(manifestPath, [
+          canonicalPackagePath,
+          logicalPackagePath,
+        ])) {
+          throw FileSystemException(
+            'Skin manifest resolves outside the package',
+            manifestPath,
+          );
+        }
+        resolvedPath = await _skinFileAccess.canonicalPath(manifestPath);
+      } else {
+        throw FileSystemException(
+          'Skin manifest is not a regular file',
+          manifestPath,
+        );
+      }
+      if (!p.isWithin(canonicalPackagePath, resolvedPath) ||
+          await _skinFileAccess.entityType(resolvedPath) !=
+              FileSystemEntityType.file) {
+        throw FileSystemException(
+          'Skin manifest resolves outside the package',
+          manifestPath,
+        );
+      }
+      final decoded = jsonDecode(
+        await _skinFileAccess.readBoundedText(
+          resolvedPath,
+          maxBytes: _maxSkinManifestBytes,
+        ),
+      );
+      if (decoded is! Map) {
+        throw const FormatException('Skin manifest is not a JSON object');
+      }
+      return Map<String, dynamic>.from(decoded);
+    }
+    return null;
+  }
+
+  Future<ManagedSkinLookupStatus?> _entryPointStatus(
+    String canonicalPackagePath,
+    String logicalPackagePath,
+  ) async {
+    final entryPointPath = p.join(canonicalPackagePath, 'index.html');
+    final rawType = await _skinFileAccess.entityType(entryPointPath);
+    if (rawType == FileSystemEntityType.notFound ||
+        rawType == FileSystemEntityType.directory) {
+      return ManagedSkinLookupStatus.missing;
+    }
+    final String resolvedPath;
+    try {
+      if (rawType == FileSystemEntityType.file) {
+        resolvedPath = entryPointPath;
+      } else if (rawType == FileSystemEntityType.link) {
+        if (!await _linkTargetsWithin(entryPointPath, [
+          canonicalPackagePath,
+          logicalPackagePath,
+        ])) {
+          return ManagedSkinLookupStatus.unreadable;
+        }
+        resolvedPath = await _skinFileAccess.canonicalPath(entryPointPath);
+      } else {
+        return ManagedSkinLookupStatus.unreadable;
+      }
+      if (!p.isWithin(canonicalPackagePath, resolvedPath)) {
+        return ManagedSkinLookupStatus.unreadable;
+      }
+      if (await _skinFileAccess.entityType(resolvedPath) !=
+          FileSystemEntityType.file) {
+        return ManagedSkinLookupStatus.missing;
+      }
+      await _skinFileAccess.probeReadableFile(resolvedPath);
+    } on FileSystemException {
+      return ManagedSkinLookupStatus.unreadable;
+    }
+    return null;
+  }
+
+  _ManagedSkinPackage? _selectCanonicalPackage(
+    List<_ManagedSkinPackage> packages,
+  ) {
+    for (final package in packages) {
+      if (package.directoryName == package.skinId) return package;
+    }
+    return packages.length == 1 ? packages.single : null;
+  }
+
   Future<String> installFromPath(
     String sourcePath, {
     bool overwriteIfExists = true,
@@ -315,11 +866,26 @@ class WebUIStorage {
     String? sourceIdentifier,
     String? releaseAssetName,
     bool? includePrerelease,
+  }) => _installFromUrl(
+    url,
+    sourceIdentifier: sourceIdentifier,
+    releaseAssetName: releaseAssetName,
+    includePrerelease: includePrerelease,
+  );
+
+  Future<void> _installFromUrl(
+    String url, {
+    String? sourceIdentifier,
+    String? releaseAssetName,
+    bool? includePrerelease,
+    bool isReleaseDownload = false,
   }) async {
     _log.info('Downloading WebUI from URL: $url');
 
     try {
-      final response = await http.get(Uri.parse(url));
+      final response = isReleaseDownload
+          ? await releaseGet(url)
+          : await http.get(Uri.parse(url));
       if (response.statusCode != 200) {
         throw remoteHttpError(response.statusCode);
       }
@@ -433,11 +999,12 @@ class WebUIStorage {
 
       _log.info('Downloading asset: ${targetAsset['name']}');
 
-      await installFromUrl(
+      await _installFromUrl(
         downloadUrl,
         sourceIdentifier: 'github_release:$repo@$releaseTag',
         releaseAssetName: assetName,
         includePrerelease: includePrerelease,
+        isReleaseDownload: true,
       );
 
       _log.info(
@@ -773,7 +1340,7 @@ class WebUIStorage {
         return RemoteUpdateStatus.alreadyCurrent;
       }
 
-      final assetResponse = await http.get(Uri.parse(downloadUrl));
+      final assetResponse = await releaseGet(downloadUrl);
       if (assetResponse.statusCode != 200) {
         throw remoteHttpError(assetResponse.statusCode);
       }
@@ -1132,9 +1699,12 @@ class WebUIStorage {
   }
 
   Future<void> _scanInstalledSkins() async {
-    _installedSkins.clear();
+    final installedSkins = <String, WebUISkin>{};
+    final skinPaths = <String, List<String>>{};
 
     if (!_webUIDir.existsSync()) {
+      _installedSkins.clear();
+      _skinPaths.clear();
       return;
     }
 
@@ -1190,12 +1760,23 @@ class WebUIStorage {
           continue;
         }
 
-        _installedSkins[skin.id] = skin;
+        (skinPaths[skin.id] ??= []).add(skin.path);
+        final existing = installedSkins[skin.id];
+        if (existing != null && p.basename(existing.path) == skin.id) {
+          continue;
+        }
+        installedSkins[skin.id] = skin;
         _log.fine('Found skin: ${skin.id} at ${skin.path}');
       } catch (e) {
         _log.warning('Failed to load skin from ${dir.path}', e);
       }
     }
+    _installedSkins
+      ..clear()
+      ..addAll(installedSkins);
+    _skinPaths
+      ..clear()
+      ..addAll(skinPaths);
   }
 
   bool _isBundledSkin(String skinId) {

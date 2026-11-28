@@ -80,6 +80,7 @@ import 'settings/settings_view.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/app_log_upload_service.dart';
 import 'package:reaprime/src/services/app_startup_coordinator.dart';
+import 'package:reaprime/src/services/listener_recovery_coordinator.dart';
 
 Future<void> openStartupSkin({
   required WebUIService service,
@@ -152,6 +153,7 @@ class MyApp extends StatefulWidget {
     this.batteryController,
     this.accountConsentStore,
     required this.credentials,
+    this.listenerRecoveryCoordinator,
     required this.startupCoordinator,
   });
 
@@ -182,6 +184,7 @@ class MyApp extends StatefulWidget {
   final BatteryController? batteryController;
   final AccountConsentStore? accountConsentStore;
   final GithubCredentialProvider credentials;
+  final ListenerRecoveryCoordinator? listenerRecoveryCoordinator;
   final AppStartupCoordinator startupCoordinator;
 
   @override
@@ -237,6 +240,7 @@ class _MyAppState extends State<MyApp> {
           createLoginStep(
             accountService: widget.decentAccountService!,
             settingsController: widget.settingsController,
+            appLogUploadService: widget.appLogUploadService,
           ),
         if (widget.decentAccountService != null &&
             widget.accountConsentStore != null)
@@ -629,6 +633,10 @@ class _MyAppState extends State<MyApp> {
                           deviceIp: widget.webUIService.deviceIp(),
                           displayController: widget.displayController,
                           port: port,
+                          onResumeListeners:
+                              widget.listenerRecoveryCoordinator?.onResumed,
+                          onRetryListeners:
+                              widget.listenerRecoveryCoordinator?.retry,
                           onSwitchSkin: _skinSwitchCoordinator.switchTo,
                           cameraTarget: () {
                             final service = widget.webUIService;

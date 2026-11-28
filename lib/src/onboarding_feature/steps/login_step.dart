@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:logging/logging.dart';
+import 'package:reaprime/src/account/app_log_upload_section.dart';
 import 'package:reaprime/src/account/decent_login_form.dart';
 import 'package:reaprime/src/onboarding_feature/onboarding_controller.dart';
 import 'package:reaprime/src/onboarding_feature/widgets/onboarding_scaffold.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
+import 'package:reaprime/src/services/app_log_upload_service.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/widgets/accessible_button.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
@@ -10,6 +13,7 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 OnboardingStep createLoginStep({
   required DecentAccountService accountService,
   required SettingsController settingsController,
+  AppLogUploadService? appLogUploadService,
 }) {
   return OnboardingStep(
     id: 'login',
@@ -18,6 +22,7 @@ OnboardingStep createLoginStep({
         !(await accountService.hasLinkedAccount()),
     builder: (controller) => LoginStepWidget(
       accountService: accountService,
+      appLogUploadService: appLogUploadService,
       onComplete: () async {
         await settingsController.setAccountStepSeen(true);
         controller.advance();
@@ -28,11 +33,13 @@ OnboardingStep createLoginStep({
 
 class LoginStepWidget extends StatefulWidget {
   final DecentAccountService accountService;
+  final AppLogUploadService? appLogUploadService;
   final VoidCallback onComplete;
 
   const LoginStepWidget({
     super.key,
     required this.accountService,
+    this.appLogUploadService,
     required this.onComplete,
   });
 
@@ -41,7 +48,10 @@ class LoginStepWidget extends StatefulWidget {
 }
 
 class _LoginStepWidgetState extends State<LoginStepWidget> {
+  static final _log = Logger('LoginStep');
+
   late Future<bool> _reachability;
+  bool _shareLogs = false;
 
   @override
   void initState() {
@@ -89,10 +99,20 @@ class _LoginStepWidgetState extends State<LoginStepWidget> {
           style: theme.textTheme.muted,
           textAlign: TextAlign.center,
         ),
+        if (widget.appLogUploadService != null) ...[
+          const SizedBox(height: 24),
+          ShadSwitch(
+            key: const Key('onboarding-app-log-upload'),
+            value: _shareLogs,
+            onChanged: (value) => setState(() => _shareLogs = value),
+            label: const Text(appLogUploadLabel),
+            sublabel: const Text(appLogUploadCopy),
+          ),
+        ],
         const SizedBox(height: 32),
         DecentLoginForm(
           accountService: widget.accountService,
-          onSuccess: widget.onComplete,
+          onSuccess: _onSignedIn,
           secondaryLabel: 'Skip for now',
           onSecondary: widget.onComplete,
         ),
@@ -135,6 +155,18 @@ class _LoginStepWidgetState extends State<LoginStepWidget> {
         ),
       ),
     );
+  }
+
+  Future<void> _onSignedIn() async {
+    final uploadService = widget.appLogUploadService;
+    if (_shareLogs && uploadService != null) {
+      try {
+        await uploadService.setEnabled(true);
+      } catch (e, st) {
+        _log.warning('Failed to enable app log sharing', e, st);
+      }
+    }
+    widget.onComplete();
   }
 
   void _checkAgain() {

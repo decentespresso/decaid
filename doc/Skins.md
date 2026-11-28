@@ -57,7 +57,27 @@ The **Streamline Project** is a reference implementation:
 - **WebSocket API**: Port 8080 - Real-time state updates, shot telemetry
 - **API Documentation**: Port 4001 - Interactive API docs (when enabled)
 
-### Embedded Skin Lifecycle
+### Listener Recovery and Embedded Skin Lifecycle
+
+On foreground resume, Decaid probes the API, stable entry redirect, and active
+skin listener. It rebinds only listeners that do not respond, reusing the
+existing API handlers and skin selection. Recovery is single-flight and bounded;
+a failed bind remains available through the skin's retry action. An intentional
+server stop or an installation with no active skin is not restarted.
+
+Each actual API, skin, entry, or alias binding has its own identity, exposed as
+an additive `x-decaid-listener-id` diagnostic header on ordinary HTTP responses.
+The value is cryptographically random and changes for every new binding; it is
+not an authentication credential, client requirement, or protection against a
+malicious local proxy. Successful WebSocket upgrades use the hijacked handshake
+path and do not carry this marker; existing WebSocket behavior is unchanged.
+Recovery requires the exact retained-listener value in addition to the existing
+status, content-type, and redirect checks, so an unrelated or replacement server
+cannot claim ownership by returning the same response shape. The marker is not
+listed in the API's CORS-exposed headers. If an assigned skin port is occupied,
+Decaid keeps the occupied port rejected and serves the skin on its existing
+temporary-port fallback; occupied API or entry ports produce the existing
+bounded actionable recovery failure.
 
 On Android and iOS, Decaid pauses the embedded WebView while the app is
 backgrounded. After ten minutes in the background, it unloads the page and
@@ -348,6 +368,15 @@ Each installed skin is served from its own **stable origin** — a port derived
 from the skin's identity and remembered across restarts. Persistent browser
 storage is keyed by origin, so `localStorage` and IndexedDB written by a skin
 are still there the next time the app starts.
+
+When a legacy folder and the canonical folder both declare the same skin ID,
+Decaid selects the canonical folder (the folder named exactly after that ID).
+The legacy folder is left untouched. If the canonical folder has no remembered
+port, Decaid transfers a remembered port from a same-ID legacy folder to it.
+The current skin files therefore remain on the old browser origin; browser
+storage is not copied or cleared. An already remembered canonical port takes
+precedence, and an occupied port still uses the temporary-origin fallback
+below.
 
 `sessionStorage` is not covered by that guarantee. It is scoped to a page
 session, so it is cleared when the page is unloaded — including the background
@@ -3373,6 +3402,11 @@ ApplicationDocuments/
 ```
 
 > **Skin id restrictions:** A skin's id (from `skin-manifest.json`, `manifest.json`, or the install folder name) becomes a directory name under `web-ui/`, so it must be a single safe filesystem path component: no `/` or `\` separators, no `.` or `..`, no leading drive letter or NUL byte, and no Windows-reserved characters. Unsafe ids are rejected with a clear error and the skin is not installed.
+
+If more than one installed folder declares the same skin ID, the folder whose
+name equals that ID takes precedence, regardless of discovery order. A
+legacy-only installation still works. Decaid does not remove the other folders
+as part of discovery or origin preservation.
 
 ### Cross-Skin Asset Sharing
 

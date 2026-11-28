@@ -453,9 +453,9 @@ class De1Controller {
 
   Future<De1ShotSettings> _readShotSettings(De1Interface device) async {
     try {
-      return await device.shotSettings.first.timeout(
-        ConnectionTimings.initialShotSettingsTimeout,
-      );
+      return await device.shotSettings
+          .timeout(ConnectionTimings.initialShotSettingsTimeout)
+          .first;
     } on StateError {
       throw const DeviceNotConnectedException.machine();
     }
@@ -677,10 +677,8 @@ class De1Controller {
 
   Future<void> updateMachineCalibration(double? flowMultiplier) async {
     await runDeviceWrite((device) async {
-      final identity = _machineSettingsIdentity(device);
       if (flowMultiplier == null) return;
       await device.setFlowEstimation(flowMultiplier);
-      await _saveMachineSettings(identity, flowCalibration: flowMultiplier);
     });
   }
 
@@ -730,14 +728,12 @@ class De1Controller {
     String identity, {
     int? fanThreshold,
     De1RefillKitSettings? refillKitSetting,
-    double? flowCalibration,
     int? refillLevel,
   }) async {
     await _machineSettings.update(
       identity,
       fanThreshold: fanThreshold,
       refillKitSetting: refillKitSetting,
-      flowCalibration: flowCalibration,
       refillLevel: refillLevel,
     );
   }

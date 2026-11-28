@@ -74,7 +74,7 @@ rules if either logger gains new responsibilities.
 
 **Symptom:** `Activity did not call through to super.onCreate()` — Android launch crash.
 **Fix (PR #435):** `super.onCreate()` moved to top of `onCreate()` before early-return guards.
-**Follow-up:** `isRunningInClonedEnvironment()` heuristic may flag legitimate multi-user/work-profile devices as clones.
+**Follow-up (#1227):** `cloneEnvironmentReason()` (`CloneEnvironment.kt`, called from `MainActivity`) compares `filesDir` with the data path of the user the process runs as, so a full secondary user, including the owner on a headless system user device such as the Alexa Tablet 8, is no longer reported as a clone. Profiles (work, clone, private space, OEM dual-app) and virtual-space paths are still rejected. Telling a full user from a profile needs `UserManager.isProfile()`, which is public SDK only from Android 13 (API 33); on Android 11 and 12 it is a hidden `@SystemApi`, so before Android 13 only user 0 is accepted and `isProfile()` is never called. The JVM unit tests in `android/app/src/test` cover this boundary (`cd android && ./gradlew :app:testDebugUnitTest`); CI does not run them.
 
 ## BLE Error Debugging
 
@@ -145,6 +145,16 @@ The report does not establish rate limiting, permissions, or a runtime regressio
 as the spinner's cause. Upstream flutter_inappwebview #2626 documents a default
 profile-directory permission failure; #2840 describes a process crash after
 creation, not this still-running app. Neither identifies this report's trigger.
+
+Issue #1207: after a GitHub token is added, every update check logs
+`GitHub request failed: HTTP 301`. GitHub answers a renamed repository's API
+path (`tadelv/reaprime`, `allofmeng/streamline_project`) with a 301 to
+`/repositories/<id>/...`. Anonymous requests follow it automatically;
+token-bearing requests disable automatic redirects so the `Authorization`
+header cannot reach another host. `githubGet` follows up to five 301/302/307/308
+hops by hand while the target stays on `https://api.github.com:443`, and returns
+the redirect response unchanged for any other target. Anonymous checks hide
+stale repository names, so they surface only once a token is configured.
 
 `SkinWebViewStartup` bounds Windows initial loading to 30 seconds, logs the
 last reached stage, and offers browser/dashboard recovery without destroying

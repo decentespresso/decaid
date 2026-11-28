@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/services/github_rate_limit.dart';
 import 'package:reaprime/src/services/github_request.dart';
 import 'package:reaprime/src/util/github_archive.dart';
@@ -148,6 +149,55 @@ void main() {
         'sha': 'abc123',
       }, () => fetchGitHubBranchCommit('acme/plugin', 'main')),
       'abc123',
+    );
+  });
+
+  test('archive downloads send the versioned user agent', () async {
+    final requests = <http.Request>[];
+    final bytes = await http.runWithClient(
+      () => downloadGitHubArchive(
+        'https://github.com/acme/plugin/archive/abc.zip',
+      ),
+      () => MockClient((request) async {
+        requests.add(request);
+        return http.Response.bytes([1, 2, 3], 200);
+      }),
+    );
+
+    expect(bytes, [1, 2, 3]);
+    expect(
+      requests.single.headers['user-agent'],
+      'Decaid/${BuildInfo.version}',
+    );
+    expect(requests.single.followRedirects, isFalse);
+    expect(requests.single.headers.containsKey('authorization'), isFalse);
+  });
+
+  test('archive download failures keep the existing status mapping', () async {
+    final requests = <http.Request>[];
+    await expectLater(
+      http.runWithClient(
+        () => downloadGitHubArchive(
+          'https://github.com/acme/plugin/archive/abc.zip',
+        ),
+        () => MockClient((request) async {
+          requests.add(request);
+          return http.Response('', 404);
+        }),
+      ),
+      throwsA(
+        isA<RemoteServiceException>()
+            .having((error) => error.statusCode, 'statusCode', 404)
+            .having(
+              (error) => error.userMessage,
+              'userMessage',
+              'The repository, release, or download was not found. Check the address and try again.',
+            ),
+      ),
+    );
+    expect(
+      requests.single.headers['user-agent'],
+      'Decaid/${BuildInfo.version}',
     );
   });
 

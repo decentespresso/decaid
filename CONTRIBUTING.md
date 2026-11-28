@@ -10,6 +10,7 @@ Thanks for contributing. This guide tells you what's required to land a PR — i
 |------|-------|
 | Architecture & conventions | [`CLAUDE.md`](CLAUDE.md) |
 | PR template | [`.github/pull_request_template.md`](.github/pull_request_template.md) |
+| Agent workflow: gates, risk levels, PR evidence | [`doc/AGENT_WORKFLOW.md`](doc/AGENT_WORKFLOW.md) |
 | API specs (authoritative) | `assets/api/rest_v1.yml`, `assets/api/websocket_v1.yml` |
 | API docs | [`doc/Api.md`](doc/Api.md) |
 | Dev-loop scripts | `scripts/sb-dev.sh` (macOS/Linux) |
@@ -104,6 +105,17 @@ flutter test                             # all must pass
 ### 6. PR Template (required)
 
 Fill out the PR template. Sections marked `(required)` must be completed. The template lives at [`.github/pull_request_template.md`](.github/pull_request_template.md).
+
+## Verification Evidence (Phase 1 advisory pilot)
+
+[`doc/AGENT_WORKFLOW.md`](doc/AGENT_WORKFLOW.md) is the canonical description of the gates, risk levels, and evidence handoff that the PR template's newest fields ask for. It applies to humans and agents alike.
+
+- State the highest affected-behavior risk level (L0–L3) and why, map each acceptance criterion to a test or observed behavior, and record the exact verified commit SHA, environment, linked artifacts, and known gaps.
+- Captures demonstrate a **journey** for user-visible L2/L3 changes — including the intermediate progress and error states the claim depends on — not a single final screenshot. L0/L1 and non-visual changes need no screenshot or recording; API and WebSocket changes are better shown by request/response or stream traces.
+- Label results as simulated, physical, or not exercised. Simulated devices and desktop runs do not prove physical-device behavior, and untested areas must be declared rather than omitted.
+- Evidence must not contain secrets, credentials, user data, production logs, or protected recordings; link durable, access-controlled artifacts instead of committing captures.
+
+These supplemental fields are advisory during Phase 1, and a PR is still reviewable with declared gaps. The accepted-issue policy, test and spec requirements, local gates, and the Contributor Responsibility acknowledgement remain required exactly as written above. Narrow CI enforcement, if any, is a Phase 3 (#1205) question.
 
 ## Code Style
 

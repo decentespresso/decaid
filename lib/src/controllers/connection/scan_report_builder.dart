@@ -1,5 +1,6 @@
 import 'package:reaprime/src/models/adapter_state.dart';
 import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/models/device/scale_preference.dart';
 import 'package:reaprime/src/models/scan_report.dart';
 
 class MatchedDeviceTracker {
@@ -98,7 +99,9 @@ class ScanReportBuilder {
         '${found ? "found" : "NOT found"}',
       );
     }
-    if (report.preferredScaleId != null) {
+    if (report.preferredScaleId == usbHdsScalePreference) {
+      buf.write(', preferred scale $usbHdsScalePreference (family selector)');
+    } else if (report.preferredScaleId != null) {
       final found = report.matchedDevices.any(
         (d) => d.deviceId == report.preferredScaleId,
       );

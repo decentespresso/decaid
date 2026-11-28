@@ -8,20 +8,27 @@ import android.net.Uri
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Process
+import android.os.UserManager
 import android.provider.Settings
 import android.util.Log
 import android.webkit.WebView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
+import com.github.dart_lang.jni.JniPlugin
+import com.github.dart_lang.jni_flutter.JniFlutterPlugin
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugins.GeneratedPluginRegistrant
 import java.io.File
 
 class MainActivity: FlutterFragmentActivity() {
     private val CHANNEL = "com.reaprime.updater/apk_installer"
     private val NETWORK_CHANNEL = "com.reaprime/network"
+    private val ADMISSION_CHANNEL = "com.reaprime/recovery_plugins"
+    private val ADMIT_PLUGINS = "admitPlugins"
     private val TAG = "MainActivity"
     private var installPermissionResult: MethodChannel.Result? = null
     private val installPermissionLauncher = registerForActivityResult(
@@ -36,6 +43,8 @@ class MainActivity: FlutterFragmentActivity() {
         private const val MULTICAST_LOCK_TAG = "reaprime-multicast"
 
         private var multicastLock: WifiManager.MulticastLock? = null
+
+        private val pluginRegistration = PluginRegistrationAdmission<FlutterEngine>()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -56,15 +65,6 @@ class MainActivity: FlutterFragmentActivity() {
             return
         }
         
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-            try {
-                WebView.setWebContentsDebuggingEnabled(true)
-                Log.d(TAG, "WebView debugging enabled")
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to enable WebView debugging", e)
-            }
-        }
-        
         Log.d(TAG, "onCreate - valid instance starting")
     }
 
@@ -83,27 +83,31 @@ class MainActivity: FlutterFragmentActivity() {
         super.onDestroy()
     }
 
-    /**
-     * Detects if app is running in a cloned environment (Parallel Space, Island, etc.)
-     * Normal path: /data/user/0/com.example.app/files
-     * Cloned path: /data/data/com.ludashi.dualspace/virtual/data/user/0/com.example.app/files
-     * OEM clone: /data/user/999/com.example.app/files
-     */
     private fun isRunningInClonedEnvironment(): Boolean {
-        val normalPath = "/data/user/0/$packageName"
-        val actualPath = filesDir.absolutePath
-        val isCloned = !actualPath.startsWith(normalPath)
-        
-        if (isCloned) {
-            Log.w(TAG, "Clone detected - expected: $normalPath, actual: $actualPath")
-        }
-        
-        return isCloned
+        val reason = cloneEnvironmentReason(
+            Process.myUid(),
+            filesDir.absolutePath,
+            packageName,
+            Build.VERSION.SDK_INT,
+            ::currentUserIsProfile,
+        ) ?: return false
+        Log.w(TAG, reason)
+        return true
     }
 
+    private fun currentUserIsProfile(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            getSystemService(UserManager::class.java).isProfile
+
+    /**
+     * The generated registrant is not run here: it is deferred to
+     * [admitPlugins], which the Dart recovery gate calls only after it admits
+     * normal startup. `FlutterFragmentActivity`'s own override does nothing
+     * else, and this activity never injects a pre-built engine.
+     */
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
-        super.configureFlutterEngine(flutterEngine)
-        
+        bootstrapRecoveryPlugins(flutterEngine)
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "isValidApk" -> {
@@ -182,6 +186,52 @@ class MainActivity: FlutterFragmentActivity() {
                     else -> result.notImplemented()
                 }
             }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, ADMISSION_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    ADMIT_PLUGINS -> {
+                        try {
+                            admitPlugins(flutterEngine)
+                            result.success(true)
+                        } catch (error: Throwable) {
+                            Log.e(TAG, "Plugin registration failed; normal startup stays blocked", error)
+                            result.error(
+                                "PLUGIN_REGISTRATION_FAILED",
+                                error.message ?: error.toString(),
+                                null
+                            )
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+    }
+
+    /**
+     * path_provider is a Dart-FFI plugin on Android: it needs the jni class
+     * loader and the jni_flutter application context before the recovery gate
+     * can resolve its own directory. Nothing else is attached early.
+     */
+    private fun bootstrapRecoveryPlugins(flutterEngine: FlutterEngine) {
+        flutterEngine.plugins.add(JniPlugin())
+        flutterEngine.plugins.add(JniFlutterPlugin())
+    }
+
+    private fun admitPlugins(flutterEngine: FlutterEngine) {
+        pluginRegistration.admit(flutterEngine) {
+            enableWebViewDebugging()
+            GeneratedPluginRegistrant.registerWith(flutterEngine)
+        }
+    }
+
+    private fun enableWebViewDebugging() {
+        try {
+            WebView.setWebContentsDebuggingEnabled(true)
+            Log.d(TAG, "WebView debugging enabled")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to enable WebView debugging", e)
+        }
     }
 
     /**

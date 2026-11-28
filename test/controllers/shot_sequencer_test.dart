@@ -61,6 +61,11 @@ class _TestDe1Controller extends De1Controller {
   }
 }
 
+class _SlowTareScale extends TestScale implements TareRetryIntervalScale {
+  @override
+  Duration get tareRetryInterval => const Duration(milliseconds: 1500);
+}
+
 class _FailingTimerScale extends TestScale {
   final calls = <String>[];
 
@@ -82,6 +87,7 @@ class _TestScaleController extends ScaleController {
   final BehaviorSubject<ConnectionState> _connectionState;
   final StreamController<WeightSnapshot> _weight;
   int generation = 0;
+  int flowResets = 0;
   WeightSnapshot? _currentWeight;
 
   _TestScaleController(this.testScale, {bool replayWeights = true})
@@ -128,6 +134,12 @@ class _TestScaleController extends ScaleController {
     );
     _currentWeight = snapshot;
     _weight.add(snapshot);
+  }
+
+  @override
+  void resetFlowEstimation() {
+    flowResets++;
+    super.resetFlowEstimation();
   }
 
   void simulateDisconnect() {
@@ -360,10 +372,14 @@ void main() {
       MachineState.espresso,
       MachineSubstate.preparingForShot,
     );
+    await Future<void>.delayed(Duration.zero);
+    scaleController.emitWeight(0);
+    await Future<void>.delayed(Duration.zero);
     testDe1.emitStateAndSubstate(
       MachineState.espresso,
       MachineSubstate.pouring,
     );
+    await Future<void>.delayed(Duration.zero);
 
     final activeStarted = Completer<void>();
     final activeRelease = Completer<void>();
@@ -454,10 +470,14 @@ void main() {
       MachineState.espresso,
       MachineSubstate.preparingForShot,
     );
+    await Future<void>.delayed(Duration.zero);
+    scaleController.emitWeight(0);
+    await Future<void>.delayed(Duration.zero);
     testDe1.emitStateAndSubstate(
       MachineState.espresso,
       MachineSubstate.pouring,
     );
+    await Future<void>.delayed(Duration.zero);
 
     final activeStarted = Completer<void>();
     final activeRelease = Completer<void>();
@@ -518,7 +538,23 @@ void main() {
       persistenceController.dispose();
     });
 
-    void driveToPouring(ShotSequencer shotSequencer) {
+    void startPour(FakeAsync async) {
+      testDe1.emitStateAndSubstate(
+        MachineState.espresso,
+        MachineSubstate.preparingForShot,
+      );
+      async.elapse(Duration(milliseconds: 10));
+      scaleController.emitWeight(0.0);
+      async.elapse(Duration(milliseconds: 10));
+
+      testDe1.emitStateAndSubstate(
+        MachineState.espresso,
+        MachineSubstate.pouring,
+      );
+      async.elapse(Duration(milliseconds: 10));
+    }
+
+    void emitPourStart() {
       testDe1.emitStateAndSubstate(
         MachineState.espresso,
         MachineSubstate.preparingForShot,
@@ -528,6 +564,12 @@ void main() {
         MachineState.espresso,
         MachineSubstate.pouring,
       );
+    }
+
+    void driveToPouring(FakeAsync async, ShotSequencer shotSequencer) {
+      startPour(async);
+      scaleController.emitWeight(0.0);
+      async.elapse(Duration(milliseconds: 10));
     }
 
     void emitPouringFrame(int profileFrame) {
@@ -602,10 +644,13 @@ void main() {
           async.elapse(const Duration(milliseconds: 10));
           expect(shotSequencer.currentState, ShotState.preheating);
 
+          nonReplayingScale.emitWeight(0);
+          async.elapse(const Duration(milliseconds: 10));
           testDe1.emitStateAndSubstate(
             MachineState.espresso,
             MachineSubstate.pouring,
           );
+          async.elapse(const Duration(milliseconds: 10));
           nonReplayingScale.emitWeight(40);
           testDe1.emitStateAndSubstate(
             MachineState.espresso,
@@ -658,7 +703,7 @@ void main() {
         expect(controller.currentWeightSnapshot, isNotNull);
         final sequencer = timerSequencer(controller);
         await Future<void>.delayed(Duration.zero);
-        driveToPouring(sequencer);
+        emitPourStart();
         await Future<void>.delayed(Duration.zero);
         expect(testScale.startTimerCallCount, 1);
 
@@ -698,7 +743,7 @@ void main() {
           await Future<void>.delayed(Duration.zero);
           final sequencer = timerSequencer(controller);
           await Future<void>.delayed(Duration.zero);
-          driveToPouring(sequencer);
+          emitPourStart();
           await Future<void>.delayed(Duration.zero);
           expect(testScale.startTimerCallCount, 1);
           final generation = controller.connectionGeneration;
@@ -740,7 +785,7 @@ void main() {
         final controller = ScaleController();
         final sequencer = timerSequencer(controller);
         await Future<void>.delayed(Duration.zero);
-        driveToPouring(sequencer);
+        emitPourStart();
         await Future<void>.delayed(Duration.zero);
         expect(sequencer.currentState, ShotState.pouring);
         await controller.connectToScale(testScale);
@@ -768,7 +813,7 @@ void main() {
         testScale.throwOnStopTimer = true;
         scaleController.emitWeight(0);
         final sequencer = timerSequencer(scaleController);
-        driveToPouring(sequencer);
+        driveToPouring(async, sequencer);
         async.flushMicrotasks();
         expect(testScale.startTimerCallCount, 1);
         testDe1.emitStateAndSubstate(
@@ -811,7 +856,7 @@ void main() {
         final snapshots = <ShotSnapshot>[];
         shotSequencer.shotData.listen(snapshots.add);
 
-        driveToPouring(shotSequencer);
+        driveToPouring(async, shotSequencer);
         async.elapse(const Duration(milliseconds: 10));
         scaleController.simulateHandoff();
         scaleController.announceConnected();
@@ -957,7 +1002,7 @@ void main() {
         );
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring(shotSequencer);
+        driveToPouring(async, shotSequencer);
         async.elapse(Duration(milliseconds: 10));
 
         scaleController.simulateDisconnect();
@@ -1002,7 +1047,7 @@ void main() {
           stepExitArbiterEnabled: true,
         );
         async.elapse(const Duration(milliseconds: 10));
-        driveToPouring(sequencer);
+        driveToPouring(async, sequencer);
         async.elapse(const Duration(milliseconds: 10));
         for (var i = 0; i < 2; i++) {
           scaleController.emitWeight(i + 1.0);
@@ -1039,7 +1084,7 @@ void main() {
         );
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring(shotSequencer);
+        driveToPouring(async, shotSequencer);
         scaleController.emitWeight(
           35.0,
           weightFlow: 0.0,
@@ -1076,7 +1121,7 @@ void main() {
           );
 
           async.elapse(Duration(milliseconds: 10));
-          driveToPouring(shotSequencer);
+          driveToPouring(async, shotSequencer);
           async.elapse(Duration(milliseconds: 10));
 
           scaleController.simulateDisconnect();
@@ -1125,7 +1170,7 @@ void main() {
         );
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring(shotSequencer);
+        driveToPouring(async, shotSequencer);
         async.elapse(Duration(milliseconds: 10));
 
         scaleController.emitWeight(40.0);
@@ -1175,7 +1220,7 @@ void main() {
         );
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring(shotSequencer);
+        driveToPouring(async, shotSequencer);
         async.elapse(Duration(milliseconds: 10));
 
         scaleController.emitWeight(12.0);
@@ -1223,7 +1268,7 @@ void main() {
         );
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring(shotSequencer);
+        driveToPouring(async, shotSequencer);
         async.elapse(Duration(milliseconds: 10));
 
         scaleController.emitWeight(12.0);
@@ -1286,7 +1331,7 @@ void main() {
         );
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring(shotSequencer);
+        driveToPouring(async, shotSequencer);
         async.elapse(Duration(milliseconds: 10));
 
         scaleController.emitWeight(12.0);
@@ -1324,7 +1369,7 @@ void main() {
         );
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring(shotSequencer);
+        driveToPouring(async, shotSequencer);
         async.elapse(Duration(milliseconds: 10));
 
         scaleController.emitWeight(12.0);
@@ -1367,7 +1412,7 @@ void main() {
         );
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring(shotSequencer);
+        driveToPouring(async, shotSequencer);
         async.elapse(Duration(milliseconds: 10));
 
         scaleController.emitWeight(12.0);
@@ -1416,7 +1461,7 @@ void main() {
         );
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring(shotSequencer);
+        driveToPouring(async, shotSequencer);
         async.elapse(Duration(milliseconds: 10));
 
         scaleController.emitWeight(12.0);
@@ -1474,7 +1519,7 @@ void main() {
         );
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring(shotSequencer);
+        driveToPouring(async, shotSequencer);
         async.elapse(Duration(milliseconds: 10));
 
         scaleController.emitWeight(12.0);
@@ -1523,7 +1568,7 @@ void main() {
         );
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring(shotSequencer);
+        driveToPouring(async, shotSequencer);
         async.elapse(Duration(milliseconds: 10));
 
         scaleController.emitWeight(36.0, weightFlow: 0.4);
@@ -1575,7 +1620,7 @@ void main() {
         );
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring(shotSequencer);
+        driveToPouring(async, shotSequencer);
         async.elapse(Duration(milliseconds: 10));
 
         scaleController.emitWeight(36.0, weightFlow: 0.4);
@@ -1623,7 +1668,7 @@ void main() {
         );
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring(shotSequencer);
+        driveToPouring(async, shotSequencer);
         async.elapse(Duration(milliseconds: 10));
 
         scaleController.emitWeight(30.0, weightFlow: 8.0);
@@ -1682,7 +1727,7 @@ void main() {
         shotSequencer.state.listen(states.add);
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring(shotSequencer);
+        driveToPouring(async, shotSequencer);
         async.elapse(Duration(milliseconds: 10));
 
         scaleController.emitWeight(36.0, weightFlow: 0.3);
@@ -1735,7 +1780,7 @@ void main() {
         shotSequencer.shotData.listen(recorded.add);
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring(shotSequencer);
+        driveToPouring(async, shotSequencer);
         async.elapse(Duration(milliseconds: 10));
 
         scaleController.emitWeight(30.0, weightFlow: 1.5);
@@ -1783,69 +1828,652 @@ void main() {
       });
     });
 
-    test('suppresses weight and flow to 0 until the pour-time tare', () {
+    ShotSequencer tareSequencer({
+      bool blockOnNoScale = false,
+      bool bypassSAW = false,
+    }) {
+      return ShotSequencer(
+        scaleController: scaleController,
+        de1controller: de1Controller,
+        persistenceController: persistenceController,
+        targetProfile: profile,
+        targetYield: 38.0,
+        bypassSAW: bypassSAW,
+        blockOnNoScale: blockOnNoScale,
+        weightFlowMultiplier: 1.0,
+        volumeFlowMultiplier: 0.0,
+        stepExitArbiterEnabled: true,
+      );
+    }
+
+    void emitPouring() {
+      testDe1.emitStateAndSubstate(
+        MachineState.espresso,
+        MachineSubstate.pouring,
+      );
+    }
+
+    void enterPreheat(FakeAsync async) {
+      testDe1.emitStateAndSubstate(
+        MachineState.espresso,
+        MachineSubstate.preparingForShot,
+      );
+      async.elapse(Duration(milliseconds: 10));
+    }
+
+    void enterPouring(FakeAsync async) {
+      emitPouring();
+      async.elapse(Duration(milliseconds: 10));
+    }
+
+    void emitScale(FakeAsync async, double weight, {double weightFlow = 0.0}) {
+      scaleController.emitWeight(weight, weightFlow: weightFlow);
+      async.elapse(Duration(milliseconds: 10));
+    }
+
+    Iterable<ShotDecisionReason> reasons(List<ShotDecision> decisions) =>
+        decisions.map((d) => d.reason);
+
+    test('masks weight and flow until a zero reading confirms the tare', () {
       fakeAsync((async) {
         scaleController.emitWeight(80.0, weightFlow: 1.2);
-
-        final shotSequencer = ShotSequencer(
-          scaleController: scaleController,
-          de1controller: de1Controller,
-          persistenceController: persistenceController,
-          targetProfile: profile,
-          targetYield: 36.0,
-          bypassSAW: false,
-          blockOnNoScale: false,
-          weightFlowMultiplier: 0.0,
-          volumeFlowMultiplier: 0.0,
-          stepExitArbiterEnabled: true,
-        );
-
+        final shotSequencer = tareSequencer();
         final recorded = <ShotSnapshot>[];
         shotSequencer.shotData.listen(recorded.add);
-
         async.elapse(Duration(milliseconds: 10));
 
-        testDe1.emitStateAndSubstate(
-          MachineState.espresso,
-          MachineSubstate.preparingForShot,
-        );
-        async.elapse(Duration(milliseconds: 10));
-
-        scaleController.emitWeight(80.1, weightFlow: 0.4);
-        testDe1.emitStateAndSubstate(
-          MachineState.espresso,
-          MachineSubstate.preparingForShot,
-        );
-        async.elapse(Duration(milliseconds: 10));
-
-        scaleController.emitWeight(0.0, weightFlow: 0.0);
-        testDe1.emitStateAndSubstate(
-          MachineState.espresso,
-          MachineSubstate.pouring,
-        );
-        async.elapse(Duration(milliseconds: 10));
-
+        enterPreheat(async);
+        emitScale(async, 80.1, weightFlow: 0.4);
+        enterPreheat(async);
+        emitScale(async, 0.0);
+        enterPouring(async);
         scaleController.emitWeight(18.0, weightFlow: 2.0);
-        testDe1.emitStateAndSubstate(
-          MachineState.espresso,
-          MachineSubstate.pouring,
-        );
-        async.elapse(Duration(milliseconds: 10));
+        enterPouring(async);
 
-        expect(
-          recorded.map((s) => s.scale?.weight).toList(),
-          [0.0, 0.0, 0.0, 18.0],
-          reason: 'pre-tare frames are 0; real weight only after the pour tare',
-        );
+        expect(recorded.map((s) => s.scale?.weight).toList(), [
+          0.0,
+          0.0,
+          0.0,
+          18.0,
+        ]);
         expect(recorded.map((s) => s.scale?.weightFlow).toList(), [
           0.0,
           0.0,
           0.0,
           2.0,
-        ], reason: 'flow off the un-tared cup must not leak either');
-
+        ]);
         shotSequencer.dispose();
       });
+    });
+
+    test('no tare is sent once flow has started', () {
+      fakeAsync((async) {
+        scaleController.emitWeight(170.7);
+        final shotSequencer = tareSequencer();
+        async.elapse(Duration(milliseconds: 10));
+
+        enterPreheat(async);
+        emitScale(async, 0.0);
+        enterPouring(async);
+        final tareCallsAtFlowStart = testScale.tareCallCount;
+        for (var i = 0; i < 30; i++) {
+          scaleController.emitWeight(0.5 + i * 0.4, weightFlow: 4.0);
+          emitPouringFrameWithFlow(0, 4.0);
+          async.elapse(Duration(milliseconds: 100));
+        }
+
+        expect(tareCallsAtFlowStart, 1);
+        expect(testScale.tareCallCount, tareCallsAtFlowStart);
+        shotSequencer.dispose();
+      });
+    });
+
+    test('a cup weight read during flow never triggers a tare', () {
+      fakeAsync((async) {
+        scaleController.emitWeight(170.7);
+        final decisions = <ShotDecision>[];
+        final shotSequencer = tareSequencer(blockOnNoScale: true);
+        shotSequencer.decisions.listen(decisions.add);
+        async.elapse(Duration(milliseconds: 10));
+
+        enterPreheat(async);
+        enterPouring(async);
+        final tareCallsAtFlowStart = testScale.tareCallCount;
+        scaleController.emitWeight(174.7, weightFlow: 4.0);
+        emitPouringFrameWithFlow(0, 4.0);
+        async.elapse(Duration(seconds: 1));
+
+        expect(testScale.tareCallCount, tareCallsAtFlowStart);
+        expect(
+          reasons(decisions),
+          contains(ShotDecisionReason.tareUnconfirmed),
+        );
+        shotSequencer.dispose();
+      });
+    });
+
+    test('a cup placed after the preheat tare confirmed is masked and the '
+        'shot does not use it', () {
+      fakeAsync((async) {
+        scaleController.emitWeight(0.0);
+        final shotSequencer = tareSequencer();
+        final recorded = <ShotSnapshot>[];
+        shotSequencer.shotData.listen(recorded.add);
+        async.elapse(Duration(milliseconds: 10));
+
+        enterPreheat(async);
+        emitScale(async, 0.0);
+        emitScale(async, 170.7, weightFlow: 3.0);
+        enterPouring(async);
+        scaleController.emitWeight(171.0, weightFlow: 3.0);
+        enterPouring(async);
+
+        for (final frame in recorded) {
+          expect(frame.scale?.weight ?? 0.0, 0.0);
+          expect(frame.scale?.weightFlow ?? 0.0, 0.0);
+          expect(frame.scale?.controlWeightFlow ?? 0.0, 0.0);
+        }
+        expect(shotSequencer.scaleLost, isTrue);
+        expect(testDe1.requestedStates, isNot(contains(MachineState.idle)));
+        shotSequencer.dispose();
+      });
+    });
+
+    test('a cup placed during preheat is re-tared before the pour', () {
+      fakeAsync((async) {
+        scaleController.emitWeight(0.0);
+        final shotSequencer = tareSequencer();
+        async.elapse(Duration(milliseconds: 10));
+
+        enterPreheat(async);
+        emitScale(async, 0.0);
+        expect(testScale.tareCallCount, 1);
+
+        emitScale(async, 170.7);
+        expect(
+          testScale.tareCallCount,
+          1,
+          reason: 'the next tare waits for the one-second holdoff',
+        );
+        async.elapse(Duration(seconds: 1));
+        expect(testScale.tareCallCount, 2);
+
+        emitScale(async, 0.0);
+        enterPouring(async);
+        scaleController.emitWeight(38.5);
+        enterPouring(async);
+
+        expect(testDe1.requestedStates, contains(MachineState.idle));
+        shotSequencer.dispose();
+      });
+    });
+
+    test('the preheat tare retries at the interval the scale declares', () {
+      fakeAsync((async) {
+        final slowScale = _SlowTareScale();
+        final slowController = _TestScaleController(slowScale);
+        slowController.emitWeight(170.7);
+        final shotSequencer = ShotSequencer(
+          scaleController: slowController,
+          de1controller: de1Controller,
+          persistenceController: persistenceController,
+          targetProfile: profile,
+          targetYield: 38.0,
+          bypassSAW: false,
+          blockOnNoScale: false,
+          weightFlowMultiplier: 1.0,
+          volumeFlowMultiplier: 0.0,
+          stepExitArbiterEnabled: true,
+        );
+        async.elapse(Duration(milliseconds: 10));
+
+        enterPreheat(async);
+        expect(slowScale.tareCallCount, 1);
+        slowController.emitWeight(170.7);
+        async.elapse(Duration(milliseconds: 1100));
+        expect(
+          slowScale.tareCallCount,
+          1,
+          reason: 'a 1.5 s scale must not be retried after one second',
+        );
+        async.elapse(Duration(milliseconds: 500));
+        expect(slowScale.tareCallCount, 2);
+        async.elapse(Duration(milliseconds: 1500));
+        expect(slowScale.tareCallCount, 3);
+
+        shotSequencer.dispose();
+        slowController.dispose();
+        slowScale.dispose();
+      });
+    });
+
+    test('the preheat tare retries each second up to six attempts', () {
+      fakeAsync((async) {
+        scaleController.emitWeight(170.7);
+        final shotSequencer = tareSequencer();
+        async.elapse(Duration(milliseconds: 10));
+
+        enterPreheat(async);
+        for (var second = 0; second < 9; second++) {
+          scaleController.emitWeight(170.7);
+          async.elapse(Duration(seconds: 1));
+        }
+        expect(testScale.tareCallCount, 6);
+
+        enterPouring(async);
+        expect(shotSequencer.scaleLost, isTrue);
+        expect(testDe1.requestedStates, isNot(contains(MachineState.idle)));
+        shotSequencer.dispose();
+      });
+    });
+
+    test(
+      'an unconfirmed zero disables stop-at-weight without blockOnNoScale',
+      () {
+        fakeAsync((async) {
+          scaleController.emitWeight(170.7);
+          final decisions = <ShotDecision>[];
+          final shotSequencer = tareSequencer();
+          shotSequencer.decisions.listen(decisions.add);
+          final recorded = <ShotSnapshot>[];
+          shotSequencer.shotData.listen(recorded.add);
+          async.elapse(Duration(milliseconds: 10));
+
+          enterPreheat(async);
+          emitScale(async, 170.7);
+          enterPouring(async);
+          scaleController.emitWeight(170.7);
+          enterPouring(async);
+
+          expect(shotSequencer.scaleLost, isTrue);
+          expect(
+            decisions.where((d) => d.kind == ShotDecisionKind.abort),
+            isEmpty,
+          );
+          expect(testDe1.requestedStates, isNot(contains(MachineState.idle)));
+          expect(recorded.last.scale, isNull);
+          shotSequencer.dispose();
+        });
+      },
+    );
+
+    test('a confirmed tare clears the flow history and the stale flow', () {
+      fakeAsync((async) {
+        scaleController.emitWeight(170.7);
+        final shotSequencer = tareSequencer();
+        final recorded = <ShotSnapshot>[];
+        shotSequencer.shotData.listen(recorded.add);
+        async.elapse(Duration(milliseconds: 10));
+
+        enterPreheat(async);
+        final resetsBeforeConfirm = scaleController.flowResets;
+        scaleController.emitWeight(
+          0.0,
+          weightFlow: -190.0,
+          controlWeightFlow: -190.0,
+        );
+        async.elapse(Duration(milliseconds: 10));
+        enterPouring(async);
+
+        expect(scaleController.flowResets, resetsBeforeConfirm + 1);
+        expect(recorded.last.scale?.weight, 0.0);
+        expect(recorded.last.scale?.weightFlow, 0.0);
+        expect(recorded.last.scale?.controlWeightFlow, 0.0);
+        shotSequencer.dispose();
+      });
+    });
+
+    test('a step weight exit never fires on an unconfirmed zero', () {
+      fakeAsync((async) {
+        scaleController.emitWeight(170.7);
+        profile = _profileWithSteps([_pressureStep(name: 'first', weight: 10)]);
+        final shotSequencer = tareSequencer();
+        async.elapse(Duration(milliseconds: 10));
+
+        enterPreheat(async);
+        emitScale(async, 170.7);
+        enterPouring(async);
+        scaleController.emitWeight(170.7);
+        testDe1.emitSnapshot(
+          testDe1.snapshotSubject.value.copyWith(profileFrame: 0),
+        );
+        async.elapse(Duration(milliseconds: 500));
+
+        expect(testDe1.requestedStates, isNot(contains(MachineState.skipStep)));
+        expect(shotSequencer.skippedSteps, isEmpty);
+        shotSequencer.dispose();
+      });
+    });
+
+    group('late tare landing', () {
+      void confirmWithRetryInFlight(FakeAsync async) {
+        enterPreheat(async);
+        emitScale(async, 170.7);
+        async.elapse(Duration(seconds: 1));
+        emitScale(async, 0.0);
+        enterPouring(async);
+      }
+
+      test('a sharp drop soon after the last tare disables stop-at-weight '
+          'without aborting', () {
+        fakeAsync((async) {
+          scaleController.emitWeight(170.7);
+          final decisions = <ShotDecision>[];
+          final shotSequencer = tareSequencer(blockOnNoScale: true);
+          shotSequencer.decisions.listen(decisions.add);
+          async.elapse(Duration(milliseconds: 10));
+
+          confirmWithRetryInFlight(async);
+          expect(testScale.tareCallCount, 2);
+          scaleController.emitWeight(2.0, weightFlow: 2.0);
+          enterPouring(async);
+          scaleController.emitWeight(0.0);
+          enterPouring(async);
+          scaleController.emitWeight(40.0);
+          enterPouring(async);
+
+          expect(shotSequencer.scaleLost, isTrue);
+          expect(
+            decisions.where((d) => d.kind == ShotDecisionKind.abort),
+            isEmpty,
+          );
+          expect(testDe1.requestedStates, isNot(contains(MachineState.idle)));
+          shotSequencer.dispose();
+        });
+      });
+
+      test('a small drop is not treated as a late tare', () {
+        fakeAsync((async) {
+          scaleController.emitWeight(170.7);
+          final shotSequencer = tareSequencer();
+          async.elapse(Duration(milliseconds: 10));
+
+          confirmWithRetryInFlight(async);
+          scaleController.emitWeight(1.2);
+          enterPouring(async);
+          scaleController.emitWeight(0.6);
+          enterPouring(async);
+
+          expect(shotSequencer.scaleLost, isFalse);
+          shotSequencer.dispose();
+        });
+      });
+
+      test(
+        'a drop after the in-flight window is not treated as a late tare',
+        () {
+          fakeAsync((async) {
+            scaleController.emitWeight(170.7);
+            final shotSequencer = tareSequencer();
+            async.elapse(Duration(milliseconds: 10));
+
+            confirmWithRetryInFlight(async);
+            async.elapse(Duration(seconds: 3));
+            scaleController.emitWeight(10.0);
+            enterPouring(async);
+            scaleController.emitWeight(5.0);
+            enterPouring(async);
+
+            expect(shotSequencer.scaleLost, isFalse);
+            shotSequencer.dispose();
+          });
+        },
+      );
+    });
+
+    test('full gateway mode never tares and never aborts on the tare', () {
+      fakeAsync((async) {
+        scaleController.emitWeight(170.7);
+        final decisions = <ShotDecision>[];
+        final shotSequencer = tareSequencer(
+          blockOnNoScale: true,
+          bypassSAW: true,
+        );
+        shotSequencer.decisions.listen(decisions.add);
+        async.elapse(Duration(milliseconds: 10));
+
+        enterPreheat(async);
+        emitScale(async, 170.7);
+        async.elapse(Duration(seconds: 7));
+        enterPouring(async);
+        async.elapse(Duration(seconds: 1));
+
+        expect(testScale.tareCallCount, 0);
+        expect(decisions, isEmpty);
+        expect(testDe1.requestedStates, isNot(contains(MachineState.idle)));
+        shotSequencer.dispose();
+      });
+    });
+
+    group('strict mode (blockOnNoScale)', () {
+      ShotSequencer strictSequencer(List<ShotDecision> decisions) {
+        final shotSequencer = tareSequencer(blockOnNoScale: true);
+        shotSequencer.decisions.listen(decisions.add);
+        return shotSequencer;
+      }
+
+      test('flow starting without a confirmed zero aborts the shot', () {
+        fakeAsync((async) {
+          scaleController.emitWeight(170.7);
+          final decisions = <ShotDecision>[];
+          final shotSequencer = strictSequencer(decisions);
+          async.elapse(Duration(milliseconds: 10));
+
+          enterPreheat(async);
+          emitScale(async, 170.7);
+          enterPouring(async);
+
+          final aborts = decisions.where(
+            (d) => d.kind == ShotDecisionKind.abort,
+          );
+          expect(aborts, hasLength(1));
+          expect(aborts.single.reason, ShotDecisionReason.tareUnconfirmed);
+          expect(testDe1.requestedStates, contains(MachineState.idle));
+          expect(
+            reasons(decisions),
+            isNot(contains(ShotDecisionReason.targetWeight)),
+          );
+          expect(shotSequencer.finalStopReason, isNull);
+          expect(shotSequencer.currentState, isNot(ShotState.finished));
+          shotSequencer.dispose();
+        });
+      });
+
+      test('a connected scale that sends nothing aborts at flow start', () {
+        fakeAsync((async) {
+          final decisions = <ShotDecision>[];
+          final shotSequencer = strictSequencer(decisions);
+          async.elapse(Duration(milliseconds: 10));
+
+          enterPreheat(async);
+          enterPouring(async);
+          async.elapse(Duration(seconds: 10));
+
+          expect(reasons(decisions), [ShotDecisionReason.tareUnconfirmed]);
+          expect(testDe1.requestedStates, contains(MachineState.idle));
+          shotSequencer.dispose();
+        });
+      });
+
+      test(
+        'a silent scale that starts reporting during preheat can confirm',
+        () {
+          fakeAsync((async) {
+            final decisions = <ShotDecision>[];
+            final shotSequencer = strictSequencer(decisions);
+            async.elapse(Duration(milliseconds: 10));
+
+            enterPreheat(async);
+            expect(testScale.tareCallCount, 1);
+            emitScale(async, 0.0);
+            enterPouring(async);
+            scaleController.emitWeight(38.5);
+            enterPouring(async);
+
+            expect(
+              reasons(decisions),
+              contains(ShotDecisionReason.targetWeight),
+            );
+            expect(
+              decisions.where((d) => d.kind == ShotDecisionKind.abort),
+              isEmpty,
+            );
+            shotSequencer.dispose();
+          });
+        },
+      );
+
+      test('a zero read before the tare was requested does not confirm', () {
+        fakeAsync((async) {
+          scaleController.emitWeight(0.0);
+          final decisions = <ShotDecision>[];
+          final shotSequencer = strictSequencer(decisions);
+          async.elapse(Duration(milliseconds: 10));
+
+          enterPreheat(async);
+          enterPouring(async);
+
+          expect(
+            reasons(decisions),
+            contains(ShotDecisionReason.tareUnconfirmed),
+          );
+          shotSequencer.dispose();
+        });
+      });
+
+      test('a cup placed after the preheat tare confirmed aborts at flow '
+          'start', () {
+        fakeAsync((async) {
+          scaleController.emitWeight(0.0);
+          final decisions = <ShotDecision>[];
+          final shotSequencer = strictSequencer(decisions);
+          final recorded = <ShotSnapshot>[];
+          shotSequencer.shotData.listen(recorded.add);
+          async.elapse(Duration(milliseconds: 10));
+
+          enterPreheat(async);
+          emitScale(async, 0.0);
+          emitScale(async, 170.7);
+          enterPouring(async);
+
+          expect(
+            reasons(decisions),
+            contains(ShotDecisionReason.tareUnconfirmed),
+          );
+          expect(
+            recorded.every((s) => (s.scale?.weight ?? 0.0) == 0.0),
+            isTrue,
+          );
+          shotSequencer.dispose();
+        });
+      });
+
+      test('the preheat tare aborts early after its last attempt', () {
+        fakeAsync((async) {
+          scaleController.emitWeight(170.7);
+          final decisions = <ShotDecision>[];
+          final shotSequencer = strictSequencer(decisions);
+          async.elapse(Duration(milliseconds: 10));
+
+          enterPreheat(async);
+          for (var second = 0; second < 8; second++) {
+            scaleController.emitWeight(170.7);
+            async.elapse(Duration(seconds: 1));
+          }
+
+          expect(testScale.tareCallCount, 6);
+          expect(reasons(decisions), [ShotDecisionReason.tareUnconfirmed]);
+          expect(testDe1.requestedStates, contains(MachineState.idle));
+          shotSequencer.dispose();
+        });
+      });
+
+      test('the preheat tare stops retrying once the scale reads zero', () {
+        fakeAsync((async) {
+          scaleController.emitWeight(170.7);
+          final decisions = <ShotDecision>[];
+          final shotSequencer = strictSequencer(decisions);
+          async.elapse(Duration(milliseconds: 10));
+
+          enterPreheat(async);
+          scaleController.emitWeight(170.7);
+          async.elapse(Duration(seconds: 1));
+          expect(testScale.tareCallCount, 2);
+
+          emitScale(async, 0.0);
+          async.elapse(Duration(seconds: 10));
+
+          expect(testScale.tareCallCount, 2);
+          expect(decisions, isEmpty);
+          shotSequencer.dispose();
+        });
+      });
+
+      test('losing the scale while the preheat tare is pending aborts', () {
+        fakeAsync((async) {
+          scaleController.emitWeight(170.7);
+          final decisions = <ShotDecision>[];
+          final shotSequencer = strictSequencer(decisions);
+          async.elapse(Duration(milliseconds: 10));
+
+          enterPreheat(async);
+          scaleController.simulateDisconnect();
+          async.elapse(Duration(milliseconds: 10));
+
+          expect(
+            reasons(decisions),
+            contains(ShotDecisionReason.tareUnconfirmed),
+          );
+          expect(testDe1.requestedStates, contains(MachineState.idle));
+          shotSequencer.dispose();
+        });
+      });
+
+      test('a replaced scale while the preheat tare is pending aborts', () {
+        fakeAsync((async) {
+          scaleController.emitWeight(170.7);
+          final decisions = <ShotDecision>[];
+          final shotSequencer = strictSequencer(decisions);
+          async.elapse(Duration(milliseconds: 10));
+
+          enterPreheat(async);
+          scaleController.simulateHandoff();
+          scaleController.emitWeight(0.0);
+          async.elapse(Duration(milliseconds: 10));
+
+          expect(
+            reasons(decisions),
+            contains(ShotDecisionReason.tareUnconfirmed),
+          );
+          shotSequencer.dispose();
+        });
+      });
+
+      test(
+        'losing the scale after a confirmed tare keeps the shot scaleless',
+        () {
+          fakeAsync((async) {
+            scaleController.emitWeight(170.7);
+            final decisions = <ShotDecision>[];
+            final shotSequencer = strictSequencer(decisions);
+            async.elapse(Duration(milliseconds: 10));
+
+            enterPreheat(async);
+            emitScale(async, 0.0);
+            enterPouring(async);
+            scaleController.simulateDisconnect();
+            async.elapse(Duration(milliseconds: 10));
+
+            expect(shotSequencer.scaleLost, isTrue);
+            expect(
+              decisions.where((d) => d.kind == ShotDecisionKind.abort),
+              isEmpty,
+            );
+            expect(testDe1.requestedStates, isNot(contains(MachineState.idle)));
+            shotSequencer.dispose();
+          });
+        },
+      );
     });
 
     test('non-scale shot finishes immediately, with no settling window', () {
@@ -1869,7 +2497,7 @@ void main() {
         shotSequencer.state.listen(states.add);
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring(shotSequencer);
+        driveToPouring(async, shotSequencer);
         async.elapse(Duration(milliseconds: 10));
 
         testDe1.emitStateAndSubstate(
@@ -1915,7 +2543,7 @@ void main() {
         scaleController.emitWeight(0.0);
         async.elapse(const Duration(milliseconds: 10));
 
-        driveToPouring(shotSequencer);
+        driveToPouring(async, shotSequencer);
         async.elapse(const Duration(milliseconds: 10));
 
         expect(
@@ -1979,7 +2607,7 @@ void main() {
         shotSequencer.state.listen(states.add);
         async.elapse(const Duration(milliseconds: 10));
 
-        driveToPouring(shotSequencer);
+        driveToPouring(async, shotSequencer);
         async.elapse(const Duration(milliseconds: 10));
         testDe1.emitStateAndSubstate(
           MachineState.espresso,
@@ -2146,15 +2774,19 @@ void main() {
       persistenceController.dispose();
     });
 
-    void driveToPouring(ShotSequencer shotSequencer) {
+    void driveToPouring(FakeAsync async, ShotSequencer shotSequencer) {
       testDe1.emitStateAndSubstate(
         MachineState.espresso,
         MachineSubstate.preparingForShot,
       );
+      async.elapse(Duration(milliseconds: 10));
+      scaleController.emitWeight(0.0);
+      async.elapse(Duration(milliseconds: 10));
       testDe1.emitStateAndSubstate(
         MachineState.espresso,
         MachineSubstate.pouring,
       );
+      async.elapse(Duration(milliseconds: 10));
     }
 
     void emitPouringFrameWithPressure(int profileFrame, double pressure) {
@@ -2189,7 +2821,7 @@ void main() {
         );
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring(shotSequencer);
+        driveToPouring(async, shotSequencer);
         async.elapse(Duration(milliseconds: 10));
 
         scaleController.emitWeight(12.0);
@@ -2277,15 +2909,19 @@ void main() {
       ],
     );
 
-    void driveToPouring() {
+    void driveToPouring(FakeAsync async) {
       testDe1.emitStateAndSubstate(
         MachineState.espresso,
         MachineSubstate.preparingForShot,
       );
+      async.elapse(Duration(milliseconds: 10));
+      scaleController.emitWeight(0.0);
+      async.elapse(Duration(milliseconds: 10));
       testDe1.emitStateAndSubstate(
         MachineState.espresso,
         MachineSubstate.pouring,
       );
+      async.elapse(Duration(milliseconds: 10));
     }
 
     void emitPouringFrame(int profileFrame, {double flow = 0}) {
@@ -2311,7 +2947,7 @@ void main() {
         sequencer.decisions.listen(decisions.add);
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring();
+        driveToPouring(async);
         async.elapse(Duration(milliseconds: 10));
 
         scaleController.emitWeight(40.0);
@@ -2345,7 +2981,7 @@ void main() {
         sequencer.decisions.listen(decisions.add);
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring();
+        driveToPouring(async);
         async.elapse(Duration(milliseconds: 10));
 
         emitPouringFrame(0, flow: 60);
@@ -2375,7 +3011,7 @@ void main() {
         sequencer.decisions.listen(decisions.add);
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring();
+        driveToPouring(async);
         async.elapse(Duration(milliseconds: 10));
 
         emitPouringFrame(0, flow: 60);
@@ -2409,7 +3045,7 @@ void main() {
         sequencer.decisions.listen(decisions.add);
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring();
+        driveToPouring(async);
         async.elapse(Duration(milliseconds: 10));
         emitPouringFrame(0, flow: 100);
         async.elapse(Duration(milliseconds: 10));
@@ -2434,7 +3070,7 @@ void main() {
         sequencer.decisions.listen(decisions.add);
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring();
+        driveToPouring(async);
         async.elapse(Duration(milliseconds: 10));
         emitPouringFrame(0, flow: 100);
         async.elapse(Duration(milliseconds: 10));
@@ -2461,7 +3097,7 @@ void main() {
         sequencer.decisions.listen(decisions.add);
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring();
+        driveToPouring(async);
         async.elapse(Duration(milliseconds: 10));
         emitPouringFrame(0, flow: 60);
         async.elapse(Duration(milliseconds: 10));
@@ -2495,7 +3131,7 @@ void main() {
         sequencer.decisions.listen(decisions.add);
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring();
+        driveToPouring(async);
         async.elapse(Duration(milliseconds: 10));
 
         testDe1.emitStateAndSubstate(
@@ -2522,7 +3158,7 @@ void main() {
         sequencer.decisions.listen(decisions.add);
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring();
+        driveToPouring(async);
         async.elapse(Duration(milliseconds: 10));
 
         de1Controller.recordStopIntent(ShotDecisionReason.apiStop);
@@ -2550,7 +3186,7 @@ void main() {
         sequencer.decisions.listen(decisions.add);
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring();
+        driveToPouring(async);
         async.elapse(Duration(milliseconds: 10));
 
         de1Controller.recordStopIntent(ShotDecisionReason.appStop);
@@ -2580,7 +3216,7 @@ void main() {
         de1Controller.recordStopIntent(ShotDecisionReason.apiStop);
         async.elapse(Duration(seconds: 6));
 
-        driveToPouring();
+        driveToPouring(async);
         async.elapse(Duration(milliseconds: 10));
 
         testDe1.emitStateAndSubstate(
@@ -2614,7 +3250,7 @@ void main() {
         sequencer.decisions.listen(decisions.add);
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring();
+        driveToPouring(async);
         async.elapse(Duration(milliseconds: 10));
 
         scaleController.emitWeight(12.0);
@@ -2656,7 +3292,7 @@ void main() {
         sequencer.decisions.listen(decisions.add);
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring();
+        driveToPouring(async);
         async.elapse(Duration(milliseconds: 10));
 
         emitPouringFrame(0);
@@ -2688,7 +3324,7 @@ void main() {
         sequencer.decisions.listen(decisions.add);
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring();
+        driveToPouring(async);
         async.elapse(Duration(milliseconds: 10));
 
         emitPouringFrame(0);
@@ -2726,7 +3362,7 @@ void main() {
           sequencer.state.listen(states.add);
 
           async.elapse(Duration(milliseconds: 10));
-          driveToPouring();
+          driveToPouring(async);
           async.elapse(Duration(milliseconds: 10));
 
           testDe1.emitStateAndSubstate(
@@ -2760,7 +3396,7 @@ void main() {
         sequencer.state.listen(states.add);
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring();
+        driveToPouring(async);
         async.elapse(Duration(milliseconds: 10));
 
         scaleController.emitWeight(40.0);
@@ -2873,7 +3509,7 @@ void main() {
         sequencer.decisions.listen(decisions.add);
 
         async.elapse(Duration(milliseconds: 10));
-        driveToPouring();
+        driveToPouring(async);
         async.elapse(Duration(milliseconds: 10));
 
         for (final frame in [0, 1, 0, 1]) {

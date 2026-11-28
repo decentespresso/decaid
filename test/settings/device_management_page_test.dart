@@ -21,6 +21,7 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 import '../helpers/mock_device_discovery_service.dart';
 import '../helpers/mock_settings_service.dart';
 import '../helpers/test_scale.dart';
+import '../helpers/test_usb_hds.dart';
 import '../plugins/plugin_test_helpers.dart';
 
 class _UnusedPluginLoaderService extends Fake implements PluginLoaderService {}
@@ -93,6 +94,74 @@ Future<void> registerSettingsDevice(
 );
 
 void main() {
+  testWidgets('USB HDS family preference remains selected after reattachment', (
+    tester,
+  ) async {
+    final discovery = MockDeviceDiscoveryService();
+    final devices = DeviceController([discovery]);
+    await devices.initialize();
+    final store = MockSettingsService();
+    final settings = SettingsController(store);
+    await settings.loadSettings();
+    final first = TestUsbHds(deviceId: 'usb-1a86-7522-unknown-1004');
+    final second = TestUsbHds(deviceId: 'usb-1a86-7522-unknown-1005');
+    discovery.addDevice(first);
+    discovery.addDevice(second);
+
+    await tester.pumpWidget(
+      ShadApp(
+        home: ScaffoldMessenger(
+          child: DeviceManagementPage(
+            settingsController: settings,
+            deviceController: devices,
+            isPluginRuntimeActive: (_) => false,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Half Decent Scale (USB)'), findsOneWidget);
+    await tester.ensureVisible(find.text('Half Decent Scale (USB)'));
+    await tester.tap(find.text('Half Decent Scale (USB)'));
+    await tester.pumpAndSettle();
+
+    expect(settings.preferredScaleId, 'usb-hds:any');
+    expect(await store.preferredScaleId(), 'usb-hds:any');
+    final scaleSection = find.ancestor(
+      of: find.text('Auto-connect Scale'),
+      matching: find.byType(ShadCard),
+    );
+    expect(
+      find.descendant(
+        of: scaleSection,
+        matching: find.byIcon(Icons.radio_button_checked),
+      ),
+      findsOneWidget,
+    );
+
+    discovery.clear();
+    final replacement = TestUsbHds(deviceId: 'usb-1a86-7522-unknown-1006');
+    discovery.addDevice(replacement);
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('Half Decent Scale (USB)'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: scaleSection,
+        matching: find.byIcon(Icons.radio_button_checked),
+      ),
+      findsOneWidget,
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+    settings.dispose();
+    devices.dispose();
+    discovery.dispose();
+    first.dispose();
+    second.dispose();
+    replacement.dispose();
+  });
+
   testWidgets('launches the authority href with opaque IDs encoded once', (
     tester,
   ) async {

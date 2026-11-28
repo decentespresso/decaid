@@ -9,26 +9,9 @@ extension UnifiedDe1Calibration on UnifiedDe1 {
     final completer = Completer<De1CalibrationPacket>();
     _calibrationQueue = _calibrationQueue.then((_) async {
       try {
-        final response = _transport.calibration
-            .map((d) => De1CalibrationCodec.tryDecode(d.buffer.asUint8List()))
-            .where(
-              (packet) =>
-                  packet != null &&
-                  packet.matches(command, target) &&
-                  packet.isReturnedData,
-            )
-            .first
-            .timeout(calibrationTimeout, onTimeout: () => null)
-            .catchError(
-              (Object error) => null,
-              test: (Object error) => error is StateError,
-            );
-        await _transport.writeWithResponse(Endpoint.calibration, payload);
-        final packet = await response;
-        if (packet == null) {
-          throw EndpointUnavailableException('calibration', calibrationTimeout);
-        }
-        completer.complete(packet);
+        completer.complete(
+          await _readCalibrationResponse(payload, command, target),
+        );
       } catch (error, stackTrace) {
         if (!completer.isCompleted) {
           completer.completeError(error, stackTrace);
@@ -36,5 +19,41 @@ extension UnifiedDe1Calibration on UnifiedDe1 {
       }
     });
     return completer.future;
+  }
+
+  Future<De1CalibrationPacket> _readCalibrationResponse(
+    Uint8List payload,
+    int command,
+    De1CalibrationTarget target,
+  ) async {
+    final response = StreamIterator(
+      _transport.calibration
+          .map(
+            (data) => De1CalibrationCodec.tryDecode(data.buffer.asUint8List()),
+          )
+          .where(
+            (packet) =>
+                packet != null &&
+                packet.matches(command, target) &&
+                packet.isReturnedData,
+          ),
+    );
+    final received = response.moveNext().timeout(
+      calibrationTimeout,
+      onTimeout: () async {
+        await response.cancel();
+        return false;
+      },
+    );
+    received.ignore();
+    try {
+      await _transport.writeWithResponse(Endpoint.calibration, payload);
+      if (!await received) {
+        throw EndpointUnavailableException('calibration', calibrationTimeout);
+      }
+      return response.current!;
+    } finally {
+      await response.cancel();
+    }
   }
 }

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/home_feature/widgets/device_connecting_indicator.dart';
 import 'package:reaprime/src/models/device/device.dart' as dev;
+import 'package:reaprime/src/models/device/scale_preference.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 class DeviceSelectionWidget extends StatefulWidget {
@@ -91,7 +92,9 @@ class _DeviceSelectionWidgetState extends State<DeviceSelectionWidget> {
       itemCount: _discoveredDevices.length,
       itemBuilder: (context, index) {
         final device = _discoveredDevices[index];
-        final isPreferred = widget.preferredDeviceId == device.deviceId;
+        final isPreferred = widget.deviceType == dev.DeviceType.scale
+            ? matchesScalePreference(device, widget.preferredDeviceId)
+            : widget.preferredDeviceId == device.deviceId;
         final isConnecting = widget.connectingDeviceId == device.deviceId;
         final isSelected = widget.selectedDeviceId == device.deviceId;
 

@@ -9,6 +9,14 @@ explicit API client selects a discovered device and supplies the auxiliary
 connection role. Primary automatic selection excludes reserved auxiliary IDs.
 Disconnect releases only that auxiliary reservation after transport cleanup.
 
+A preferred plugin-driver scale found by the background watch receives a bounded,
+single-use handover claim while its watch advertisement is stopped for GATT. The
+claim remains bound to the physical BLE identity, plugin registry/runtime and
+adapter generations; foreground scan ownership changes, cancellation, plugin
+replacement or adapter shutdown invalidate it. Failed watch connections back off
+before re-arming, while native-driver reconnection and auxiliary reservations
+retain their existing paths.
+
 When a Bengle is primary, automatic external primary-scale selection remains
 disabled and the integrated Bengle scale remains the ScaleController scale.
 Explicit auxiliary discovery and connection still use the normal device scanner
@@ -717,6 +725,13 @@ GATT error 133 (`gattError`) is treated as transient — the queue is cleared
 and a `BleTimeoutException` is thrown so `UnifiedDe1Transport` can retry via
 `_handleBleTimeout`. The link is NOT declared dead for GATT-133.
 
+Successful machine timeout recovery keeps the logical connection and existing
+typed subscriptions alive. It retires callbacks and clears cached replay from
+the old physical link before reconnecting, then restores notification
+subscriptions, including Bengle samples when enabled. New snapshot subscribers
+wait for fresh samples instead of receiving the previous link's cached snapshot.
+If recovery fails, normal disconnection handling resumes.
+
 ### Crashlytics Error Filtering (telemetry)
 
 The `DeviceNotConnectedException` thrown from `_handleGattError` and the raw
@@ -744,9 +759,23 @@ This is the safety net. Device implementations should ALSO catch
 
 Device preferences are stored via `SettingsController`:
 - `preferredMachineId` — auto-set on successful machine connection
-- `preferredScaleId` — auto-set on successful scale connection; session-only USB IDs are not persisted
+- `preferredScaleId` — auto-set on successful scale connection; serial-less USB HDS uses the durable `usb-hds:any` family selector rather than an attachment ID
 - `preferredGrinderDeviceId` — auto-set on successful runtime grinder connection
 - Configurable in Settings → Device Management
+
+Serial-less USB Half Decent Scales keep their attachment-scoped runtime IDs for
+inventory, commands and role ownership. Their auto-connect preference is the
+family selector `usb-hds:any`, not a claim to identify the same physical scale
+across reattachment. Only a completed scan with exactly one matching,
+protocol-identified USB HDS not reserved as auxiliary may connect automatically.
+Multiple eligible matches enter the normal scale picker. Family selection waits
+for scan completion rather than connecting the first sighting, and uses the
+existing scale-only scan recovery and bounded retries rather than BLE watching.
+Stable serial-numbered USB scales and other transports keep exact preferences.
+The native device-management page shows one serial-less USB HDS preference;
+explicit connection pickers still list the individual physical attachments.
+Settings API readback presents a unique matching attachment ID for existing
+clients; durable settings and backups always retain the family selector.
 
 Identity remains per transport. BLE and USB IDs for the same physical machine
 are not aliased. If the BLE ID is preferred while Bluetooth is unavailable, a
@@ -787,7 +816,7 @@ Future<void> connectToDe1(De1Interface de1Interface) async {
 }
 ```
 
-On connect, the DE1 firmware calibration is read first, then a nullable saved flow override is applied during startup defaults; absent overrides leave firmware calibration untouched. The persisted value is the **requested** multiplier; after the transport acknowledges the write, the cache holds the **effective** value derived from Decaid's own register encoding (requested value clamped to the raw 130–2000 range, converted back through the read scale), with no post-write read-back. Only an explicit `getFlowEstimation()` returns a value actually **reported** by the machine. The override identity is captured from the raw serial, falling back to device ID, and is not recomputed after connection identity resolution.
+On each DE1 connection, the firmware flow estimation multiplier is read into the live session cache; legacy saved calibration overrides are inert and are never replayed during startup defaults. An explicit calibration write caches the **effective** multiplier derived from Decaid's register encoding (raw 130–2000, converted through the read scale) after acknowledgement when the session is unchanged. Successful transparent BLE recovery triggers a fresh, read-only firmware observation. An explicit write that spans recovery awaits a fresh observation after releasing the MMR gate. Failed or obsolete observations leave the session value unknown without blocking readiness or turning a successful write acknowledgement into a failure. Failed writes neither update the cache nor create a deferred write. Workflow provenance uses the current session cache, not a stored override.
 
 **Key Streams:**
 - `de1`: Current connected DE1 (or null)
@@ -1065,14 +1094,73 @@ never retain the disconnected instance beside its connected replacement.
 
 If multiple machines or scales are found without a preferred device set, ConnectionManager emits `pendingAmbiguity: machinePicker` or `scalePicker`, and the UI shows a picker dialog.
 
+### Reset Onboarding (Setup Replay)
+
+Advanced → **Reset onboarding** re-arms the setup presentation for the next cold
+launch without touching accounts, consent, plugin settings, preferences,
+profiles, data, devices, skins or OS permissions. The action only writes the
+one-shot `onboardingReplayRequested` preference, so the running session stays
+usable and a keyed `MyApp`/`AppRoot` restart cannot consume the request before
+the operator closes the app. Cancel writes nothing, a repeated request is
+idempotent, and a failed write is reported instead of acknowledged as success.
+
+`main()` applies an armed request once per process through
+`SettingsController.consumeOnboardingReplayRequest()`, which delegates the
+presentation-only reset to `resetOnboardingPresentationProgress()`. That entry
+point is the shared, non-destructive half a future new-owner reset reuses. The
+startup order is deliberate:
+
+1. The legacy shot-upload `AutoUpload` migration runs first, so it cannot
+   swallow the re-armed shot-upload step.
+2. An armed replay clears `onboardingCompleted`, `accountStepSeen`,
+   `androidWarningDismissed` and `shotUploadStepSeen`, then the marker. The
+   cached progress is reset only after those four presentation writes succeed,
+   so a failed progress write leaves the cached progress untouched and the
+   marker armed for the next launch to retry. The marker is cleared last: a
+   marker-clear failure after a successful progress reset leaves the cached
+   progress already reset and the request still armed, so the next cold launch
+   replays again. That repetition is harmless; it is not an untouched cache.
+3. The CLI `--force-onboarding` / `--bypass-onboarding` flags keep the last word
+   for the launch they were passed to.
+
+Eligibility is unchanged: welcome and import return through
+`onboardingCompleted`, account login only for an unlinked installation,
+shot-upload only after a successful link, and the platform warning only where
+it applies. When #1179 introduces versioned step progress, the replay has to
+reset that progress instead of the underlying settings, and a bundled-skin or
+device chooser must preselect the real current value so skipping or continuing
+it changes nothing.
+
+### Live Discovery During Scanning
+
+While the scan is active, the onboarding scan lists the recognized Decent
+machines and scales it has found, grouped by the roles Machine and Scale and
+labelled with each device's own display name. Duplicate `deviceId` values are
+collapsed, distinct devices that share a display name stay distinct, and
+missing or blank names fall back to a role label. Long names are ellipsized
+inside a bounded, scrollable region that follows the device stream for
+additions, renames and removals. When nothing is recognized, the scan says it
+is still looking for a Decent machine. The
+list is informational: it is read-only during the active scan, never presents
+Bluetooth addresses or unsupported peripherals, and makes no connection or
+preference call. `ConnectionManager` keeps ownership of connection decisions,
+and completed discovery still uses the existing machine and scale pickers with
+`selectMachine`/`selectScale`.
+
 ### Leaving Initial Discovery
 
-The onboarding scan offers **Continue to Dashboard** immediately while scanning
-or connecting. The 16-second **This is taking a while...** troubleshooting sheet
-remains available when the user keeps waiting.
+The onboarding scan offers **Skip device setup** immediately while scanning,
+while connecting, in the picker, and in the empty, error, Bluetooth-unavailable
+and troubleshooting states. Scanning and connecting also explain that the
+machine can be connected later from the dashboard. The same skip wording is
+used by the 16-second
+**This is taking a while...** sheet and by `ScanResultsSummary`.
+`LauncherScanPage` keeps **Cancel** and receives no onboarding help copy. The
+skip action is presented as a secondary/outline control while scan progress and
+connection actions use the theme's primary treatment.
 
 `ScanFlowView` owns exit cancellation for both onboarding and `LauncherScanPage`.
-Dashboard/Cancel actions and system back finish the flow before calling
+Skip/Cancel actions and system back finish the flow before calling
 `ConnectionManager.cancelActiveScan()` and `DeviceController.stopScan()`, then
 invoke the caller's navigation callback. Disposal of an unfinished scan also
 cancels it. Late status, discovery, guardian events and the threshold timer
@@ -1173,6 +1261,26 @@ De1StateManager({
 ### Legacy DE1 identity resolution (post-connect)
 
 See [`device-notes/de1.md`](device-notes/de1.md#legacy-identity-resolution).
+
+### Espresso tare confirmation
+
+`ShotSequencer` tares the scale only while the machine is getting ready (`preparingForShot`), and never once preinfusion or pouring has started. `preparingForShot` covers the DE1 heating and stabilising substates, the same before-flow phase in which de1app auto-tares. Sending no tare during flow means a tare cannot zero coffee that has already reached the cup.
+
+When the machine starts getting ready, the sequencer sends a tare whenever a scale is connected, even if the scale has not reported a fresh reading yet. The tare is confirmed by a reading within 0.5 g of zero that comes from the current scale connection and arrives after the request. Readings from before the request, or from a replaced scale, never confirm it. Until it is confirmed, recorded weight and weight flow are held at 0, and stop-at-weight and weight step exits see nothing.
+
+While the tare is unconfirmed, the sequencer sends another one at the scale's tare retry interval, up to six attempts. The interval is 1 s by default; a driver can declare its own by implementing `TareRetryIntervalScale`, and `EurekaScale` declares 1.5 s because the Eureka Precisa takes about a second to apply a tare. A reading more than 0.5 g from zero after confirmation (for example a cup placed during warm-up) clears the confirmation at once, so frames built after it are masked, and starts a new round of tares with the same interval as a holdoff.
+
+The decision is made when flow starts:
+
+- Zero confirmed, and the latest reading still within 0.5 g: stop-at-weight is armed.
+- `blockOnNoScale` enabled and zero not confirmed: the shot is aborted with an `abort` decision, reason `tareUnconfirmed`, the machine is sent to idle, and no shot is saved. This includes a connected scale that never reports. If all six preheat attempts fail, the abort happens during preheat instead. Losing or replacing the scale while the tare is unconfirmed aborts the same way.
+- `blockOnNoScale` disabled and zero not confirmed: stop-at-weight is disabled for the shot, the same as losing the scale, and the target volume fallback applies when one is configured.
+
+A tare sent during preheat can still land after flow starts, and the scales give no acknowledgement of when, or whether, a tare was applied. As best-effort detection, for two seconds after the last tare was sent, a reading that falls more than 1 g below the previous one during flow is treated as a late tare. It is handled like losing the scale after a confirmed tare: the shot continues without stop-at-weight. This does not bound the loss: a tare that lands later than that, or while less than 1 g is in the cup, is not detected and shifts the measured yield. The maintainer accepted this residual risk for #1243; a tare acknowledgement and shared confirmation contract are tracked in #1260.
+
+When a tare is confirmed, the scale controller's flow estimators are reset and the confirming reading's flow is zeroed. Otherwise a tare that lands on a cup still reading its weight leaves a large negative flow followed by a positive overshoot lasting several seconds.
+
+Losing the scale after a confirmed tare keeps the existing behaviour: the shot continues without stop-at-weight. Full gateway mode never tares. Cleaning and calibration shots never enable `blockOnNoScale`.
 
 ### Hot water stop-at-weight
 

@@ -29,14 +29,26 @@ import 'package:reaprime/src/util/user_facing_exception.dart';
 const shotUploadPluginSettingsPreferenceKey =
     'plugin.settings.shot-upload.reaplugin';
 
+Future<bool?> persistedShotUploadAutoUploadSetting() async {
+  final raw = (await SharedPreferences.getInstance()).getString(
+    shotUploadPluginSettingsPreferenceKey,
+  );
+  if (raw == null) return null;
+  final decoded = jsonDecode(raw);
+  if (decoded is! Map) {
+    throw const FormatException('shot upload settings are not an object');
+  }
+  if (!decoded.containsKey('AutoUpload')) return null;
+  final autoUpload = decoded['AutoUpload'];
+  if (autoUpload is! bool) {
+    throw const FormatException('shot upload AutoUpload is not a boolean');
+  }
+  return autoUpload;
+}
+
 Future<bool> persistedShotUploadAutoUploadEnabled() async {
   try {
-    final raw = (await SharedPreferences.getInstance()).getString(
-      shotUploadPluginSettingsPreferenceKey,
-    );
-    if (raw == null) return false;
-    final decoded = jsonDecode(raw);
-    return decoded is Map && decoded['AutoUpload'] == true;
+    return await persistedShotUploadAutoUploadSetting() ?? false;
   } catch (_) {
     return false;
   }

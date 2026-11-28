@@ -1,3 +1,6 @@
+import java.nio.file.Paths
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // START: FlutterFire Configuration
@@ -68,6 +71,40 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    testImplementation("junit:junit:4.13.2")
+}
+
+val guardGeneratedPluginRegistration = tasks.register("guardGeneratedPluginRegistration") {
+    group = "verification"
+    description =
+        "Makes a failing plugin in Flutter's generated Android registrant fail admission " +
+            "instead of being logged and skipped. Runs before every Kotlin and Java compile."
+    outputs.upToDateWhen { false }
+    doLast {
+        val properties = Properties()
+        rootProject.file("local.properties").inputStream().use { properties.load(it) }
+        val flutterSdk =
+            properties.getProperty("flutter.sdk")
+                ?: throw GradleException("flutter.sdk is missing from android/local.properties")
+        val pluginBlocks =
+            net.tadel.reaprime.gradle.GuardedPluginRegistration.guard(
+                file("src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java").toPath(),
+                Paths.get(flutterSdk),
+            )
+        logger.lifecycle(
+            "guarded plugin registration: $pluginBlocks generated plugin registrations now " +
+                "report failure",
+        )
+    }
+}
+
+tasks.configureEach {
+    if (name.startsWith("compile") && (name.endsWith("JavaWithJavac") || name.endsWith("Kotlin"))) {
+        dependsOn(guardGeneratedPluginRegistration)
+    }
 }
 
 

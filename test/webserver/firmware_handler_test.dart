@@ -480,7 +480,7 @@ void main() {
     );
     await de1.onConnect();
     controller.machine = de1;
-    transport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
+    transport.queueFirmwareMapResponse([0, 0, 0, 1, 0, 0, 0]);
 
     final response = await _raw(handler, List.filled(16, 1));
     final events = response
@@ -798,7 +798,7 @@ void main() {
       (generation) => generation == harness.controller.connectionGeneration,
     );
     expect(harness.machine.firmwareUpdateState, FirmwareUpdateState.idle);
-    harness.transport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
+    harness.transport.queueFirmwareMapResponse([0, 0, 0, 1, 0, 0, 0]);
     harness.transport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xfd]);
     await harness.controller.updateFirmware(Uint8List(16), onProgress: (_) {});
     expect(harness.machine.firmwareUpdateState, FirmwareUpdateState.idle);
@@ -888,7 +888,7 @@ void main() {
     await harness.controller.initSettled.firstWhere(
       (generation) => generation == harness.controller.connectionGeneration,
     );
-    harness.transport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
+    harness.transport.queueFirmwareMapResponse([0, 0, 0, 1, 0, 0, 0]);
     harness.transport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xfd]);
 
     final response = await _apply(
@@ -1074,7 +1074,7 @@ void main() {
     );
     await de1.onConnect();
     controller.machine = de1;
-    transport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
+    transport.queueFirmwareMapResponse([0, 0, 0, 1, 0, 0, 0]);
     transport.queueFirmwareMapResponse([0, 0, 0, 1, 0, 0, 1]);
 
     final response = await _raw(handler, List.filled(16, 1));
@@ -1099,7 +1099,7 @@ void main() {
     );
     await de1.onConnect();
     controller.machine = de1;
-    transport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
+    transport.queueFirmwareMapResponse([0, 0, 0, 1, 0, 0, 0]);
 
     final time = FakeAsync();
     final response = await _flushVirtual(

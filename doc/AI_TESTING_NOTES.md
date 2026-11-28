@@ -11,6 +11,30 @@ flutter test --name "test pattern"        # Specific test
 flutter analyze                           # Static analysis (required before commit)
 ```
 
+## Stalled Test Runs
+
+`flutter test` can stall with no output, no failure line and no error. Do not judge liveness by the log:
+output redirected to a file is buffered, so a healthy run can look frozen for minutes. Check for a live
+worker and for disk headroom instead.
+
+```bash
+ps -Ao pid,etime,%cpu,command | grep flutter_tester   # empty => no worker ever started
+df -h /System/Volumes/Data                            # full volume => the worker cannot write
+```
+
+| Signature | Cause | Action |
+|-----------|-------|--------|
+| No `flutter_tester` child, tool at `0.0%` CPU | Blocked before the first test, almost always on writes | Check free space; a full data volume reproduces this exactly (observed at 405 MiB free of 460 GiB) and hangs every worktree identically |
+| `ENOSPC` while writing `output.dill` | The compile step wrote nothing, so the tool waits for a result that never arrives | Free space and rerun; nothing about the code is wrong |
+| `flutter_tester` processes with `PPID 1` | Workers leaked from earlier killed runs; they stay resident for days | Kill them before diagnosing a new stall |
+
+Run long suites detached with an exit-status file instead of inside a command timeout, so a stall is
+visible rather than reported as a timeout:
+
+```bash
+( flutter test > /tmp/flutter-test.log 2>&1; echo $? > /tmp/flutter-test.exit ) &
+```
+
 ## Test Tiers
 
 | Tier | What | Mock boundary |

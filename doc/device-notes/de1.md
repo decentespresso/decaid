@@ -23,14 +23,49 @@ unmeasured. Flow-target reset behavior, and reset behavior on older firmware,
 remain unverified; an acknowledgement is not evidence of factory restoration.
 
 Decaid's generic machine-settings reset sends no calibration packet at all:
-it leaves the machine multiplier and the saved per-machine flow override
-untouched. No calibration-reset API is exposed.
+it leaves the machine multiplier untouched. A legacy per-machine flow
+multiplier stored in the machine settings store is never replayed, so reset
+does not restore a calibration override. No calibration-reset API is exposed.
 
 `tools/ingest_profiles.py` rejects de1app TCL profiles whose type is
 `settings_2a` or `settings_2b`, even when `advanced_shot` is populated. That
 stored field is not authoritative for simple-profile types. Generate final
 advanced-profile JSON externally instead of duplicating de1app's frame
 generators in Decaid.
+
+## Flow estimation multiplier ownership
+
+The flow estimation multiplier (`calFlowEst`, MMR `0x0080383C`) belongs to the
+machine. Decaid reads it on every successful connection and reconnection, and
+uses the raw result as the session value; nothing else writes it.
+
+- No implicit write exists. Connection handshakes, startup defaults, deferred
+  startup defaults, device adoption, resume, settings reset and Settings plugin
+  page loads never write `calFlowEst`. Only an explicit
+  `POST /api/v1/machine/calibration` does.
+- The stored per-machine `flowCalibration` field of the machine settings store is
+  inert: Decaid no longer writes it and never replays it. Existing entries are
+  left in place for compatibility, with no migration and no destructive cleanup.
+  Fan, refill-kit and refill-level entries keep their restore-on-connect behavior.
+- The session value is the value read on connect or the effective value of a
+  successful explicit write, quantized and clamped to the MMR range (raw
+  `130`-`2000`, multiplier `0.13`-`2.0`). A failed write leaves the session value
+  unchanged and queues nothing for a later connection.
+- The value is marked unknown when a read fails, when the machine disconnects
+  (explicitly or through an unsolicited BLE/serial disconnect), and before a new
+  session starts; a read or write that completes after its session ended cannot
+  repopulate it. A failed calibration read does not block core readiness.
+- Shot provenance records the session value and stays unknown when no value was
+  read or written.
+
+This is the opposite ownership policy from DE1app, which writes its tablet
+multiplier on connection unless the tablet value is the untouched default
+`"1.000"`; Decaid never imports or replays a tablet value. Whether the DE1
+firmware retains `calFlowEst` across a power cycle is unverified (hardware
+verification pending): if a power loss resets the MMR, the multiplier has to be
+re-applied explicitly rather than being restored by Decaid. This MMR is separate
+from the A012 flow/pressure/temperature sensor calibration served by
+`/api/v1/machine/calibration/{target}`.
 
 ## MMR model mapping
 

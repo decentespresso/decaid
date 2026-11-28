@@ -368,7 +368,8 @@ void main() {
       );
       expect(
         (await machineSettings.read('serial:first'))?.flowCalibration,
-        1.25,
+        isNull,
+        reason: 'an explicit calibration write is session-only',
       );
 
       final secondAgain = _SerialMockDe1(serial: 'second');
@@ -381,15 +382,18 @@ void main() {
         await secondAgain.getRefillKitSettings(),
         De1RefillKitSettings.auto,
       );
+      expect(await machineSettings.read('serial:second'), isNull);
       expect(
-        (await machineSettings.read('serial:second'))?.flowCalibration,
-        1.5,
+        await secondAgain.getFlowEstimation(),
+        1.0,
+        reason:
+            'a fresh machine reports its own firmware multiplier; the '
+            'earlier explicit 1.5 must not be replayed',
       );
-      expect(await secondAgain.getFlowEstimation(), 1.5);
     });
 
     test(
-      'reset leaves the live calibration and the saved override alone',
+      'reset leaves the live calibration alone and saves no override',
       () async {
         final de1 = _SerialMockDe1(serial: 'calibrated');
         await wireWith(de1);
@@ -400,35 +404,33 @@ void main() {
         expect(res.statusCode, 202);
 
         expect(await de1.getFlowEstimation(), 1.25);
-        expect(
-          (await machineSettings.read('serial:calibrated'))?.flowCalibration,
-          1.25,
-        );
+        expect(await machineSettings.read('serial:calibrated'), isNull);
       },
     );
 
-    test(
-      'reconnection after reset restores the saved override on a fresh machine',
-      () async {
-        final de1 = _SerialMockDe1(serial: 'power-cycled');
-        await wireWith(de1);
-        await post('/api/v1/machine/calibration', {'flowMultiplier': 1.25});
-        await delete('/api/v1/machine/settings/reset');
-        await de1.disconnect();
-        await Future<void>.delayed(Duration.zero);
+    test('reconnection after reset reports the firmware multiplier, not a '
+        'replayed override', () async {
+      final de1 = _SerialMockDe1(serial: 'power-cycled');
+      await wireWith(de1);
+      await post('/api/v1/machine/calibration', {'flowMultiplier': 1.25});
+      await delete('/api/v1/machine/settings/reset');
+      await de1.disconnect();
+      await Future<void>.delayed(Duration.zero);
 
-        // A fresh instance reports the firmware default, as after a power
-        // cycle that forgets the multiplier; the preserved override is
-        // reapplied at connect.
-        final replacement = _SerialMockDe1(serial: 'power-cycled');
-        expect(await replacement.getFlowEstimation(), 1.0);
-        await controller.connectToDe1(replacement);
-        await controller.initSettled.firstWhere(
-          (generation) => generation != null,
-        );
-        expect(await replacement.getFlowEstimation(), 1.25);
-      },
-    );
+      // A fresh instance reports the firmware default, as after a power
+      // cycle that forgets the multiplier. Decaid must not restore it.
+      final replacement = _SerialMockDe1(serial: 'power-cycled');
+      expect(await replacement.getFlowEstimation(), 1.0);
+      await controller.connectToDe1(replacement);
+      await controller.initSettled.firstWhere(
+        (generation) => generation != null,
+      );
+      expect(await replacement.getFlowEstimation(), 1.0);
+      final read = jsonDecode(
+        await (await get('/api/v1/machine/calibration')).readAsString(),
+      );
+      expect(read, {'flowMultiplier': 1.0});
+    });
   });
 
   group('PUT /api/v1/machine/state/espresso — blockOnNoScale', () {

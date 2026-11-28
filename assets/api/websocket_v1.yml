@@ -125,6 +125,12 @@ channels:
       instance swap — see MachineSnapshot. Commands are delivered to the machine
       the socket is currently bound to, not the one present when the socket was
       opened.
+      For UnifiedDe1 transports, state info, DE1/Bengle shot samples, shot
+      settings, water levels and MMR notification frames are mirrored once at
+      BLE/serial ingress, independently of typed subscribers. Initial reads,
+      replayed values, serial settings seeds and local settings writes do not
+      emit notify frames. Firmware-map and calibration notifications retain
+      typed-only delivery. Raw command read/write receipts are unchanged.
     address: ws/v1/machine/raw
     messages:
       machineRawMessage:
@@ -739,7 +745,8 @@ components:
               enum: [advance, stop, abort, terminal, finalize]
               description: >
                 advance = profile moved to the next step; stop = pour ended;
-                abort = shot blocked before it ran; terminal = abnormal end
+                abort = shot blocked or cancelled before extraction (no scale, or no
+                confirmed scale zero by the time flow started); terminal = abnormal end
                 (error/disconnect); finalize = post-stop settling window
                 closed (not why the shot stopped).
             reason:
@@ -747,8 +754,8 @@ components:
               description: >
                 OPEN SET — tolerate unknown values from newer builds. Known:
                 targetWeight, targetVolume, apiStop, appStop, machineEnded,
-                profileAdvance, profileSkip, noScale, error, disconnected,
-                stoppingBackstop.
+                profileAdvance, profileSkip, noScale, tareUnconfirmed, error,
+                disconnected, stoppingBackstop.
             details:
               type: string
               nullable: true
@@ -1109,6 +1116,8 @@ components:
             restriction. A preferred scale sighting requests scan termination;
             connection begins only after successful teardown, without restarting
             exhaustive discovery. Ineligible requests retain full explicit scans.
+            The usb-hds:any family preference always waits for scan completion
+            to detect multiple matching scales.
             Failed or uncertain BLE teardown never starts an early connection.
             If an early-stop request fails but the scan later completes normally
             with BLE ownership released, normal post-scan connection policy applies.

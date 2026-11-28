@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:math';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/controllers/connection/connection_timings.dart';
@@ -31,6 +32,7 @@ import 'package:reaprime/src/models/device/ble_service_identifier.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:reaprime/src/models/device/transport/logical_endpoint.dart';
 import 'package:reaprime/src/models/errors.dart';
+import 'package:reaprime/src/services/firmware/de1_firmware_header.dart';
 import 'package:rxdart/rxdart.dart';
 
 part 'firmware_mmr_gate.dart';
@@ -60,7 +62,7 @@ final class _FirmwareCancellationToken {
 class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
   static final BleServiceIdentifier advertisingIdentifier =
       BleServiceIdentifier.short('ffff');
-  final UnifiedDe1Transport _transport;
+  late final UnifiedDe1Transport _transport;
   final CanonicalDeviceIdentity? _transportIdentity;
   final _firmwareMmrGate = _FirmwareMmrGate();
   final Duration firmwareEraseTimeout;
@@ -71,62 +73,64 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
 
   final Logger _log = Logger("DE1");
 
-  Stream<ByteData>? _cachedMmrStream;
-
   UnifiedDe1({
     required DataTransport transport,
     this.firmwareEraseTimeout = const Duration(seconds: 60),
     this.firmwareVerificationTimeout = const Duration(seconds: 120),
     this.calibrationTimeout = const Duration(seconds: 4),
-  }) : _transport = UnifiedDe1Transport(transport: transport),
-       _transportIdentity = transport is CanonicalDeviceIdentity
+  }) : _transportIdentity = transport is CanonicalDeviceIdentity
            ? transport as CanonicalDeviceIdentity
-           : null;
+           : null {
+    _transport = UnifiedDe1Transport(
+      transport: transport,
+      onNotification: notifyFrom,
+      onSessionRecoveryStarted: _onTransportRecoveryStarted,
+      onSessionRecovered: _onTransportRecovered,
+    );
+  }
 
   @override
   Stream<ConnectionState> get connectionState => _transport.connectionState;
 
-  late final Stream<MachineSnapshot> _de1Snapshot = _buildSnapshotStream(
-    _transport.shotSample,
-    Endpoint.shotSample,
-    _parseStateAndShotSample,
-  );
+  @visibleForTesting
+  bool get debugHasCalibrationListener =>
+      _transport.debugHasCalibrationListener;
 
-  late final Stream<MachineSnapshot> _bengleSnapshot = _buildSnapshotStream(
-    _transport.bengleShotSample,
-    Endpoint.bengleShotSample,
-    _parseStateAndBengleShotSample,
-  );
+  Stream<MachineSnapshot>? _snapshot;
+  int _snapshotGeneration = -1;
 
   Stream<MachineSnapshot> _buildSnapshotStream(
     Stream<ByteData> source,
-    Endpoint endpoint,
     MachineSnapshot? Function(ByteData, ByteData) parse,
   ) => source
-      .map((data) {
-        notifyFrom(endpoint, data.buffer.asUint8List());
-        return data;
+      .withLatestFrom(_transport.state, (shot, state) {
+        final snapshot = parse(state, shot);
+        if (snapshot != null) {
+          _log.finest("new state: ${snapshot.toJson()}");
+        }
+        return snapshot;
       })
-      .withLatestFrom(
-        _transport.state.map((data) {
-          notifyFrom(Endpoint.stateInfo, data.buffer.asUint8List());
-          return data;
-        }),
-        (shot, state) {
-          final snapshot = parse(state, shot);
-          if (snapshot != null) {
-            _log.finest("new state: ${snapshot.toJson()}");
-          }
-          return snapshot;
-        },
-      )
       .where((snapshot) => snapshot != null)
       .map((snapshot) => snapshot!)
       .shareReplay(maxSize: 1);
 
   @override
-  Stream<MachineSnapshot> get currentSnapshot =>
-      implementation == .bengle ? _bengleSnapshot : _de1Snapshot;
+  Stream<MachineSnapshot> get currentSnapshot {
+    final generation = _transport.connectionGeneration;
+    if (_snapshotGeneration != generation) {
+      _snapshotGeneration = generation;
+      _snapshot = implementation == .bengle
+          ? _buildSnapshotStream(
+              _transport.bengleShotSample,
+              _parseStateAndBengleShotSample,
+            )
+          : _buildSnapshotStream(
+              _transport.shotSample,
+              _parseStateAndShotSample,
+            );
+    }
+    return _snapshot!;
+  }
 
   MachineState? get latestMachineState {
     final stateInfo = _transport.latestStateInfo;
@@ -265,16 +269,145 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
 
   @override
   Future<double> getFlowEstimation() async {
+    final generation = _transport.connectionGeneration;
     final epoch = _flowEstimationEpoch;
-    final value = await _readMMRScaled(MMRItem.calFlowEst);
-    if (epoch == _flowEstimationEpoch) {
-      _cachedFlowEstimation = value;
+    final double value;
+    try {
+      value = await _readMMRScaled(MMRItem.calFlowEst);
+    } catch (_) {
+      if (_flowEstimationSessionUnchanged(generation, epoch)) {
+        _cachedFlowEstimation = null;
+        _cachedFlowEstimationGeneration = generation;
+      }
+      rethrow;
+    }
+    if (_flowEstimationSessionUnchanged(generation, epoch)) {
+      _rememberFlowEstimation(value, generation);
     }
     return value;
   }
 
   @override
-  double? get cachedFlowEstimation => _cachedFlowEstimation;
+  double? get cachedFlowEstimation {
+    if (_cachedFlowEstimationGeneration != _transport.connectionGeneration) {
+      return null;
+    }
+    return _cachedFlowEstimation;
+  }
+
+  bool _flowEstimationSessionUnchanged(int generation, int epoch) =>
+      generation == _transport.connectionGeneration &&
+      epoch == _flowEstimationEpoch;
+
+  void _rememberFlowEstimation(double value, int generation) {
+    _cachedFlowEstimation = value;
+    _cachedFlowEstimationGeneration = generation;
+  }
+
+  void _forgetFlowEstimation() {
+    ++_flowEstimationEpoch;
+    _cachedFlowEstimation = null;
+    _cachedFlowEstimationGeneration = -1;
+    _recoveryStartOwner = null;
+    _recoveredGeneration = -1;
+  }
+
+  Future<void> _refreshFlowEstimation() async {
+    try {
+      await getFlowEstimation();
+    } catch (e) {
+      _log.warning('Could not read flow calibration: $e');
+    }
+  }
+
+  bool _automaticObservationLive(Object? owner, int generation) =>
+      _sessionActive &&
+      identical(_sessionOwner, owner) &&
+      generation >= 0 &&
+      generation == _transport.connectionGeneration;
+
+  Future<bool> _observeFlowEstimationAutomatically() async {
+    if (!_sessionActive) return false;
+    final owner = _sessionOwner;
+    final generation = _recoveredGeneration;
+    try {
+      return await _firmwareMmrGate.runMmr(() async {
+        if (!_automaticObservationLive(owner, generation)) return false;
+        final List<int> response;
+        try {
+          response = await _mmrReadRawPermitted(
+            MMRItem.calFlowEst.address,
+            label: MMRItem.calFlowEst.name,
+          );
+        } catch (_) {
+          if (_automaticObservationLive(owner, generation)) {
+            _cachedFlowEstimation = null;
+            _cachedFlowEstimationGeneration = generation;
+          }
+          rethrow;
+        }
+        if (!_automaticObservationLive(owner, generation)) return false;
+        _rememberFlowEstimation(
+          _unpackMMRInt(response).toDouble() * MMRItem.calFlowEst.readScale,
+          generation,
+        );
+        return true;
+      });
+    } catch (e) {
+      _log.warning('Could not read flow calibration automatically: $e');
+      return false;
+    }
+  }
+
+  static const _maxRecoveryRefreshAttempts = 2;
+
+  bool _recoveryRefreshRunning = false;
+  bool _recoveryRefreshQueued = false;
+
+  void _onTransportRecoveryStarted(int token) {
+    if (!_sessionActive) return;
+    _recoveryToken = token;
+    _recoveryStartOwner = _sessionOwner;
+    _recoveredGeneration = -1;
+  }
+
+  void _onTransportRecovered(int token) {
+    if (token != _recoveryToken) return;
+    if (!_sessionActive || !identical(_sessionOwner, _recoveryStartOwner)) {
+      return;
+    }
+    _recoveredGeneration = _transport.connectionGeneration;
+    ++_recoverySequence;
+    if (_recoveryRefreshRunning) {
+      _recoveryRefreshQueued = true;
+      return;
+    }
+    unawaited(_runRecoveryRefresh());
+  }
+
+  Future<void> _runRecoveryRefresh() async {
+    _recoveryRefreshRunning = true;
+    var owner = _sessionOwner;
+    var attempt = 0;
+    try {
+      while (true) {
+        _recoveryRefreshQueued = false;
+        ++attempt;
+        final observed = await _observeFlowEstimationAutomatically();
+        if (observed) return;
+        if (!_recoveryRefreshQueued) return;
+        if (!identical(_sessionOwner, owner)) {
+          owner = _sessionOwner;
+          attempt = 0;
+          continue;
+        }
+        if (attempt >= _maxRecoveryRefreshAttempts) return;
+      }
+    } finally {
+      _recoveryRefreshRunning = false;
+      _recoveryRefreshQueued = false;
+    }
+  }
 
   @override
   Future<int> getSteamPurgeMode() async {
@@ -403,8 +536,16 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
   int _refillKitDetected = -1;
   De1RefillKitSettings _refillKitSetting = De1RefillKitSettings.auto;
   double? _cachedFlowEstimation;
+  int _cachedFlowEstimationGeneration = -1;
   int _flowEstimationEpoch = 0;
+  Object? _sessionOwner;
+  int _recoveryToken = 0;
+  Object? _recoveryStartOwner;
+  int _recoveredGeneration = -1;
+  int _recoverySequence = 0;
   int? _connectedModelValue;
+
+  bool get _sessionActive => _sessionOwner != null;
 
   @protected
   int get connectedModelValue => _connectedModelValue!;
@@ -412,56 +553,69 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
   @override
   Future<void> onConnect() async {
     initRawStream();
-    await _transport.connect();
-
-    _currentProfile = null;
-    clearEffectiveIdentity();
-
-    if (_info != null) {
-      return;
-    }
-
-    final model = _unpackMMRInt(await _mmrRead(MMRItem.v13Model));
-    _connectedModelValue = model;
-    if (isBengleModelValue(model) && implementation != .bengle) {
-      _log.warning(
-        'Device model $model indicates Bengle hardware; '
-        'continuing in degraded DE1-compatible mode.',
-      );
-    }
-    final ghcInfo = _unpackMMRInt(await _mmrRead(MMRItem.ghcInfo));
-    final serial = _unpackMMRInt(await _mmrRead(MMRItem.serialN));
-    final firmware = _unpackMMRInt(await _mmrRead(MMRItem.cpuFirmwareBuild));
-    _voltage = _unpackMMRInt(await _mmrRead(MMRItem.heaterV));
-    _refillKitDetected = _unpackMMRInt(
-      await _mmrRead(MMRItem.refillKitPresent),
-    );
+    final owner = Object();
+    _sessionOwner = owner;
+    _forgetFlowEstimation();
     try {
-      _cachedFlowEstimation = await getFlowEstimation();
-    } catch (e) {
-      _log.warning('Could not read flow calibration on connect: $e');
+      await _transport.connect();
+
+      _currentProfile = null;
+      clearEffectiveIdentity();
+
+      if (_info != null) {
+        if (_sessionActive) await _refreshFlowEstimation();
+        return;
+      }
+
+      final model = _unpackMMRInt(await _mmrRead(MMRItem.v13Model));
+      _connectedModelValue = model;
+      if (isBengleModelValue(model) && implementation != .bengle) {
+        _log.warning(
+          'Device model $model indicates Bengle hardware; '
+          'continuing in degraded DE1-compatible mode.',
+        );
+      }
+      final ghcInfo = _unpackMMRInt(await _mmrRead(MMRItem.ghcInfo));
+      final serial = _unpackMMRInt(await _mmrRead(MMRItem.serialN));
+      final firmware = _unpackMMRInt(await _mmrRead(MMRItem.cpuFirmwareBuild));
+      _voltage = _unpackMMRInt(await _mmrRead(MMRItem.heaterV));
+      _refillKitDetected = _unpackMMRInt(
+        await _mmrRead(MMRItem.refillKitPresent),
+      );
+      if (_sessionActive) await _refreshFlowEstimation();
+
+      _info = MachineInfo(
+        version: "$firmware",
+        model: DecentMachineModel.fromInt(model).name,
+        serialNumber: "$serial",
+        groupHeadControllerPresent: (ghcInfo & 0x04) > 1,
+        extra: {
+          'refillKit': (_refillKitDetected & 0x01) != 0,
+          'voltage': _voltage,
+        },
+      );
+
+      _log.info("Info: ${_info!.toJson()}");
+
+      await _mmrWrite(MMRItem.refillKitPresent, [
+        De1RefillKitSettings.auto.hex,
+      ]);
+      _refillKitSetting = De1RefillKitSettings.auto;
+
+      await enableUserPresenceFeature();
+    } catch (_) {
+      if (identical(_sessionOwner, owner)) {
+        _sessionOwner = null;
+        _forgetFlowEstimation();
+      }
+      rethrow;
     }
-
-    _info = MachineInfo(
-      version: "$firmware",
-      model: DecentMachineModel.fromInt(model).name,
-      serialNumber: "$serial",
-      groupHeadControllerPresent: (ghcInfo & 0x04) > 1,
-      extra: {
-        'refillKit': (_refillKitDetected & 0x01) != 0,
-        'voltage': _voltage,
-      },
-    );
-
-    _log.info("Info: ${_info!.toJson()}");
-
-    await _mmrWrite(MMRItem.refillKitPresent, [De1RefillKitSettings.auto.hex]);
-    _refillKitSetting = De1RefillKitSettings.auto;
-
-    await enableUserPresenceFeature();
   }
 
-  Future<void> onDisconnect() async {}
+  Future<void> onDisconnect() async {
+    _sessionOwner = null;
+    _forgetFlowEstimation();
+  }
 
   final StreamController<De1RawMessage> _rawMessageController =
       StreamController.broadcast();
@@ -636,12 +790,29 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
   }
 
   Future<void> _setFlowEstimationLocked(double multiplier) async {
-    final effective =
-        _scaledClampedMMRInt(MMRItem.calFlowEst, multiplier).toDouble() *
-        MMRItem.calFlowEst.readScale;
-    await _writeMMRScaled(MMRItem.calFlowEst, multiplier);
+    final epoch = _flowEstimationEpoch;
+    final rawValue = _scaledClampedMMRInt(MMRItem.calFlowEst, multiplier);
+    final effective = rawValue.toDouble() * MMRItem.calFlowEst.readScale;
+    var dispatchGeneration = -1;
+    var dispatchRecoverySequence = 0;
+    await _firmwareMmrGate.runMmr(() async {
+      dispatchGeneration = _transport.connectionGeneration;
+      dispatchRecoverySequence = _recoverySequence;
+      await _mmrWriteRawPermitted(
+        MMRItem.calFlowEst.address,
+        _packMMRInt(rawValue),
+        label: MMRItem.calFlowEst.name,
+      );
+    });
+    if (epoch != _flowEstimationEpoch) return;
     ++_flowEstimationEpoch;
-    _cachedFlowEstimation = effective;
+    if (dispatchRecoverySequence != _recoverySequence) {
+      await _observeFlowEstimationAutomatically();
+      return;
+    }
+    if (dispatchGeneration == _transport.connectionGeneration) {
+      _rememberFlowEstimation(effective, dispatchGeneration);
+    }
   }
 
   @override
@@ -708,13 +879,8 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
   }
 
   @override
-  Stream<De1ShotSettings> get shotSettings => _transport.shotSettings
-      .map((d) {
-        notifyFrom(Endpoint.shotSettings, d.buffer.asUint8List());
-        return d;
-      })
-      .map(_parseShotSettings)
-      .distinct();
+  Stream<De1ShotSettings> get shotSettings =>
+      _transport.shotSettings.map(_parseShotSettings).distinct();
 
   @override
   DeviceType get type => DeviceType.machine;
@@ -790,12 +956,8 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
   }
 
   @override
-  Stream<De1WaterLevels> get waterLevels => _transport.waterLevels
-      .map((d) {
-        notifyFrom(Endpoint.waterLevels, d.buffer.asUint8List());
-        return d;
-      })
-      .map(_parseWaterLevels);
+  Stream<De1WaterLevels> get waterLevels =>
+      _transport.waterLevels.map(_parseWaterLevels);
 
   @protected
   Logger get log => _log;
@@ -947,13 +1109,7 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
     }
   }
 
-  Stream<ByteData> get _mmr {
-    _cachedMmrStream ??= _transport.mmr.map((d) {
-      notifyFrom(Endpoint.readFromMMR, d.buffer.asUint8List());
-      return d;
-    }).asBroadcastStream();
-    return _cachedMmrStream!;
-  }
+  Stream<ByteData> get _mmr => _transport.mmr;
 
   @override
   Future<De1HeaterVoltage> getHeaterVoltage() async {

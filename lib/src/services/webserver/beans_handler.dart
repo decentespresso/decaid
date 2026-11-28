@@ -64,6 +64,15 @@ class BeansHandler {
         maxBytes: largeRequestBodyBytes,
       );
       final json = jsonDecode(body) as Map<String, dynamic>;
+      for (final field in const ['roaster', 'name']) {
+        final value = json[field];
+        if (value is! String || value.trim().isEmpty) {
+          return jsonBadRequest({
+            'error': 'Invalid request',
+            'message': '$field is required',
+          });
+        }
+      }
       final bean = Bean.create(
         roaster: json['roaster'] as String,
         name: json['name'] as String,

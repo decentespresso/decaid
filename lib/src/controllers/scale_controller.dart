@@ -171,6 +171,20 @@ class ScaleController {
     return _scale!;
   }
 
+  static const Duration defaultTareRetryInterval = Duration(seconds: 1);
+
+  Duration get tareRetryInterval {
+    final Scale scale;
+    try {
+      scale = connectedScale();
+    } on Object {
+      return defaultTareRetryInterval;
+    }
+    return scale is TareRetryIntervalScale
+        ? (scale as TareRetryIntervalScale).tareRetryInterval
+        : defaultTareRetryInterval;
+  }
+
   final BehaviorSubject<ConnectionState> _connectionController =
       BehaviorSubject.seeded(ConnectionState.discovered);
 
@@ -209,6 +223,10 @@ class ScaleController {
   Future<void> tare() async {
     final scale = connectedScale();
     await scale.tare();
+    resetFlowEstimation();
+  }
+
+  void resetFlowEstimation() {
     _kalmanEstimator?.reset(0.0);
     _resetDisplayEstimator();
     _flowSettleUntil = _lastSnapshotTime?.add(_smoothingWindow);

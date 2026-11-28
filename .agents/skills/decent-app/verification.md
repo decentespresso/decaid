@@ -48,6 +48,37 @@ Boot the app with a mock machine connected, confirm REST is reachable and a DE1 
 
 Shortest loop: reload, re-hit the endpoint, diff the response against the spec. If the shape changed, update `assets/api/rest_v1.yml` or `assets/api/websocket_v1.yml` in the same commit, and update `doc/Api.md` / `doc/Plugins.md` if user-facing.
 
+## Driving a browser (skins, plugin UI, CDP probes)
+
+Run browser probes through the wrapper and retain explicit browser closure in `finally`. The wrapper adds crash recovery; it does not replace Playwright's normal shutdown. An open browser or referenced child stderr stream can keep Node alive, preventing the wrapper's EXIT cleanup from starting.
+
+```bash
+scripts/headless-chrome.sh run -- node /tmp/probe.mjs
+```
+
+The wrapper requires Python 3 for exact same-effective-user process-environment inspection on macOS/Linux; it never logs full environments. It exports `CHROME_BIN` and a fresh private `CHROME_PROFILE`, without reusing or removing a caller-supplied profile. Playwright requires `launchPersistentContext` to use this owned directory:
+
+```js
+import { chromium } from 'playwright';
+
+const context = await chromium.launchPersistentContext(process.env.CHROME_PROFILE, {
+  executablePath: process.env.CHROME_BIN,
+  headless: true,
+});
+try {
+  const page = context.pages()[0];
+  await page.goto('http://127.0.0.1:8080');
+} finally {
+  await context.close();
+}
+```
+
+Existing probes with a `browser` object must retain `finally { await browser.close(); }`. Persistent contexts close their browser with `context.close()` as above. Raw CDP probes must pass `--user-data-dir="$CHROME_PROFILE"` and explicitly close their browser and child streams. If supplying a custom child or Playwright environment, include `...process.env` so the inherited run marker survives.
+
+Wrapper-only INT/TERM stops the probe group and processes carrying its run marker. After an untrappable SIGKILL, run `scripts/headless-chrome.sh sweep` with the same `CHROME_RUNTIME_DIR` if overridden. Sweep checks managed profile ownership, actual inherited environment markers and process identity, preserving live runs and unmarked directories. Missing dependencies, unsupported platforms or an unreadable required scan produce an error and retain recovery state rather than claiming cleanup succeeded. It does not recover arbitrary detached processes that strip the run marker, or profiles from older unmarked wrappers. Standalone profile allocation with `path` is intentionally unsupported because it cannot propagate run ownership into a later caller. Review those separately rather than killing unrelated Chrome sessions.
+
+Run `node --test scripts/test_headless_chrome.mjs` and `python3 -B scripts/test_headless_chrome_processes.py` for CLI/process/reader regressions. To include real Playwright lifecycle tests, set `CHROME_BIN` to an installed browser and `HEADLESS_CHROME_PLAYWRIGHT_MODULE` to an existing Playwright module path; no browser is downloaded by this test.
+
 ## Physical Android device
 
 See the `decent-dev` skill for the tablet loop (stay-awake, `--dart-define` argument form, tap-target discovery, screenshots) and the onboarding flags. This file covers the app's runtime surface, not the development loop.

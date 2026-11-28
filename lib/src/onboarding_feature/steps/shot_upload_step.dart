@@ -21,6 +21,8 @@ const shotUploadReversibleCopy = 'You can change this later in Settings.';
 OnboardingStep createShotUploadStep({
   required DecentAccountService accountService,
   required SettingsController settingsController,
+  Future<bool?> Function() persistedAutoUpload =
+      persistedShotUploadAutoUploadSetting,
 }) {
   return OnboardingStep(
     id: 'shot-upload',
@@ -29,6 +31,7 @@ OnboardingStep createShotUploadStep({
       onboardingController: controller,
       accountService: accountService,
       settingsController: settingsController,
+      persistedAutoUpload: persistedAutoUpload,
     ),
   );
 }
@@ -71,10 +74,12 @@ class _ShotUploadStepView extends StatefulWidget {
   final OnboardingController onboardingController;
   final DecentAccountService accountService;
   final SettingsController settingsController;
+  final Future<bool?> Function() persistedAutoUpload;
   const _ShotUploadStepView({
     required this.onboardingController,
     required this.accountService,
     required this.settingsController,
+    required this.persistedAutoUpload,
   });
 
   @override
@@ -82,8 +87,8 @@ class _ShotUploadStepView extends StatefulWidget {
 }
 
 class _ShotUploadStepViewState extends State<_ShotUploadStepView> {
-  late bool _optedIn =
-      widget.settingsController.shotUploadPendingDecision ?? false;
+  bool _optedIn = false;
+  bool? _priorAnswer;
   bool? _linkedAccount;
   bool _committing = false;
   String? _error;
@@ -91,33 +96,61 @@ class _ShotUploadStepViewState extends State<_ShotUploadStepView> {
   @override
   void initState() {
     super.initState();
-    _checkAccount();
+    _initialize();
   }
 
-  Future<void> _checkAccount() async {
+  Future<void> _initialize() async {
+    final bool linked;
     try {
-      final linked = await widget.accountService.hasLinkedAccount();
-      if (!mounted) return;
-      if (!linked) {
-        widget.onboardingController.advance();
-        return;
-      }
-      setState(() => _linkedAccount = true);
+      linked = await widget.accountService.hasLinkedAccount();
     } catch (e) {
       _log.warning('failed to check linked account', e);
       if (mounted) {
         setState(() => _error = 'Could not check your account. Try again.');
       }
+      return;
     }
+    if (!mounted) return;
+    if (!linked) {
+      widget.onboardingController.advance();
+      return;
+    }
+    bool? prior;
+    try {
+      prior = await _resolvePriorAnswer();
+    } catch (e) {
+      _log.warning('failed to read the stored shot upload setting', e);
+      if (mounted) {
+        setState(
+          () => _error = 'Could not load your shot upload setting. Try again.',
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _priorAnswer = prior;
+      _optedIn = prior ?? false;
+      _linkedAccount = true;
+    });
   }
 
-  Future<void> _retryAccountCheck() async {
+  Future<bool?> _resolvePriorAnswer() async {
+    final pending = widget.settingsController.shotUploadPendingDecision;
+    if (pending != null) return pending;
+    final persisted = await widget.persistedAutoUpload();
+    if (persisted != null) return persisted;
+    return widget.settingsController.shotUploadRecordedAnswer;
+  }
+
+  Future<void> _retry() async {
     if (_committing) return;
     setState(() {
       _error = null;
       _linkedAccount = null;
+      _priorAnswer = null;
     });
-    await _checkAccount();
+    await _initialize();
   }
 
   Future<void> _continue() async {
@@ -126,8 +159,13 @@ class _ShotUploadStepViewState extends State<_ShotUploadStepView> {
       _committing = true;
       _error = null;
     });
+    final prior = _priorAnswer;
     try {
-      await widget.settingsController.setShotUploadDecision(_optedIn);
+      if (prior != null && _optedIn == prior) {
+        await widget.settingsController.setShotUploadStepSeen(true);
+      } else {
+        await widget.settingsController.setShotUploadDecision(_optedIn);
+      }
       if (!mounted) return;
       widget.onboardingController.advance();
     } catch (e) {
@@ -154,11 +192,8 @@ class _ShotUploadStepViewState extends State<_ShotUploadStepView> {
         ],
         primaryAction: AccessibleButton(
           label: 'Retry',
-          onTap: _retryAccountCheck,
-          child: ShadButton(
-            onPressed: _retryAccountCheck,
-            child: const Text('Retry'),
-          ),
+          onTap: _retry,
+          child: ShadButton(onPressed: _retry, child: const Text('Retry')),
         ),
       );
     }

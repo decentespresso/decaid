@@ -1,6 +1,7 @@
 import 'package:reaprime/src/models/device/device_identity.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/scale.dart';
+import 'package:reaprime/src/models/device/scale_preference.dart';
 
 sealed class MachinePolicyAction {
   const MachinePolicyAction();
@@ -61,10 +62,13 @@ ScalePolicyAction resolveScalePolicy({
   required String? preferredScaleId,
 }) {
   if (preferredScaleId != null) {
-    final match = scales
-        .where((s) => s.deviceId == preferredScaleId)
-        .firstOrNull;
-    if (match != null) return ConnectScaleAction(match);
+    final matches = scales
+        .where((scale) => matchesScalePreference(scale, preferredScaleId))
+        .toList();
+    if (matches.isNotEmpty &&
+        (preferredScaleId != usbHdsScalePreference || matches.length == 1)) {
+      return ConnectScaleAction(matches.first);
+    }
     if (scales.isNotEmpty) return const ScalePickerAction();
     return const NoScaleAction();
   }

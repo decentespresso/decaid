@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
+import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/calibration_codec.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
@@ -57,6 +58,18 @@ class _FailingCalibrationWriteTransport extends FakeBleTransport {
       withResponse: withResponse,
       timeout: timeout,
     );
+  }
+}
+
+class _FailNextConnectTransport extends FakeBleTransport {
+  int allowedConnects = 1;
+
+  @override
+  Future<void> connect() async {
+    if (allowedConnects-- <= 0) {
+      throw StateError('simulated connect failure');
+    }
+    await super.connect();
   }
 }
 
@@ -297,6 +310,136 @@ void main() {
     expect(de1.cachedFlowEstimation, closeTo(1.3, 1e-9));
   });
 
+  test('a reconnect on the same instance reads the machine again', () async {
+    expect(de1.cachedFlowEstimation, closeTo(1.0, 1e-9));
+
+    transport.queueMmrResponseInt(MMRItem.calFlowEst, 800);
+    await de1.onConnect();
+
+    expect(de1.cachedFlowEstimation, closeTo(0.8, 1e-9));
+    expect(
+      transport.writes.where(
+        (write) => write.characteristicUUID == Endpoint.writeToMMR.uuid,
+      ),
+      isEmpty,
+      reason: 'reconnecting must not write a calibration value',
+    );
+  });
+
+  test('a failed read on reconnect leaves the multiplier unknown', () async {
+    expect(de1.cachedFlowEstimation, closeTo(1.0, 1e-9));
+
+    transport.failMmrReadsForAddresses.add(MMRItem.calFlowEst.address);
+    await de1.onConnect();
+
+    expect(de1.cachedFlowEstimation, isNull);
+  });
+
+  test('a failed same-session read clears the stale multiplier', () async {
+    transport.queueMmrResponseInt(MMRItem.calFlowEst, 1300);
+    expect(await de1.getFlowEstimation(), closeTo(1.3, 1e-9));
+    expect(de1.cachedFlowEstimation, closeTo(1.3, 1e-9));
+
+    transport.failMmrReadsForAddresses.add(MMRItem.calFlowEst.address);
+    await expectLater(de1.getFlowEstimation(), throwsStateError);
+
+    expect(de1.cachedFlowEstimation, isNull);
+  });
+
+  test(
+    'a delayed failing read does not erase an explicit write result',
+    () async {
+      final gated = _GatedMmrWriteTransport()..queueOnConnectResponses();
+      final device = UnifiedDe1(transport: gated);
+      addTearDown(() async {
+        gated.swallowReads = false;
+        gated.holdWrites = false;
+        final release = gated.releaseWrite;
+        if (release != null && !release.isCompleted) release.complete();
+        await device.dispose();
+      });
+      await device.onConnect();
+      expect(device.cachedFlowEstimation, closeTo(1.0, 1e-9));
+
+      gated.swallowReads = true;
+      final pendingRead = expectLater(
+        device.getFlowEstimation(),
+        throwsA(isA<MmrTimeoutException>()),
+      );
+      await gated.readEntered.future;
+
+      gated.holdWrites = true;
+      final write = device.setFlowEstimation(1.5);
+
+      await pendingRead;
+      await gated.writeEntered.future;
+      expect(device.cachedFlowEstimation, closeTo(1.0, 1e-9));
+
+      gated.releaseWrite!.complete();
+      await write;
+      expect(device.cachedFlowEstimation, closeTo(1.5, 1e-9));
+
+      gated.emitNotification(Endpoint.readFromMMR, _mmrResponse(1300));
+      await pumpEventQueue();
+
+      expect(device.cachedFlowEstimation, closeTo(1.5, 1e-9));
+    },
+  );
+
+  test('a disconnect clears the session multiplier', () async {
+    expect(de1.cachedFlowEstimation, closeTo(1.0, 1e-9));
+
+    await de1.disconnect();
+
+    expect(de1.cachedFlowEstimation, isNull);
+  });
+
+  test('an unsolicited disconnect leaves the multiplier unknown', () async {
+    expect(de1.cachedFlowEstimation, closeTo(1.0, 1e-9));
+
+    transport.emitConnectionState(ConnectionState.disconnected);
+    await pumpEventQueue();
+
+    expect(de1.cachedFlowEstimation, isNull);
+  });
+
+  test('a failed connect leaves the multiplier unknown', () async {
+    final flaky = _FailNextConnectTransport()..queueOnConnectResponses();
+    final device = UnifiedDe1(transport: flaky);
+    addTearDown(device.dispose);
+    await device.onConnect();
+    expect(device.cachedFlowEstimation, closeTo(1.0, 1e-9));
+
+    await expectLater(device.onConnect(), throwsStateError);
+
+    expect(device.cachedFlowEstimation, isNull);
+  });
+
+  test(
+    'a write that finishes after the session ended does not restore the cache',
+    () async {
+      final gated = _GatedMmrWriteTransport()..queueOnConnectResponses();
+      final device = UnifiedDe1(transport: gated);
+      addTearDown(() async {
+        gated.holdWrites = false;
+        final release = gated.releaseWrite;
+        if (release != null && !release.isCompleted) release.complete();
+        await device.dispose();
+      });
+      await device.onConnect();
+      gated.writes.clear();
+
+      gated.holdWrites = true;
+      final write = device.setFlowEstimation(1.5);
+      await gated.writeEntered.future;
+      await device.onDisconnect();
+      gated.releaseWrite!.complete();
+      await write;
+
+      expect(device.cachedFlowEstimation, isNull);
+    },
+  );
+
   test(
     'overlapping flow writes complete in order with the latest value cached',
     () async {
@@ -503,6 +646,43 @@ void main() {
       de1.readCalibration(De1CalibrationTarget.flow),
       throwsA(isA<EndpointUnavailableException>()),
     );
+    expect(de1.debugHasCalibrationListener, isFalse);
+  });
+
+  test('successful reads release calibration listeners', () async {
+    for (var i = 0; i < 3; i++) {
+      final response = de1.readCalibration(De1CalibrationTarget.flow);
+      await pumpEventQueue();
+      expect(de1.debugHasCalibrationListener, isTrue);
+      transport.emitNotification(Endpoint.calibration, _packet(measured: 1.25));
+      await response;
+      expect(de1.debugHasCalibrationListener, isFalse);
+    }
+  });
+
+  test('disconnect terminates the active calibration response wait', () async {
+    final response = expectLater(
+      de1.readCalibration(De1CalibrationTarget.flow),
+      throwsA(isA<EndpointUnavailableException>()),
+    );
+    await pumpEventQueue();
+    await de1.disconnect();
+    await response;
+    expect(de1.debugHasCalibrationListener, isFalse);
+  });
+
+  test('failed read dispatch cancels its response listener', () async {
+    final failingTransport = _FailingCalibrationWriteTransport()
+      ..queueOnConnectResponses();
+    final failingDe1 = UnifiedDe1(transport: failingTransport);
+    await failingDe1.onConnect();
+    addTearDown(failingDe1.dispose);
+
+    await expectLater(
+      failingDe1.readCalibration(De1CalibrationTarget.flow),
+      throwsStateError,
+    );
+    expect(failingDe1.debugHasCalibrationListener, isFalse);
   });
 
   test('concurrent calibration operations are serialized', () async {

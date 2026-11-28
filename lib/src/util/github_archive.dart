@@ -1,9 +1,9 @@
 import 'dart:convert';
 
-import 'package:http/http.dart' as http;
 import 'package:reaprime/src/services/github_credentials.dart';
 import 'package:reaprime/src/services/github_rate_limit.dart';
 import 'package:reaprime/src/services/github_request.dart';
+import 'package:reaprime/src/services/release_request.dart';
 import 'package:reaprime/src/util/remote_error.dart';
 import 'package:reaprime/src/util/user_facing_exception.dart';
 
@@ -178,7 +178,7 @@ String gitHubCommitArchiveUrl(String repo, String commit) =>
     'https://github.com/$repo/archive/$commit.zip';
 
 Future<List<int>> downloadGitHubArchive(String url) async {
-  final response = await http.get(Uri.parse(url));
+  final response = await releaseGet(url);
   if (response.statusCode != 200) {
     throw remoteHttpError(response.statusCode);
   }

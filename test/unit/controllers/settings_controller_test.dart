@@ -33,6 +33,17 @@ class _SpySettingsService implements SettingsService {
     _simulatedDevices = value;
   }
 
+  int setMockDe1GhcPresentCallCount = 0;
+  bool _mockDe1GhcPresent = false;
+
+  @override
+  Future<bool> mockDe1GhcPresent() async => _mockDe1GhcPresent;
+  @override
+  Future<void> setMockDe1GhcPresent(bool value) async {
+    setMockDe1GhcPresentCallCount++;
+    _mockDe1GhcPresent = value;
+  }
+
   @override
   Future<bool> enableSimulatedWebViews() async => _enableSimulatedWebViews;
   @override
@@ -270,6 +281,22 @@ void main() {
     });
   });
 
+  group('SettingsController.setMockDe1GhcPresent', () {
+    test('persists, notifies, and skips no-op writes', () async {
+      final spy = _SpySettingsService();
+      final controller = SettingsController(spy);
+      var notified = 0;
+      controller.addListener(() => notified++);
+
+      await controller.setMockDe1GhcPresent(true);
+      await controller.setMockDe1GhcPresent(true);
+
+      expect(controller.mockDe1GhcPresent, isTrue);
+      expect(spy.setMockDe1GhcPresentCallCount, 1);
+      expect(notified, 1);
+    });
+  });
+
   group('SettingsController.setEnableSimulatedWebViews', () {
     test('persists and updates the in-memory value', () async {
       final spy = _SpySettingsService();
@@ -459,7 +486,7 @@ void main() {
               : {'plugin.settings.shot-upload.reaplugin': raw},
         );
         final settings = await settingsWithSeen(false);
-        await prepareShotUploadStartup(
+        await prepareOnboardingStartup(
           settings,
           forceOnboarding: false,
           bypassOnboarding: false,
@@ -472,7 +499,7 @@ void main() {
             '{"AutoUpload":true,"autoload":false}',
       });
       final settings = await settingsWithSeen(false);
-      await prepareShotUploadStartup(
+      await prepareOnboardingStartup(
         settings,
         forceOnboarding: false,
         bypassOnboarding: false,
@@ -488,7 +515,7 @@ void main() {
         await service.setShotUploadStepSeen(false);
         final first = SettingsController(service);
         await first.loadSettings();
-        await prepareShotUploadStartup(
+        await prepareOnboardingStartup(
           first,
           forceOnboarding: false,
           bypassOnboarding: true,
@@ -497,13 +524,13 @@ void main() {
         await second.loadSettings();
         expect(second.shotUploadStepSeen, isTrue);
 
-        await prepareShotUploadStartup(
+        await prepareOnboardingStartup(
           second,
           forceOnboarding: true,
           bypassOnboarding: false,
         );
         expect(second.shotUploadStepSeen, isFalse);
-        await prepareShotUploadStartup(
+        await prepareOnboardingStartup(
           second,
           forceOnboarding: true,
           bypassOnboarding: true,
@@ -524,7 +551,7 @@ void main() {
         await service.setShotUploadOptIn(true);
         final settings = SettingsController(service);
         await settings.loadSettings();
-        await prepareShotUploadStartup(
+        await prepareOnboardingStartup(
           settings,
           forceOnboarding: false,
           bypassOnboarding: false,

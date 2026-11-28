@@ -37,6 +37,13 @@ The single BLE transport is `UniversalBleTransport` in `lib/src/services/ble/uni
 
 `UnifiedDe1Transport` wraps `UniversalBleTransport` and adds MMR read/write on top of raw characteristic I/O. It provides `rawData` stream, `readMmr()`, `writeMmr()`, and typed connection guards (`DeviceNotConnectedException.machine()` on read/write when disconnected).
 
+Automatic BLE timeout recovery retires notification callbacks before awaiting
+link teardown. It clears replay caches with internal null values, filtered from
+the public streams, without closing active typed subscriptions. New snapshot
+getters therefore wait for current-session samples while existing subscribers
+resume after recovery. Firmware-map callbacks use the same generation fence but
+remain typed-only; they never enter the raw notification mirror.
+
 ## MMR read architecture
 
 Consecutive MMR settings words can share one request, reducing transport round
@@ -93,6 +100,46 @@ a BLE timeout; the managed firmware no-replay guarantee does not cover them.
 Raw firmware dispatch safety needs a separately scoped issue that preserves
 ordinary settings recovery on the shared `writeToMMR` endpoint. See the
 [policy rationale and validation limits](plans/archive/1103-firmware-write-replay/README.md).
+
+### Firmware Update: Erase/Verify Poll Fallback
+
+FWMapRequest erase and verification are separate requests. Erase uses
+`FWToErase=1` with `FirstError=0`; verification uses `FWToErase=0` with
+`FirstError=0xffffff`. The erase completion frame observed by the protocol is
+`FWToErase=0`, `FWToMap=1`, and a zero first-error value. A verification
+success is the terminal `0xfffffd` first-error value; a zero-offset verification
+result (`0x000000`) is a terminal failure reported as `Firmware verification
+failed at 0x000000`, not success. Because FWMap has no request identifier, a zero
+erase acknowledgement observed after verify dispatch cannot be distinguished from
+that failure; the uploader chooses the safe failure rather than allowing it to
+succeed.
+
+BLE notifications remain the primary completion signal. Some BLE connections do
+not expose readable A009/FWMapRequest even though notifications work. After the
+transport reports the characteristic unavailable, polling is disabled for that
+connection rather than repeatedly issuing unsupported reads; the latch resets on
+reconnect. Serial retains its fresh-read request path, and other transports
+retain bounded polling fallback. Polling requires a post-dispatch,
+stage-appropriate busy/pending observation before it accepts erase completion or
+verification success. A poll-only device that completes before that brief frame
+is observed may time out safely; terminal verification failures, including zero,
+remain failures. The FWMap protocol has no request identifier, so a late frame
+that is indistinguishable from a current frame cannot be perfectly correlated;
+sequence fences only reject frames observed before dispatch and are not a
+universal delayed-frame freshness guarantee.
+
+The uploader validates size and, when the canonical DE1 marker is present,
+header bounds before erase. Full-image safety caps are 512 KiB for the DE1/legacy
+route and 960 KiB for the Bengle route, including every header, checksum, and
+padding byte. Canonical DE1 headers additionally cap the declared body at 504 KiB
+and retain the `image.length - 64` completeness lower bound. Unrecognized images
+use the actual device route's full-image cap; header bytes never infer a family.
+Manifest-backed managed artifacts receive the stricter validator in the firmware
+service. The outer HTTP 16 MiB request-body limit remains unchanged. Header
+readback after upload is not used:
+the upstream [`de1_comms.tcl` firmware flow](https://github.com/decentespresso/de1app/blob/9f5eebb32db2b283a951887ffc4cda9c5edcdd81/de1plus/de1_comms.tcl#L993-L1150)
+contains map requests and image writes but no established inactive-slot header
+readback operation, and no destructive probe is introduced.
 
 The HTTP handlers select DE1's verified coalesced groups and Bengle's individually
 validated groups; the steam-purge/USB group stays sequential. Dart extension
@@ -635,6 +682,15 @@ decisions, and queued observation work. Watch stop and adapter recovery are
 generation boundaries too; otherwise fresh Apple quick-connect system evidence
 is rejected by the previous cache generation.
 
+A preferred plugin scale sighted by `ScaleWatch` uses a single-use handover claim.
+The claim retains only that physical identity, plugin registry revision, driver
+runtime generation, adapter generation and advertisement evidence across the
+watch stop; plugin admission still checks current registry and runtime ownership
+before consuming it. Foreground scans, plugin changes, adapter shutdown,
+cancellation and disposal invalidate the claim. Failed watch connects use bounded
+retry delays so sightings cannot churn Android scan ownership. Native candidates
+and auxiliary scale reservations do not use this seam.
+
 Real-JS integration fixtures are in `test/plugins/plugin_manager_ble_test.dart`,
 `plugin_ble_native_bridge_test.dart`, and `plugin_ble_sensor_api_test.dart`. The
 last drives actual HTTP/WebSocket clients through DeviceController, SensorController,
@@ -652,66 +708,6 @@ metadata after disconnect or reconnect.
 
 Atomax does not publish a firmware update contract, so Decaid displays the
 revision only and does not infer update availability or implement Skale DFU.
-
-## Firmware Update: Erase/Verify Poll Fallback
-
-Some DE1 firmwares never emit the terminal firmware-map notification after erase
-or after verify. The old flow awaited that notify alone, so an update on such a
-machine timed out near completion even though the flash had finished.
-
-`UnifiedDe1Firmware._waitForFirmwareResponse` now races the existing notify
-future against `_pollFirmwareResponse`, which re-reads `fwMapRequest`
-(`Endpoint.fwMapRequest` / A009 / `[I]`) every 250 ms until a terminal response
-matches the stage predicate. Whichever arrives first wins. Firmware that does
-notify completes exactly as before; the poll simply loses the race.
-
-Terminal frames are 7 bytes: window, erase, map, then three error bytes. Erase
-is terminal only for `window=0, firmwareToErase=0, firmwareToMap=1` with error
-`ff ff ff`. During verify, that same `ff ff ff` error is pending/non-terminal;
-with the same first three fields, every other error tuple is terminal. `ff ff fd`
-is success, while `ff ff 01` is a terminal failure.
-
-### Both transports need a FRESH read
-
-`UnifiedDe1Transport.readFwMapRequestFresh` exists because the serial normal
-read path is cached, while BLE's public `read()` does make a fresh GATT read but
-is unsuitable here: timeout recovery may disconnect and reconnect mid-update.
-
-On **serial**, `_serialRead` hands back the last pushed `[I]` frame, which never
-changes once the firmware stops emitting the notify. `fwMapRequest` is already
-continuously `<+I>`-subscribed, and the firmware treats an add-notify as a
-force-update, so re-sending `<+I>` provokes a fresh `[I]`. Do not send the
-matching `<-I>` the way `_serialSingleNotifyRead` does: dropping the continuous
-subscription mid-update would blind the notify path that a stock DE1 still
-relies on.
-
-The read arms on the NEXT `[I]` frame before it provokes one. The subject
-replays its current value to a new listener, so the read skips one value - but
-only when the subject holds one. The subject is no longer seeded upstream, so an
-unconditional `skip(1)` would swallow the very frame the first poll of a
-connection provoked, and that read would time out.
-
-On **BLE**, a genuine GATT read of A009 returns the current value, but it must
-go through `_bleRead` rather than the public `read()`. `read()` recovers from a
-timeout with a disconnect and reconnect. This poll fires repeatedly across the
-flash-busy erase and verify windows, and tearing the link down mid-update would
-corrupt the in-flight firmware write. A failed poll read throws instead; the
-loop logs it and retries on the next cadence tick.
-
-### Timeout bounds
-
-| Bound | Value | Purpose |
-|---|---|---|
-| `_firmwareMapPollInterval` | 250 ms | Poll cadence. |
-| `_firmwareMapPollReadTimeout` | 2 s | Per-read bound, so one stalled read cannot hang the loop. |
-| `firmwareEraseTimeout` | 60 s | Whole erase stage. |
-| `firmwareVerificationTimeout` | 120 s | Whole verify stage. |
-
-The stage bounds were 30 s each. On-device erase and verify of a larger image
-can outlast 30 s while the machine emits only non-terminal frames, which tripped
-the outer timeout near completion. The stage bound is the only limit on the
-poll loop, so raising it grants more poll iterations and nothing else. A
-genuinely stuck erase still fails.
 
 Skale battery metadata uses the standard Battery Service (`0x180F`) and Battery
 Level characteristic (`0x2A19`). The value is optional device-reported metadata:

@@ -10,6 +10,7 @@ class ScanResultsSummary extends StatelessWidget {
   final VoidCallback onExportLogs;
   final VoidCallback onContinueToDashboard;
   final VoidCallback onTryDemoMode;
+  final String exitLabel;
 
   const ScanResultsSummary({
     super.key,
@@ -19,6 +20,7 @@ class ScanResultsSummary extends StatelessWidget {
     required this.onExportLogs,
     required this.onContinueToDashboard,
     required this.onTryDemoMode,
+    this.exitLabel = 'Continue to Dashboard',
   });
 
   @override
@@ -132,11 +134,11 @@ class ScanResultsSummary extends StatelessWidget {
                     ],
                   ),
                   AccessibleButton(
-                    label: 'Continue to Dashboard',
+                    label: exitLabel,
                     onTap: onContinueToDashboard,
-                    child: ShadButton.secondary(
+                    child: ShadButton.outline(
                       onPressed: onContinueToDashboard,
-                      child: const Text('Continue to Dashboard'),
+                      child: Text(exitLabel),
                     ),
                   ),
                 ],

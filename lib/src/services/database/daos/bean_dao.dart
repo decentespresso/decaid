@@ -63,7 +63,10 @@ class BeanDao extends DatabaseAccessor<AppDatabase> with _$BeanDaoMixin {
   }
 
   Future<void> deleteBean(String id) {
-    return (delete(beans)..where((b) => b.id.equals(id))).go();
+    return transaction(() async {
+      await (delete(beanBatches)..where((b) => b.beanId.equals(id))).go();
+      await (delete(beans)..where((b) => b.id.equals(id))).go();
+    });
   }
 
   Future<List<BeanBatche>> getAllBatches({bool includeArchived = false}) {

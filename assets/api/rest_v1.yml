@@ -224,7 +224,9 @@ paths:
             after successful scan teardown, without restarting full discovery.
             Pending machine/selection work, occupied slots, auxiliary claims,
             and sleeping-scale restrictions disable the shortcut. Otherwise the
-            normal full explicit scan applies. Failed or uncertain BLE teardown
+            normal full explicit scan applies. The usb-hds:any family preference
+            always waits for scan completion to detect multiple matching scales.
+            Failed or uncertain BLE teardown
             never starts an early connection. If an early-stop request fails but
             the scan later completes normally with BLE ownership released, normal
             post-scan connection policy applies. Unrelated discovery failures do
@@ -1054,8 +1056,9 @@ paths:
         steam purge mode), and clears the retained fan/refill-kit overrides for the
         connected machine only. Flow calibration and the water refill threshold are
         left untouched: no calibration or water-levels packet is sent, neither machine
-        value is read or modified, and both saved per-machine overrides are preserved
-        for the next connection.
+        value is read or modified, and the saved refill-level override is preserved
+        for the next connection. A legacy per-machine flow estimation multiplier is
+        never replayed, so reset does not restore a calibration override.
         Profile and workflow are not touched. A reset acknowledgement is not evidence
         of factory restoration.
       tags: [Machine]
@@ -1072,7 +1075,9 @@ paths:
       summary: Get machine calibration settings
       description: |
         Returns the current flow estimation calibration multiplier from the DE1
-        (calFlowEst MMR). For DE1 sensor calibration (flow/pressure/temperature)
+        (calFlowEst MMR), read from the machine on every request. This read never
+        writes the MMR, and a read failure is reported as an error rather than a
+        fabricated 1.0. For DE1 sensor calibration (flow/pressure/temperature)
         see GET /api/v1/machine/calibration/{target}.
       tags: [Machine]
       responses:
@@ -1082,14 +1087,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/De1CalibrationResponse"
+        "500":
+          description: No machine was connected, or the machine did not report a flow estimation multiplier
     post:
       summary: Set machine calibration settings
       description: |
-        Updates the flow estimation calibration multiplier on the DE1 (calFlowEst MMR) and persists
-        the requested multiplier for this machine. The override is keyed by raw serial number, or
-        the device ID when no usable serial exists, and is reapplied on the next connection. A
-        settings reset preserves this machine's saved override. For DE1 sensor calibration
-        (flow/pressure/temperature) see PUT /api/v1/machine/calibration/{target}.
+        Writes the flow estimation calibration multiplier to the DE1 (calFlowEst MMR). The write is
+        explicit and applies to the current session only: the value is not persisted per machine and
+        is never replayed on reconnect, app restart, or settings reset. Every connection reads the
+        machine's own value, so the machine stays authoritative; whether the firmware retains the
+        written value across a DE1 power cycle is unverified and manual calibration may be needed
+        after power loss. For DE1 sensor calibration (flow/pressure/temperature) see
+        PUT /api/v1/machine/calibration/{target}.
       tags: [Machine]
       requestBody:
         required: true
@@ -1764,6 +1773,12 @@ paths:
       responses:
         "200":
           description: Decent settings updated successfully
+        "400":
+          description: Invalid setting value, including an unsupported or absent session-only scale ID that cannot be saved as a durable preference
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "401":
           description: >-
             When protection is ON, the body changes the served skin, the
@@ -2032,7 +2047,10 @@ paths:
           description: |
             Filter by bean entity ID. Matches shots from every batch currently
             associated with the bean, including archived batches, so bean
-            renames do not break batch-backed shot history.
+            renames do not break batch-backed shot history. Matching resolves
+            through the bean's live batches, so shots whose bean and batches
+            were deleted are no longer returned by this filter; they remain in
+            history with their recorded beanBatchId and metadata.
           required: false
           schema:
             type: string
@@ -2206,6 +2224,10 @@ paths:
         A cleared espressoNotes is stored and returned as an empty string, not an
         omitted field, so a client can tell a cleared note from one that was never
         set; every other cleared annotation is omitted from the response.
+        The recorded extraction `timestamp` is not editable here: a body containing a
+        top-level `timestamp` key is rejected with 400, even when the value is null or
+        equal to the stored one, and the rejection is atomic - no annotation, stored
+        record, `updatedAt`, or `shotUpdated` event changes with it.
       tags: [Shots History]
       parameters:
         - in: path
@@ -2244,7 +2266,10 @@ paths:
           description: |
             Bad Request. Covers an ID in the body that does not match the
             path ID, a body containing `measurements`, and a body containing
-            the system-managed fields `createdAt` or `updatedAt`.
+            the non-editable recorded fields `timestamp`, `createdAt`, or
+            `updatedAt`. A request is rejected as a whole: a body mixing such a
+            field with valid annotation edits changes nothing and emits no
+            `shotUpdated` event.
           content:
             application/json:
               schema:
@@ -2461,7 +2486,10 @@ paths:
           description: Internal Server Error
     post:
       summary: Create a new bean
-      description: Creates a new coffee bean entry. Requires roaster and name.
+      description: >
+        Creates a new coffee bean entry. Requires roaster and name, each of
+        which must be a non-empty string after trimming; accepted values are
+        stored as supplied.
       tags: [Beans]
       requestBody:
         required: true
@@ -2475,10 +2503,10 @@ paths:
               properties:
                 roaster:
                   type: string
-                  description: Coffee roaster name
+                  description: Coffee roaster name. Required and non-empty after trimming.
                 name:
                   type: string
-                  description: Coffee bean name
+                  description: Coffee bean name. Required and non-empty after trimming.
                 species:
                   type: string
                   nullable: true
@@ -2542,7 +2570,22 @@ paths:
               schema:
                 $ref: "#/components/schemas/Bean"
         "400":
-          description: Bad Request (missing required fields)
+          description: |
+            Bad Request. A `roaster` or `name` value that is missing, `null`,
+            not a string, empty or whitespace-only is refused with
+            `{"error":"Invalid request","message":"<field> is required"}` and
+            no bean is created.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: Invalid request
+                  message:
+                    type: string
+                    example: roaster is required
         "500":
           description: Internal Server Error
 
@@ -2647,7 +2690,14 @@ paths:
           description: Internal Server Error
     delete:
       summary: Delete a bean
-      description: Permanently deletes a bean and all its batches.
+      description: |
+        Permanently deletes a bean and all its batches, archived batches
+        included, in a single transaction. Historical shots that reference the
+        deleted batches are preserved with their recorded beanBatchId, workflow,
+        annotations, measurements, and timestamps. Because filtering shots by
+        bean ID resolves through the live batches, such shots may no longer
+        match that filter; read them through their recorded beanBatchId or
+        normal history.
       tags: [Beans]
       parameters:
         - name: id
@@ -5981,7 +6031,12 @@ paths:
       tags: [System]
       responses:
         "200":
-          description: Successful response
+          description: Successful response. The bound API listener also adds the diagnostic `x-decaid-listener-id` response header; clients must not treat it as a credential or requirement.
+          headers:
+            x-decaid-listener-id:
+              description: Cryptographically random diagnostic identity for this actual listener binding. It changes after a rebind and is not exposed through the API CORS header allowlist.
+              schema:
+                type: string
           content:
             application/json:
               schema:
@@ -7915,7 +7970,15 @@ components:
           nullable: true
           example: "F4:12:FA:5C:3D:8E"
         preferredScaleId:
-          description: Device ID of the preferred scale for auto-connect on startup. When set, REA will automatically connect to this scale when it's discovered during device scan. Session-only USB scale IDs are not persisted as preferences. Set to null to clear the preference.
+          description: >
+            Preferred scale device ID, or usb-hds:any to prefer a serial-less USB
+            Half Decent Scale. A currently discovered serial-less USB HDS attachment
+            ID is normalized to usb-hds:any. Other session-only scale IDs return 400
+            instead of silently leaving the existing preference unchanged. The family
+            selector can be saved without a live device and connects automatically
+            only when a completed scan finds exactly one matching non-auxiliary
+            scale; multiple matches require explicit selection. Stable USB IDs and
+            other scale IDs keep exact-device semantics. Set null to clear.
           type: string
           nullable: true
           example: "AA:BB:CC:DD:EE:FF"
@@ -8018,7 +8081,16 @@ components:
           nullable: true
           example: "F4:12:FA:5C:3D:8E"
         preferredScaleId:
-          description: Device ID of the preferred scale for auto-connect on startup. Session-only USB scale IDs are not persisted as preferences. Returns null if no preferred device is set.
+          description: >
+            Preferred scale device ID or null when unset. A persisted usb-hds:any
+            family preference is presented as the current attachment ID when
+            exactly one protocol-identified serial-less USB HDS is discovered,
+            for compatibility with clients comparing settings and inventory IDs.
+            If none or multiple match, returns usb-hds:any instead. Storage and
+            backup retain the durable family selector; reading settings never
+            changes it or assigns scale ownership. The selector is not a device
+            ID and must not be used in addressed routes. Automatic connection
+            still requires a unique non-auxiliary match after scan completion.
           type: string
           nullable: true
           example: "AA:BB:CC:DD:EE:FF"
@@ -8474,8 +8546,14 @@ components:
       description: |
         Partial-update payload for PUT /api/v1/shots/{id}. Only the fields
         included in the body are changed; all other fields are preserved from
-        the existing record. `measurements`, `createdAt`, and `updatedAt` are
-        not editable and are rejected with 400. The `uploaded_to_decent`,
+        the existing record. `measurements`, `createdAt`, `updatedAt`, and
+        `timestamp` are not editable and are rejected with 400. `timestamp` is
+        the recorded extraction time, not an annotation: any top-level
+        `timestamp` key is refused, including a null or unchanged value. A
+        rejected field rejects the whole body atomically - no annotation, no
+        stored record, no `updatedAt` change, and no `shotUpdated` event - while
+        a `timestamp` key nested in `annotations.extras` is ordinary annotation
+        data. The `uploaded_to_decent`,
         `decent_upload_rejected`, and `visualizerId` keys inside
         annotations.extras are reserved bookkeeping:
         writes confined to them persist without advancing `updatedAt`.

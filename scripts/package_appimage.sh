@@ -2,16 +2,16 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 <flutter-bundle> <x86_64|aarch64> <version> <out-dir>" >&2
+  echo "Usage: $0 <flutter-bundle> <x86_64|aarch64> <tag> <out-dir>" >&2
   exit 2
 }
 
 BUNDLE="${1:-}"
 ARCH="${2:-}"
-VERSION="${3:-}"
+TAG="${3:-}"
 OUTDIR="${4:-}"
 
-[ -n "$BUNDLE" ] && [ -n "$ARCH" ] && [ -n "$VERSION" ] && [ -n "$OUTDIR" ] || usage
+[ -n "$BUNDLE" ] && [ -n "$ARCH" ] && [ -n "$TAG" ] && [ -n "$OUTDIR" ] || usage
 case "$ARCH" in
   x86_64 | aarch64) ;;
   *) usage ;;
@@ -79,7 +79,7 @@ cp -a "${BUNDLE}/." "${APPDIR}/usr/lib/decaid/"
 install -m 0755 "${APPRUN}" "${APPDIR}/AppRun"
 install -m 0644 "${ICON}" "${APPDIR}/.DirIcon"
 
-OUTPUT="${OUTDIR}/decaid-linux-${ARCH}-${VERSION}.AppImage"
+OUTPUT="${OUTDIR}/decaid-linux-${ARCH}-${TAG}.AppImage"
 export ARCH
 export DEPLOY_GTK_VERSION=3
 export OUTPUT

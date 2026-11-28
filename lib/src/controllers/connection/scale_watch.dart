@@ -23,6 +23,16 @@ class ScaleWatch {
   bool _requested = false;
   bool _lowerWatchRequested = false;
   bool _connecting = false;
+  Timer? _retryTimer;
+  Object? _handoverClaim;
+  int _retryAttempt = 0;
+
+  static const _retryDelays = <Duration>[
+    Duration(seconds: 1),
+    Duration(seconds: 2),
+    Duration(seconds: 5),
+    Duration(seconds: 15),
+  ];
 
   int _generation = 0;
 
@@ -64,7 +74,7 @@ class ScaleWatch {
     }
     final existing = _findPreferred(_scanner.devices, id);
     if (existing != null) {
-      await _tryConnect(existing, gen);
+      await _tryConnect(existing, gen, fromWatch: false);
       return;
     }
 
@@ -90,6 +100,10 @@ class ScaleWatch {
     _generation++;
     _requested = false;
     _armed = false;
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _retryAttempt = 0;
+    _cancelHandover();
     final lowerRequested = _lowerWatchRequested;
     _lowerWatchRequested = false;
     _cancelSubs();
@@ -193,6 +207,10 @@ class ScaleWatch {
     _requested = false;
     _armed = false;
     _lowerWatchRequested = false;
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _retryAttempt = 0;
+    _cancelHandover();
     _cancelSubs();
     _onWatchUnavailable();
   }
@@ -234,31 +252,65 @@ class ScaleWatch {
         'Preferred scale ${scale.deviceId} sighted; '
         'stopping watch and connecting',
       );
+      _handoverClaim = _claimHandover(scale);
       await _scanner.stopScaleWatch();
       _lowerWatchRequested = false;
       if (gen != _generation || !_armed || !_shouldWatch()) return;
       _cancelDataSubs();
       _armed = false;
-      await _tryConnect(scale, gen);
+      await _tryConnect(scale, gen, fromWatch: true);
     } catch (e, st) {
       if (gen == _generation) {
         _log.warning('Failed to stop background watch before connect', e, st);
         _fail(gen);
       }
     } finally {
+      _cancelHandover();
       _connecting = false;
     }
   }
 
-  Future<void> _tryConnect(Scale scale, int gen) async {
+  Object? _claimHandover(Scale scale) {
+    final scanner = _scanner;
+    if (scanner case final ScaleWatchHandoverScanner handover) {
+      return handover.claimScaleWatchHandover(scale);
+    }
+    return null;
+  }
+
+  void _cancelHandover() {
+    final claim = _handoverClaim;
+    _handoverClaim = null;
+    if (claim == null) return;
+    final scanner = _scanner;
+    if (scanner case final ScaleWatchHandoverScanner handover) {
+      handover.cancelScaleWatchHandover(claim);
+    }
+  }
+
+  Future<void> _tryConnect(
+    Scale scale,
+    int gen, {
+    required bool fromWatch,
+  }) async {
     try {
       await _connectScale(scale);
     } catch (e, st) {
       _log.warning('Watch-driven scale connect threw', e, st);
     }
     if (gen != _generation) return;
-    if (_shouldWatch()) {
-      _log.fine('Scale still missing after connect attempt; watch continues');
+    if (!_shouldWatch()) {
+      _retryTimer?.cancel();
+      _retryTimer = null;
+      _retryAttempt = 0;
+      try {
+        await disarm();
+      } catch (e, st) {
+        _log.warning('Failed to stop background watch after connect', e, st);
+      }
+      return;
+    }
+    if (!fromWatch) {
       _listenForStart(gen);
       final result = await _startWatchScan(gen);
       if (gen != _generation || !_requested) return;
@@ -268,12 +320,31 @@ class ScaleWatch {
       }
       if (result == DeviceWatchStartResult.active) _activate(gen);
       if (result == DeviceWatchStartResult.failed) _fail(gen);
-    } else {
-      try {
-        await disarm();
-      } catch (e, st) {
-        _log.warning('Failed to stop background watch after connect', e, st);
-      }
+      return;
     }
+    _scheduleRetry(gen);
+  }
+
+  void _scheduleRetry(int gen) {
+    if (gen != _generation || !_requested || !_shouldWatch()) return;
+    if (_retryTimer != null) return;
+    final delay =
+        _retryDelays[_retryAttempt < _retryDelays.length
+            ? _retryAttempt
+            : _retryDelays.length - 1];
+    _retryAttempt++;
+    _retryTimer = Timer(delay, () async {
+      _retryTimer = null;
+      if (gen != _generation || !_requested || !_shouldWatch()) return;
+      _listenForStart(gen);
+      final result = await _startWatchScan(gen);
+      if (gen != _generation || !_requested) return;
+      if (!_shouldWatch()) {
+        await disarm();
+        return;
+      }
+      if (result == DeviceWatchStartResult.active) _activate(gen);
+      if (result == DeviceWatchStartResult.failed) _fail(gen);
+    });
   }
 }
