@@ -118,8 +118,8 @@ extensions, so its own management controls answer `HTTP 401`:
   (`/api/v1/plugins/settings.reaplugin/ui`).
 
 Everything else in the skin works as before, and so does making coffee. Make
-these changes on the tablet's own screens instead: **Plugins** for enabling,
-disabling, settings, updates and removal, and **Skins** for choosing a skin.
+these changes on the tablet's own screens instead: **Plugins** for loading,
+unloading, settings, updates and removal, and **Skins** for choosing a skin.
 Don't turn the switch off to get a skin dialog back.
 
 ## 3. Restrict the network
@@ -181,7 +181,7 @@ different things.
 | What must be reachable | Port 8080 on the tablet, from the client | The plugin's server, from the tablet |
 | Who you are trusting | Whoever holds the token, and every network it crosses | The plugin, wherever its updates come from, the server it listens to, and every other plugin loaded beside it |
 | What it can do | Everything in extension management, which includes running code on the tablet | The same |
-| How to revoke it | Revoke the token on the tablet. It stops working at once | Disable or remove the plugin on the tablet |
+| How to revoke it | Revoke the token on the tablet. It stops working at once | Remove the plugin on the tablet. To keep it installed, choose **Unload** and turn **Auto-load on startup** off; one without the other leaves it running or brings it back at the next start |
 
 ### Named tokens
 
@@ -256,10 +256,11 @@ Decaid cannot protect itself from its own tablet.
 ## 6. Keep it that way
 
 - **Update on your schedule.** Pick a quiet time and update one tablet:
-  Decaid itself from **Settings → Updates → Check for updates**, plugins and
-  skins from **Check for updates** in the menus on **Plugins** and **Skins**.
-  Use it for a day, then do the rest. Record the versions. Decaid cannot yet hold a plugin or skin at a
-  release you choose
+  Decaid itself from **Settings → Updates → Check for updates** (or through
+  the app store, where it came from one), plugins and skins from **Check for
+  updates** in the menus on **Plugins** and **Skins**. Use it for a day, then
+  do the rest. Record the versions. Decaid cannot yet hold a plugin or skin at
+  a release you choose
   ([#1030](https://github.com/decentespresso/decaid/issues/1030),
   [#985](https://github.com/decentespresso/decaid/issues/985)), so an update
   check takes whatever is newest.
@@ -302,7 +303,7 @@ Decaid cannot protect itself from its own tablet.
 | 403, `Extension management is not allowed from this browser origin` | The request came from a web page on another host, or one opened by name. This applies in both modes, token or not | Call from a non-browser client, or open Decaid's own pages by the tablet's numeric address |
 | The switch was found off, or there is a plugin or token you don't recognise | Someone at the tablet, or a client that reached it while it was open | Turn the switch on, revoke every token, remove the unknown plugin, and read Decaid's log for management requests |
 | A token is lost or may have been seen | | Revoke it on the tablet and create a new one. Revoking takes effect at once |
-| The tablet answers a ping but nothing on port 8080 | Decaid isn't running | Open it on the tablet. See system updates under [The tablet itself](#5-the-tablet-itself) |
+| The tablet answers a ping but nothing on port 8080 | Your network rules are blocking you, or Decaid isn't running | Try from a host you have allowed. If that fails too, open Decaid on the tablet. See system updates under [The tablet itself](#5-the-tablet-itself) |
 | You are locked out remotely | | Nothing is lost. Everything can be done at the tablet: its own screens need no token |
 
 ## Related
